@@ -8,6 +8,10 @@ const agent = require('./agent');
 const scheduler = require('./scheduler');
 const voice = require('./voice');
 const system = require('./system');
+const memory = require('./memory');
+const minecraft = require('./minecraft');
+const remote = require('./remote');
+const translator = require('./translator');
 
 let win = null;
 let tray = null;
@@ -147,6 +151,34 @@ ipcMain.handle('tasks:save', (_e, t) => scheduler.saveTask(t));
 ipcMain.handle('tasks:delete', (_e, id) => scheduler.deleteTask(id));
 ipcMain.handle('tasks:toggle', (_e, id, enabled) => scheduler.toggleTask(id, enabled));
 ipcMain.handle('tasks:runNow', (_e, id) => scheduler.runNow(id));
+
+/* ---------------- IPC: memory ---------------- */
+ipcMain.handle('memory:list', (_e, agentId) => memory.listFacts(agentId));
+ipcMain.handle('memory:clear', (_e, agentId) => memory.clearFacts(agentId));
+ipcMain.handle('memory:add', (_e, agentId, text) => { memory.addFact(agentId, text, 3); return memory.listFacts(agentId); });
+
+/* ---------------- IPC: minecraft ---------------- */
+ipcMain.handle('mc:checkEnv', () => minecraft.checkEnv());
+ipcMain.handle('mc:templates', () => minecraft.TEMPLATES);
+ipcMain.handle('mc:list', () => minecraft.listProjects());
+ipcMain.handle('mc:create', (_e, opts) => minecraft.createProject(opts));
+ipcMain.handle('mc:compile', (_e, name) => minecraft.compileProject(name, (log) => sendToUI('mc:log', { name, log })));
+ipcMain.handle('mc:delete', (_e, name) => minecraft.deleteProject(name));
+
+/* ---------------- IPC: remote servers ---------------- */
+ipcMain.handle('remote:list', () => remote.listConnections());
+ipcMain.handle('remote:save', (_e, c) => remote.saveConnection(c));
+ipcMain.handle('remote:delete', (_e, id) => remote.deleteConnection(id));
+ipcMain.handle('remote:test', (_e, id) => remote.test(id));
+ipcMain.handle('remote:ls', (_e, id, dir) => remote.listDir(id, dir));
+ipcMain.handle('remote:read', (_e, id, p) => remote.readFile(id, p));
+ipcMain.handle('remote:write', (_e, id, p, content) => remote.writeFile(id, p, content));
+ipcMain.handle('remote:exec', (_e, id, cmd) => remote.exec(id, cmd));
+ipcMain.handle('remote:available', () => remote.available);
+
+/* ---------------- IPC: translator ---------------- */
+ipcMain.handle('translate:text', (_e, opts) => translator.translateText(opts, (p) => sendToUI('translate:progress', p)));
+ipcMain.handle('translate:file', (_e, opts) => translator.translateFile(opts, (p) => sendToUI('translate:progress', p)));
 
 /* ---------------- IPC: voice ---------------- */
 ipcMain.handle('voice:start', () => voice.start());

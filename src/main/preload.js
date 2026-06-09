@@ -58,6 +58,38 @@ contextBridge.exposeInMainWorld('nexus', {
     toggle: (id, e) => invoke('tasks:toggle', id, e),
     runNow: (id) => invoke('tasks:runNow', id)
   },
+  // Память
+  memory: {
+    list: (agentId) => invoke('memory:list', agentId),
+    clear: (agentId) => invoke('memory:clear', agentId),
+    add: (agentId, text) => invoke('memory:add', agentId, text)
+  },
+  // Minecraft-студия
+  mc: {
+    checkEnv: () => invoke('mc:checkEnv'),
+    templates: () => invoke('mc:templates'),
+    list: () => invoke('mc:list'),
+    create: (o) => invoke('mc:create', o),
+    compile: (n) => invoke('mc:compile', n),
+    delete: (n) => invoke('mc:delete', n)
+  },
+  // Удалённые серверы
+  remote: {
+    list: () => invoke('remote:list'),
+    save: (c) => invoke('remote:save', c),
+    delete: (id) => invoke('remote:delete', id),
+    test: (id) => invoke('remote:test', id),
+    ls: (id, dir) => invoke('remote:ls', id, dir),
+    read: (id, p) => invoke('remote:read', id, p),
+    write: (id, p, c) => invoke('remote:write', id, p, c),
+    exec: (id, c) => invoke('remote:exec', id, c),
+    available: () => invoke('remote:available')
+  },
+  // Переводчик
+  translate: {
+    text: (o) => invoke('translate:text', o),
+    file: (o) => invoke('translate:file', o)
+  },
   // Голос
   voice: {
     start: () => invoke('voice:start'),

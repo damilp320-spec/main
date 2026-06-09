@@ -12,6 +12,9 @@
     "dist:win:zip": "electron-builder --win zip",
     "pack": "electron-builder --dir"
   },
+  "dependencies": {
+    "ssh2": "^1.17.0"
+  },
   "devDependencies": {
     "electron": "^33.2.0",
     "electron-builder": "^25.1.8"
@@ -27,7 +30,10 @@
       "package.json"
     ],
     "win": {
-      "target": ["nsis", "portable"],
+      "target": [
+        "nsis",
+        "portable"
+      ],
       "artifactName": "${productName}-${version}-${arch}.${ext}"
     },
     "nsis": {
@@ -36,7 +42,10 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "runAfterFinish": true,
-      "installerLanguages": ["ru_RU", "en_US"]
+      "installerLanguages": [
+        "ru_RU",
+        "en_US"
+      ]
     },
     "portable": {
       "artifactName": "${productName}-${version}-portable.${ext}"

@@ -52,7 +52,7 @@ const content = $('#content');
 function render() {
   content.scrollTop = 0;
   content.className = 'content fade-in';
-  const map = { dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scheduler: viewScheduler, voice: viewVoice, settings: viewSettings };
+  const map = { dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, voice: viewVoice, settings: viewSettings };
   (map[state.view] || viewDashboard)();
 }
 
@@ -198,7 +198,7 @@ async function viewAgents() {
     <div class="agents-layout">
       <div class="agent-list" id="agent-list"></div>
       <div class="chat" id="chat">
-        <div class="chat-head"><div id="chat-title"></div><div class="row"><button class="btn ghost sm" id="edit-agent">✎ Настроить</button><button class="btn ghost sm" id="clear-chat">Очистить</button></div></div>
+        <div class="chat-head"><div id="chat-title"></div><div class="row"><button class="btn ghost sm" id="mem-agent">🧠 Память</button><button class="btn ghost sm" id="edit-agent">✎ Настроить</button><button class="btn ghost sm" id="clear-chat">Очистить</button></div></div>
         <div class="chat-body" id="chat-body"></div>
         <div class="chat-input">
           <textarea id="chat-text" placeholder="Напишите задачу… (агент может управлять ПК и искать в сети)"></textarea>
@@ -210,6 +210,7 @@ async function viewAgents() {
   $('#new-agent').onclick = () => editAgent(null);
   $('#edit-agent').onclick = () => editAgent(state.agents.find(a => a.id === state.activeAgentId));
   $('#clear-chat').onclick = () => { state.chat = []; renderChat(); };
+  $('#mem-agent').onclick = () => showMemory(state.activeAgentId);
 
   const list = $('#agent-list');
   state.agents.forEach((a) => {
@@ -228,6 +229,25 @@ async function viewAgents() {
 }
 
 function autonomyLabel(a) { return ({ 'chat-only': 'только чат', balanced: 'сбалансированный', autonomous: 'автономный' })[a] || 'сбалансированный'; }
+
+async function showMemory(agentId) {
+  const facts = await N.memory.list(agentId);
+  modal(`<h2>🧠 Долговременная память</h2>
+    <p class="muted">Агент сам сохраняет сюда важные факты после диалогов. Старая история сжимается, мусор не накапливается.</p>
+    <div style="margin:14px 0">${facts.length ? facts.map((f, i) => `<div class="row between" style="padding:8px 0;border-bottom:1px solid var(--border)"><span style="font-size:13px">• ${esc(f.text)}</span><button class="btn ghost sm" data-fdel="${i}">✕</button></div>`).join('') : '<p class="muted">Память пуста.</p>'}</div>
+    <label class="field"><span>Добавить факт вручную</span><div class="row"><input id="mem-new" placeholder="Например: пользователь предпочитает Python"><button class="btn primary" id="mem-add">＋</button></div></label>
+    <div class="modal-actions"><button class="btn danger" id="mem-clear">Очистить всё</button><button class="btn ghost" id="mem-close">Закрыть</button></div>`, (m, close) => {
+    $('#mem-close', m).onclick = close;
+    $('#mem-add', m).onclick = async () => { const v = $('#mem-new', m).value.trim(); if (v) { await N.memory.add(agentId, v); close(); showMemory(agentId); } };
+    $('#mem-clear', m).onclick = async () => { await N.memory.clear(agentId); close(); showMemory(agentId); };
+    $$('[data-fdel]', m).forEach((b) => b.onclick = async () => {
+      // удаление одного факта: очищаем и пере-добавляем остальные
+      const idx = +b.dataset.fdel; const keep = facts.filter((_, i) => i !== idx);
+      await N.memory.clear(agentId); for (const f of keep) await N.memory.add(agentId, f.text);
+      close(); showMemory(agentId);
+    });
+  });
+}
 
 function renderChat() {
   const body = $('#chat-body');
@@ -389,6 +409,219 @@ function editTask(task, agents) {
   });
 }
 
+/* ---------- Minecraft Studio ---------- */
+async function viewMinecraft() {
+  const env = await N.mc.checkEnv();
+  const projects = await N.mc.list();
+  const templates = await N.mc.templates();
+  content.innerHTML = `
+    <div class="view-head row between"><div><h1>Minecraft студия</h1><p>Создание и компиляция плагинов Paper/Spigot в .jar</p></div>
+      <button class="btn primary" id="mc-new">＋ Новый плагин</button></div>
+    <div class="grid cols-2" style="margin-bottom:16px">
+      <div class="card"><h3>☕ Java (JDK)</h3><p class="muted">${env.java ? '✅ ' + esc(env.javaVersion || 'установлена') : '❌ не найдена · <code>' + esc(env.hints.java) + '</code>'}</p></div>
+      <div class="card"><h3>📦 Maven</h3><p class="muted">${env.maven ? '✅ ' + esc(env.mavenVersion || 'установлен') : '❌ не найден · <code>' + esc(env.hints.maven) + '</code>'}</p></div>
+    </div>
+    <div class="grid" id="mc-projects"></div>`;
+  $('#mc-new').onclick = () => newMcPlugin(templates);
+
+  const wrap = $('#mc-projects');
+  if (!projects.length) { wrap.innerHTML = `<div class="empty"><div class="big-ico">🧱</div><p>Плагинов пока нет. Создайте первый — или попросите агента: «создай плагин с командой».</p></div>`; return; }
+  projects.forEach((p) => {
+    const c = el('div', 'card');
+    c.innerHTML = `
+      <div class="row between"><div><h3>🧱 ${esc(p.name)}</h3>
+        <p class="muted">${p.jar ? '✅ собран: ' + esc(p.jar.split(/[\\/]/).pop()) : (p.hasPom ? 'готов к сборке' : 'нет pom.xml')}</p></div>
+        <div class="row">
+          <button class="btn primary sm" data-compile="${esc(p.name)}">⚙️ Компилировать</button>
+          <button class="btn danger sm" data-del="${esc(p.name)}">Удалить</button>
+        </div></div>
+      <pre class="mc-log" style="display:none;margin-top:10px;background:var(--bg-2);border:1px solid var(--border);border-radius:8px;padding:10px;max-height:220px;overflow:auto;font-size:11px;font-family:Consolas,monospace;white-space:pre-wrap"></pre>`;
+    wrap.appendChild(c);
+    c.querySelector('[data-compile]').onclick = async (e) => {
+      const log = c.querySelector('.mc-log'); log.style.display = 'block'; log.textContent = '';
+      window.__mcLog = log;
+      e.target.disabled = true; e.target.innerHTML = '<span class="spin"></span> Сборка…';
+      const r = await N.mc.compile(p.name);
+      e.target.disabled = false; e.target.textContent = '⚙️ Компилировать';
+      if (r.ok) { toast('Собрано', p.name + '.jar готов', 'ok'); log.textContent += '\n✅ JAR: ' + r.jar; }
+      else { toast('Ошибка сборки', r.error, 'err'); log.textContent += '\n❌ ' + r.error; }
+    };
+    c.querySelector('[data-del]').onclick = async () => { await N.mc.delete(p.name); toast('Удалено', p.name); viewMinecraft(); };
+  });
+}
+
+function newMcPlugin(templates) {
+  const opts = Object.entries(templates).map(([k, t]) => `<option value="${k}">${esc(t.label)} — ${esc(t.desc)}</option>`).join('');
+  modal(`
+    <h2>Новый плагин Minecraft</h2>
+    <label class="field"><span>Имя плагина</span><input id="mc-name" placeholder="MyAwesomePlugin"></label>
+    <label class="field"><span>Шаблон</span><select id="mc-tpl">${opts}</select></label>
+    <div class="row">
+      <label class="field" style="flex:1"><span>Версия MC</span><input id="mc-ver" value="1.21"></label>
+      <label class="field" style="flex:1"><span>Автор</span><input id="mc-author" value="NexusAI"></label>
+    </div>
+    <div class="modal-actions"><button class="btn ghost" id="mc-cancel">Отмена</button><button class="btn primary" id="mc-save">Создать</button></div>`, (m, close) => {
+    $('#mc-cancel', m).onclick = close;
+    $('#mc-save', m).onclick = async () => {
+      const r = await N.mc.create({ name: $('#mc-name', m).value.trim() || 'MyPlugin', template: $('#mc-tpl', m).value, mcVersion: $('#mc-ver', m).value, author: $('#mc-author', m).value });
+      if (r.ok) { toast('Создано', r.name, 'ok'); close(); viewMinecraft(); }
+      else toast('Ошибка', r.error, 'err');
+    };
+  });
+}
+
+/* ---------- Remote Servers ---------- */
+let currentServer = null, currentPath = '.';
+async function viewServers() {
+  const available = await N.remote.available();
+  const servers = await N.remote.list();
+  content.innerHTML = `
+    <div class="view-head row between"><div><h1>Удалённые серверы</h1><p>SSH-проводник по файловой системе, редактор конфигов, команды</p></div>
+      <button class="btn primary" id="srv-new">＋ Подключение</button></div>
+    ${!available ? '<div class="card" style="border-color:var(--warn);margin-bottom:16px"><p class="muted">⚠️ Модуль SSH (ssh2) не установлен. Выполните <code>npm install</code> и перезапустите.</p></div>' : ''}
+    <div class="grid cols-2"><div id="srv-list"></div><div class="card" id="srv-explorer"><p class="muted">Выберите сервер слева, чтобы открыть файловую систему.</p></div></div>`;
+  $('#srv-new').onclick = () => editServer(null);
+
+  const list = $('#srv-list');
+  if (!servers.length) { list.innerHTML = `<div class="empty"><div class="big-ico">🖥️</div><p>Серверов нет.</p></div>`; return; }
+  servers.forEach((s) => {
+    const c = el('div', 'card', `<div class="row between"><div><h3>🖥️ ${esc(s.name)}</h3><p class="muted">${esc(s.username)}@${esc(s.host)}:${s.port}</p></div>
+      <div class="row"><button class="btn sm" data-open="${s.id}">📂 Открыть</button><button class="btn ghost sm" data-edit="${s.id}">✎</button></div></div>`);
+    list.appendChild(c);
+    c.querySelector('[data-open]').onclick = () => { currentServer = s.id; currentPath = '.'; openExplorer(); };
+    c.querySelector('[data-edit]').onclick = () => editServer(s);
+  });
+}
+
+async function openExplorer() {
+  const exp = $('#srv-explorer');
+  exp.innerHTML = `<div class="row between"><b>📂 ${esc(currentPath)}</b><button class="btn ghost sm" id="srv-cmd">⌨️ Команда</button></div><div id="srv-files" style="margin-top:10px"><p class="muted"><span class="spin"></span> Загрузка…</p></div>`;
+  $('#srv-cmd').onclick = runRemoteCmd;
+  const r = await N.remote.ls(currentServer, currentPath);
+  const fw = $('#srv-files');
+  if (!r.ok) { fw.innerHTML = `<p class="muted">❌ ${esc(r.error)}</p>`; return; }
+  fw.innerHTML = '';
+  if (currentPath !== '.' && currentPath !== '/') {
+    const up = el('div', 'task-item', '<span>⬆️ ..</span>'); up.style.cursor = 'pointer'; up.style.padding = '6px 0';
+    up.onclick = () => { currentPath = currentPath.replace(/\/[^/]+\/?$/, '') || '/'; openExplorer(); };
+    fw.appendChild(up);
+  }
+  r.files.forEach((f) => {
+    const row = el('div', 'task-item', `<span>${f.dir ? '📁' : '📄'} ${esc(f.name)}</span>`);
+    row.style.cssText = 'cursor:pointer;padding:6px 0;border-bottom:1px solid var(--border)';
+    row.onclick = () => {
+      const np = (currentPath === '.' ? '' : currentPath.replace(/\/$/, '')) + '/' + f.name;
+      if (f.dir) { currentPath = np; openExplorer(); }
+      else editRemoteFile(np);
+    };
+    fw.appendChild(row);
+  });
+}
+
+async function editRemoteFile(p) {
+  const r = await N.remote.read(currentServer, p);
+  if (!r.ok) { toast('Ошибка', r.error, 'err'); return; }
+  modal(`<h2>📄 ${esc(p.split('/').pop())}</h2><p class="muted">${esc(p)}</p>
+    <label class="field"><textarea id="rf-content" style="min-height:340px;font-family:Consolas,monospace;font-size:12px">${esc(r.content)}</textarea></label>
+    <div class="modal-actions"><button class="btn ghost" id="rf-cancel">Закрыть</button><button class="btn primary" id="rf-save">💾 Сохранить на сервер</button></div>`, (m, close) => {
+    $('#rf-cancel', m).onclick = close;
+    $('#rf-save', m).onclick = async () => {
+      const w = await N.remote.write(currentServer, p, $('#rf-content', m).value);
+      toast(w.ok ? 'Сохранено' : 'Ошибка', w.ok ? p : w.error, w.ok ? 'ok' : 'err');
+      if (w.ok) close();
+    };
+  });
+}
+
+function runRemoteCmd() {
+  modal(`<h2>⌨️ Команда на сервере</h2>
+    <label class="field"><input id="rc-cmd" placeholder="ls -la /etc"></label>
+    <pre id="rc-out" style="display:none;background:var(--bg-2);border:1px solid var(--border);border-radius:8px;padding:10px;max-height:300px;overflow:auto;font-size:12px;font-family:Consolas,monospace;white-space:pre-wrap"></pre>
+    <div class="modal-actions"><button class="btn ghost" id="rc-close">Закрыть</button><button class="btn primary" id="rc-run">Выполнить</button></div>`, (m, close) => {
+    $('#rc-close', m).onclick = close;
+    $('#rc-run', m).onclick = async () => {
+      const out = $('#rc-out', m); out.style.display = 'block'; out.textContent = 'Выполнение…';
+      const r = await N.remote.exec(currentServer, $('#rc-cmd', m).value);
+      out.textContent = r.ok ? (r.output || '(нет вывода)') : '❌ ' + r.error;
+    };
+  });
+}
+
+function editServer(s) {
+  const isNew = !s;
+  s = s || { name: '', host: '', port: 22, username: 'root' };
+  modal(`<h2>${isNew ? 'Новое подключение' : 'Редактирование'}</h2>
+    <label class="field"><span>Имя</span><input id="s-name" value="${esc(s.name)}" placeholder="Мой VPS"></label>
+    <div class="row"><label class="field" style="flex:2"><span>Хост / IP</span><input id="s-host" value="${esc(s.host)}"></label>
+      <label class="field" style="flex:1"><span>Порт</span><input id="s-port" type="number" value="${s.port || 22}"></label></div>
+    <label class="field"><span>Пользователь</span><input id="s-user" value="${esc(s.username)}"></label>
+    <label class="field"><span>Пароль ${s.hasPassword ? '(сохранён — оставьте пустым)' : ''}</span><input id="s-pass" type="password"></label>
+    <label class="field"><span>Приватный ключ (опц., вставьте текст)</span><textarea id="s-key" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"></textarea></label>
+    <div class="modal-actions">
+      ${!isNew ? '<button class="btn danger" id="s-del">Удалить</button>' : ''}
+      <button class="btn ghost" id="s-test">🔌 Тест</button>
+      <button class="btn ghost" id="s-cancel">Отмена</button>
+      <button class="btn primary" id="s-save">Сохранить</button>
+    </div>`, (m, close) => {
+    const gather = () => ({ ...s, name: $('#s-name', m).value.trim() || 'Сервер', host: $('#s-host', m).value.trim(), port: +$('#s-port', m).value || 22, username: $('#s-user', m).value.trim(), password: $('#s-pass', m).value || undefined, privateKey: $('#s-key', m).value.trim() || undefined });
+    $('#s-cancel', m).onclick = close;
+    $('#s-save', m).onclick = async () => { await N.remote.save(gather()); toast('Сохранено', 'Подключение', 'ok'); close(); viewServers(); };
+    $('#s-test', m).onclick = async () => {
+      const saved = await N.remote.save(gather()); s.id = saved.id;
+      $('#s-test', m).innerHTML = '<span class="spin"></span>';
+      const r = await N.remote.test(saved.id);
+      $('#s-test', m).textContent = '🔌 Тест';
+      toast(r.ok ? 'Успешно' : 'Ошибка', r.ok ? 'Соединение установлено' : r.error, r.ok ? 'ok' : 'err');
+    };
+    if ($('#s-del', m)) $('#s-del', m).onclick = async () => { await N.remote.delete(s.id); close(); toast('Удалено', s.name); viewServers(); };
+  });
+}
+
+/* ---------- Translator ---------- */
+async function viewTranslator() {
+  const models = await N.installer.listModels();
+  const modelOpts = (models.length ? models.map(m => m.name) : ['qwen2.5:7b']).map(n => `<option>${esc(n)}</option>`).join('');
+  const langs = ['Русский', 'English', 'Español', '中文', 'Deutsch', 'Français', '日本語', 'Português', 'العربية', 'हिन्दी'];
+  content.innerHTML = `
+    <div class="view-head"><h1>Перевод больших данных</h1><p>Перевод текста и файлов (TXT/JSON/локализации) локальной моделью с разбивкой на части</p></div>
+    <div class="card">
+      <div class="row">
+        <label class="field" style="flex:1"><span>Модель</span><select id="tr-model">${modelOpts}</select></label>
+        <label class="field" style="flex:1"><span>С языка</span><select id="tr-src"><option value="auto">Авто-определение</option>${langs.map(l => `<option>${esc(l)}</option>`).join('')}</select></label>
+        <label class="field" style="flex:1"><span>На язык</span><select id="tr-dst">${langs.map(l => `<option ${l === 'English' ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
+      </div>
+      <label class="field"><span>Исходный текст</span><textarea id="tr-input" style="min-height:160px" placeholder="Вставьте большой текст или JSON…"></textarea></label>
+      <div class="row wrap">
+        <button class="btn primary" id="tr-go">🌐 Перевести</button>
+        <button class="btn ghost" id="tr-file">📄 Перевести файл из рабочего пространства</button>
+        <button class="btn ghost" id="tr-copy">📋 Копировать результат</button>
+      </div>
+      <div class="progress" id="tr-prog" style="display:none;margin-top:12px"><i></i></div>
+      <p class="muted" id="tr-msg" style="margin-top:6px"></p>
+      <label class="field"><span>Результат</span><textarea id="tr-output" style="min-height:160px" readonly></textarea></label>
+    </div>`;
+  $('#tr-go').onclick = async () => {
+    const text = $('#tr-input').value.trim();
+    if (!text) return toast('Пусто', 'Введите текст', 'err');
+    $('#tr-prog').style.display = 'block'; $('#tr-go').disabled = true; $('#tr-go').innerHTML = '<span class="spin"></span> Перевод…';
+    const r = await N.translate.text({ model: $('#tr-model').value, text, targetLang: $('#tr-dst').value, sourceLang: $('#tr-src').value });
+    $('#tr-output').value = r; $('#tr-go').disabled = false; $('#tr-go').textContent = '🌐 Перевести';
+    toast('Готово', 'Перевод завершён', 'ok');
+  };
+  $('#tr-file').onclick = () => modal(`<h2>Перевести файл</h2><p class="muted">Путь относительно рабочего пространства (~/NexusAI-Workspace) или абсолютный.</p>
+    <label class="field"><input id="trf-path" placeholder="data/messages.json"></label>
+    <div class="modal-actions"><button class="btn ghost" id="trf-cancel">Отмена</button><button class="btn primary" id="trf-go">Перевести</button></div>`, (m, close) => {
+    $('#trf-cancel', m).onclick = close;
+    $('#trf-go', m).onclick = async () => {
+      $('#trf-go', m).innerHTML = '<span class="spin"></span>';
+      const r = await N.translate.file({ model: $('#tr-model').value, file: $('#trf-path', m).value.trim(), targetLang: $('#tr-dst').value, sourceLang: $('#tr-src').value });
+      toast(r.ok ? 'Готово' : 'Ошибка', r.ok ? r.outPath : r.error, r.ok ? 'ok' : 'err');
+      if (r.ok) close();
+    };
+  });
+  $('#tr-copy').onclick = () => { navigator.clipboard.writeText($('#tr-output').value); toast('Скопировано', '', 'ok'); };
+}
+
 /* ---------- Voice ---------- */
 async function viewVoice() {
   const replies = await N.store.get('settings.voiceReplies', true);
@@ -424,6 +657,7 @@ async function viewSettings() {
     minimizeToTray: await N.store.get('settings.minimizeToTray', true),
     allowShell: await N.store.get('settings.allowShell', true),
     voiceReplies: await N.store.get('settings.voiceReplies', true),
+    longMemory: await N.store.get('settings.longMemory', true),
     workspace: await N.store.get('settings.workspace', '')
   };
   const info = await N.system.info();
@@ -445,6 +679,11 @@ async function viewSettings() {
         ${toggleRow('set-vreplies', 'Озвучивать ответы агента', s.voiceReplies)}
       </div>
       <div class="card">
+        <h3>🧠 Память</h3>
+        ${toggleRow('set-mem', 'Долговременная память (агент запоминает важное)', s.longMemory)}
+        <p class="muted" style="margin-top:8px">Включено: после диалогов агент сохраняет ключевые факты, старая история сжимается в резюме. Контекст живёт долго, но не разрастается мусором.</p>
+      </div>
+      <div class="card">
         <h3>ℹ️ О приложении</h3>
         <p class="muted">Nexus AI Hub v${esc(info.appVersion)}<br>${esc(info.platform)} ${esc(info.release)} · ${info.cpus} ядер</p>
         <p class="muted" style="margin-top:8px">Все нейросети работают локально. Доступ в интернет — только для инструментов поиска по вашему запросу.</p>
@@ -454,6 +693,7 @@ async function viewSettings() {
   bindToggle('set-tray', (v) => N.store.set('settings.minimizeToTray', v));
   bindToggle('set-shell', (v) => N.store.set('settings.allowShell', v));
   bindToggle('set-vreplies', (v) => N.store.set('settings.voiceReplies', v));
+  bindToggle('set-mem', (v) => N.store.set('settings.longMemory', v));
 }
 
 function toggleRow(id, label, on) {
@@ -580,6 +820,13 @@ N.on('voice:state', ({ listening }) => {
 });
 
 N.on('scheduler:fired', ({ name }) => toast('Задача выполнена', name, 'ok'));
+
+N.on('mc:log', ({ log }) => { if (window.__mcLog) { window.__mcLog.textContent += log; window.__mcLog.scrollTop = window.__mcLog.scrollHeight; } });
+N.on('translate:progress', (p) => {
+  const bar = $('#tr-prog'); const msg = $('#tr-msg');
+  if (bar) { bar.style.display = 'block'; bar.querySelector('i').style.width = (p.percent || 0) + '%'; }
+  if (msg) msg.textContent = p.message || '';
+});
 
 /* ================= System monitor ================= */
 async function pollStats() {

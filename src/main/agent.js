@@ -3,8 +3,32 @@ const { randomUUID } = require('crypto');
 const store = require('./store');
 const ollama = require('./ollama');
 const system = require('./system');
+const memory = require('./memory');
+const minecraft = require('./minecraft');
+const remote = require('./remote');
+const translator = require('./translator');
 
 const activeSessions = new Map(); // sessionId -> { stop: bool }
+
+// Полный набор инструментов = базовые + расширения (Minecraft, серверы, перевод).
+function allToolSchemas() {
+  return [
+    ...system.toolSchemas,
+    ...minecraft.toolSchemas,
+    ...remote.toolSchemas,
+    ...translator.toolSchemas
+  ];
+}
+
+const extraHandlers = { ...minecraft.toolHandlers, ...remote.toolHandlers, ...translator.toolHandlers };
+
+async function dispatchTool(name, args) {
+  if (extraHandlers[name]) {
+    try { return await extraHandlers[name](args || {}); }
+    catch (e) { return `Ошибка инструмента ${name}: ${e.message}`; }
+  }
+  return system.callTool(name, args);
+}
 
 // Готовые шаблоны агентов «из коробки».
 const TEMPLATES = [
@@ -47,6 +71,30 @@ const TEMPLATES = [
     model: 'llama3.2:3b',
     autonomy: 'balanced',
     system: 'Ты — голосовой ассистент. Отвечаешь очень кратко, разговорным языком, без markdown — твои ответы будут озвучены. Используй инструменты при необходимости.'
+  },
+  {
+    id: 'tpl-minecraft',
+    name: 'Minecraft-разработчик',
+    icon: '🧱',
+    model: 'qwen2.5-coder:7b',
+    autonomy: 'autonomous',
+    system: 'Ты — агент-разработчик плагинов Minecraft (Paper/Spigot). Создавай проекты через mc_create_plugin, правь Java-код через write_file (он лежит в minecraft-plugins/<имя>/src), собирай через mc_compile_plugin и читай логи ошибок, исправляя их итеративно. Пиши корректный код под Bukkit/Paper API.'
+  },
+  {
+    id: 'tpl-devops',
+    name: 'Серверный администратор',
+    icon: '🖥️',
+    model: 'qwen2.5:7b',
+    autonomy: 'autonomous',
+    system: 'Ты — агент-администратор удалённых серверов. Через инструменты remote_* изучай файловую систему по SSH, читай и правь конфиги, выполняй команды. Действуй осторожно: перед изменением конфига сначала прочитай его. Не выполняй разрушительных операций без явного запроса.'
+  },
+  {
+    id: 'tpl-translator',
+    name: 'Переводчик данных',
+    icon: '🌐',
+    model: 'qwen2.5:7b',
+    autonomy: 'balanced',
+    system: 'Ты — агент-переводчик. Переводишь большие массивы данных и файлы через translate_file, сохраняя форматирование и плейсхолдеры. Для файлов локализации (JSON/.properties) переводи только значения.'
   }
 ];
 
@@ -100,12 +148,17 @@ async function chat({ agentId, sessionId, message, history }, sendToUI) {
   activeSessions.set(sessionId, sess);
 
   const model = agent.model || 'qwen2.5:7b';
-  const messages = [{ role: 'system', content: agent.system }];
-  (history || []).forEach((m) => messages.push(m));
+  // Инжектируем долговременную память в системный промпт.
+  const memCtx = memory.buildContext(agent.id);
+  const messages = [{ role: 'system', content: agent.system + memCtx }];
+  // Сжимаем длинную историю, чтобы контекст жил долго, но не разрастался.
+  let hist = history || [];
+  if (hist.length > memory.COMPACT_AFTER) hist = await memory.compactHistory(hist, model);
+  hist.forEach((m) => messages.push(m));
   messages.push({ role: 'user', content: message });
 
   const useTools = agent.autonomy !== 'chat-only';
-  const maxSteps = agent.autonomy === 'autonomous' ? 12 : 6;
+  const maxSteps = agent.autonomy === 'autonomous' ? 14 : 6;
   let finalText = '';
 
   try {
@@ -113,7 +166,7 @@ async function chat({ agentId, sessionId, message, history }, sendToUI) {
       if (sess.stop) { finalText += '\n[остановлено пользователем]'; break; }
 
       const res = await ollama.chatStream(
-        { model, messages, tools: useTools ? system.toolSchemas : null },
+        { model, messages, tools: useTools ? allToolSchemas() : null },
         (chunk) => sendToUI && sendToUI('agents:stream', { sessionId, chunk })
       );
 
@@ -126,7 +179,7 @@ async function chat({ agentId, sessionId, message, history }, sendToUI) {
           let args = tc.function && tc.function.arguments;
           if (typeof args === 'string') { try { args = JSON.parse(args); } catch { args = {}; } }
           sendToUI && sendToUI('agents:tool', { sessionId, name: fname, args });
-          let result = await system.callTool(fname, args);
+          let result = await dispatchTool(fname, args);
           // Спец-обработка уведомлений.
           if (typeof result === 'string' && result.startsWith('__NOTIFY__')) {
             try { sendToUI && sendToUI('agents:notify', JSON.parse(result.slice(10))); } catch {}
@@ -146,6 +199,10 @@ async function chat({ agentId, sessionId, message, history }, sendToUI) {
   activeSessions.delete(sessionId);
   pushHistory({ agentId, agentName: agent.name, at: Date.now(), user: message, assistant: finalText });
   sendToUI && sendToUI('agents:done', { sessionId, text: finalText });
+  // В фоне выделяем важные факты в долговременную память (не блокирует ответ).
+  if (store.get('settings.longMemory', true)) {
+    memory.remember(agent.id, model, message, finalText).catch(() => {});
+  }
   return { sessionId, text: finalText };
 }
 

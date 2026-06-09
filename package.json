@@ -1,0 +1,45 @@
+{
+  "name": "nexus-ai-hub",
+  "productName": "Nexus AI Hub",
+  "version": "1.0.0",
+  "description": "Автономные AI-агенты для Windows 11: установка локальных нейросетей, управление компьютером, планировщик задач и голосовой ассистент",
+  "main": "src/main/main.js",
+  "author": "Nexus AI Hub",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win nsis portable",
+    "dist:win:zip": "electron-builder --win zip",
+    "pack": "electron-builder --dir"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.nexus.aihub",
+    "productName": "Nexus AI Hub",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": ["nsis", "portable"],
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "runAfterFinish": true,
+      "installerLanguages": ["ru_RU", "en_US"]
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-portable.${ext}"
+    }
+  }
+}

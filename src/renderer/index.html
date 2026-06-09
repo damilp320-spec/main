@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:;" />
+  <title>Nexus AI Hub</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Кастомный заголовок окна -->
+  <header class="titlebar">
+    <div class="titlebar-left">
+      <div class="logo-dot"></div>
+      <span class="title">Nexus AI Hub</span>
+      <span class="badge" id="ollama-badge">● проверка…</span>
+    </div>
+    <div class="titlebar-controls">
+      <button class="win-btn" id="btn-min" title="Свернуть">&#x2013;</button>
+      <button class="win-btn" id="btn-max" title="Развернуть">&#x25A1;</button>
+      <button class="win-btn win-close" id="btn-close" title="Закрыть">&#x2715;</button>
+    </div>
+  </header>
+
+  <div class="app">
+    <!-- Боковое меню -->
+    <nav class="sidebar">
+      <button class="nav-item active" data-view="dashboard"><span class="nav-ico">🏠</span><span>Главная</span></button>
+      <button class="nav-item" data-view="agents"><span class="nav-ico">🤖</span><span>Агенты</span></button>
+      <button class="nav-item" data-view="marketplace"><span class="nav-ico">⬇️</span><span>Установка ИИ</span></button>
+      <button class="nav-item" data-view="scheduler"><span class="nav-ico">⏰</span><span>Планировщик</span></button>
+      <button class="nav-item" data-view="voice"><span class="nav-ico">🎙️</span><span>Голос</span></button>
+      <button class="nav-item" data-view="settings"><span class="nav-ico">⚙️</span><span>Настройки</span></button>
+      <div class="sidebar-spacer"></div>
+      <div class="sys-mini" id="sys-mini">
+        <div class="sys-row"><span>CPU</span><div class="bar"><i id="cpu-bar"></i></div></div>
+        <div class="sys-row"><span>RAM</span><div class="bar"><i id="ram-bar"></i></div></div>
+      </div>
+    </nav>
+
+    <!-- Контент -->
+    <main class="content" id="content"></main>
+  </div>
+
+  <!-- Плавающая кнопка голосового ассистента -->
+  <button class="voice-fab" id="voice-fab" title="Голосовой ассистент (Ctrl+Shift+Space)">
+    <span class="mic-ico">🎤</span>
+    <span class="pulse"></span>
+  </button>
+
+  <!-- Контейнер уведомлений -->
+  <div class="toast-wrap" id="toast-wrap"></div>
+
+  <template id="tpl-modal">
+    <div class="modal-backdrop">
+      <div class="modal"></div>
+    </div>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>

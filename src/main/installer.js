@@ -163,10 +163,12 @@ function downloadFile(url, dest, onPct) {
   });
 }
 
-// Загрузка модели через Ollama API со стримингом прогресса.
+// Загрузка модели через Ollama API со стримингом прогресса (скорость + ETA).
 function pullModel(name, onProgress) {
   return new Promise((resolve) => {
     const payload = JSON.stringify({ name, stream: true });
+    const startT = Date.now();
+    let lastT = startT, lastC = 0, speed = 0;
     const req = http.request(
       { host: '127.0.0.1', port: 11434, path: '/api/pull', method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } },
       (res) => {
@@ -180,9 +182,24 @@ function pullModel(name, onProgress) {
             if (!line) continue;
             try {
               const obj = JSON.parse(line);
-              let percent = 0;
-              if (obj.total && obj.completed) percent = Math.round((obj.completed / obj.total) * 100);
-              onProgress && onProgress({ stage: 'model', model: name, percent, message: obj.status || 'Загрузка…' });
+              let percent = 0, etaSec = null;
+              if (obj.total && obj.completed) {
+                percent = Math.round((obj.completed / obj.total) * 100);
+                const now = Date.now();
+                const dt = (now - lastT) / 1000;
+                if (dt > 0.4) {
+                  const inst = (obj.completed - lastC) / dt; // байт/с
+                  speed = speed ? speed * 0.6 + inst * 0.4 : inst; // сглаживание
+                  lastT = now; lastC = obj.completed;
+                }
+                if (speed > 0) etaSec = Math.max(0, Math.round((obj.total - obj.completed) / speed));
+              }
+              onProgress && onProgress({
+                stage: 'model', model: name, percent,
+                message: obj.status || 'Загрузка…',
+                completed: obj.completed || 0, total: obj.total || 0,
+                speed: Math.round(speed), etaSec
+              });
             } catch { /* ignore */ }
           }
         });

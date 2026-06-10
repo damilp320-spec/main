@@ -48,7 +48,17 @@ contextBridge.exposeInMainWorld('nexus', {
     chat: (p) => invoke('agents:chat', p),
     stop: (s) => invoke('agents:stop', s),
     history: () => invoke('agents:history'),
-    clearHistory: () => invoke('agents:clearHistory')
+    clearHistory: () => invoke('agents:clearHistory'),
+    export: (id) => invoke('agents:export', id),
+    import: (obj) => invoke('agents:import', obj)
+  },
+  // Лицензия / тарифы
+  license: {
+    status: () => invoke('license:status'),
+    activate: (key) => invoke('license:activate', key),
+    startTrial: () => invoke('license:startTrial'),
+    deactivate: () => invoke('license:deactivate'),
+    can: (kind, count) => invoke('license:can', kind, count)
   },
   // Планировщик
   tasks: {

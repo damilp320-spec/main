@@ -12,6 +12,7 @@ const memory = require('./memory');
 const minecraft = require('./minecraft');
 const remote = require('./remote');
 const translator = require('./translator');
+const licensing = require('./licensing');
 
 let win = null;
 let tray = null;
@@ -144,6 +145,15 @@ ipcMain.handle('agents:chat', (_e, payload) => agent.chat(payload, sendToUI));
 ipcMain.handle('agents:stop', (_e, sessionId) => agent.stopSession(sessionId));
 ipcMain.handle('agents:history', () => agent.getHistory());
 ipcMain.handle('agents:clearHistory', () => agent.clearHistory());
+ipcMain.handle('agents:export', (_e, id) => agent.exportAgent(id));
+ipcMain.handle('agents:import', (_e, obj) => agent.importAgent(obj));
+
+/* ---------------- IPC: licensing / monetization ---------------- */
+ipcMain.handle('license:status', () => licensing.status());
+ipcMain.handle('license:activate', (_e, key) => licensing.activate(key));
+ipcMain.handle('license:startTrial', () => licensing.startTrial());
+ipcMain.handle('license:deactivate', () => licensing.deactivate());
+ipcMain.handle('license:can', (_e, kind, count) => licensing.can(kind, count));
 
 /* ---------------- IPC: scheduler ---------------- */
 ipcMain.handle('tasks:list', () => scheduler.listTasks());

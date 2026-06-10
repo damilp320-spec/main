@@ -126,6 +126,28 @@ function deleteAgent(id) {
   return { ok: true };
 }
 
+// Экспорт агента в переносимый объект (для обмена .json).
+function exportAgent(id) {
+  const a = listAgents().find((x) => x.id === id);
+  if (!a) return null;
+  return { _type: 'nexus-agent', version: 1, name: a.name, icon: a.icon, model: a.model, autonomy: a.autonomy, system: a.system };
+}
+
+// Импорт агента из объекта (создаёт нового с новым id).
+function importAgent(obj) {
+  if (!obj || obj._type !== 'nexus-agent') return { ok: false, error: 'Это не файл агента Nexus' };
+  const agent = {
+    id: 'agent-' + randomUUID().slice(0, 8),
+    name: (obj.name || 'Импортированный агент').slice(0, 60),
+    icon: obj.icon || '🤖',
+    model: obj.model || 'qwen2.5:7b',
+    autonomy: ['chat-only', 'balanced', 'autonomous'].includes(obj.autonomy) ? obj.autonomy : 'balanced',
+    system: String(obj.system || '').slice(0, 4000)
+  };
+  saveAgent(agent);
+  return { ok: true, agent };
+}
+
 function getHistory() { return store.get('chatHistory', []); }
 function clearHistory() { store.set('chatHistory', []); return { ok: true }; }
 function pushHistory(entry) {
@@ -221,7 +243,7 @@ async function runScheduledTask(task, sendToUI) {
 }
 
 module.exports = {
-  getTemplates, listAgents, saveAgent, deleteAgent,
+  getTemplates, listAgents, saveAgent, deleteAgent, exportAgent, importAgent,
   getHistory, clearHistory, stopSession,
   chat, quickAsk, runScheduledTask
 };

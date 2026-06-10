@@ -8,8 +8,9 @@
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "dist:win": "electron-builder --win nsis portable",
-    "dist:win:zip": "electron-builder --win zip",
+    "icon": "node scripts/gen-icon.js",
+    "dist:win": "node scripts/gen-icon.js && electron-builder --win nsis portable",
+    "dist:linux": "node scripts/gen-icon.js && electron-builder --linux AppImage",
     "pack": "electron-builder --dir"
   },
   "dependencies": {
@@ -22,8 +23,10 @@
   "build": {
     "appId": "com.nexus.aihub",
     "productName": "Nexus AI Hub",
+    "copyright": "Copyright © 2026 Nexus AI Hub",
     "directories": {
-      "output": "dist"
+      "output": "dist",
+      "buildResources": "build"
     },
     "files": [
       "src/**/*",
@@ -34,14 +37,18 @@
         "nsis",
         "portable"
       ],
+      "icon": "build/icon.ico",
       "artifactName": "${productName}-${version}-${arch}.${ext}"
     },
     "nsis": {
       "oneClick": false,
+      "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "runAfterFinish": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
       "installerLanguages": [
         "ru_RU",
         "en_US"
@@ -49,6 +56,13 @@
     },
     "portable": {
       "artifactName": "${productName}-${version}-portable.${ext}"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "icon": "build/icon.png",
+      "category": "Utility"
     }
   }
 }

@@ -47,12 +47,71 @@ function modal(html, onMount) {
   return back;
 }
 
+/* ---------------- Themes ---------------- */
+const ACCENTS = {
+  violet: { a: '#7c5cff', b: '#29d3c2', name: 'Аметист', pro: false },
+  ocean:  { a: '#3b82f6', b: '#22d3ee', name: 'Океан', pro: false },
+  sunset: { a: '#ff7c5c', b: '#ffb547', name: 'Закат', pro: true },
+  forest: { a: '#3ddc84', b: '#a3e635', name: 'Лес', pro: true },
+  rose:   { a: '#ff5c9d', b: '#c77dff', name: 'Роза', pro: true }
+};
+async function applyTheme() {
+  const t = await N.store.get('settings.theme', { mode: 'dark', accent: 'violet' });
+  document.body.classList.toggle('light', t.mode === 'light');
+  const ac = ACCENTS[t.accent] || ACCENTS.violet;
+  const r = document.documentElement.style;
+  r.setProperty('--accent', ac.a);
+  r.setProperty('--accent-2', ac.b);
+  r.setProperty('--accent-grad', `linear-gradient(135deg, ${ac.a} 0%, ${ac.b} 100%)`);
+}
+
+/* ---------------- Licensing helpers ---------------- */
+let LIC = { plan: 'free', isPro: false };
+async function refreshLicense() {
+  LIC = await N.license.status();
+  const badge = $('#plan-badge');
+  if (badge) {
+    badge.textContent = LIC.plan === 'pro' ? 'PRO' : LIC.plan === 'trial' ? `PRO · ${LIC.daysLeft}д` : 'Free';
+    badge.classList.toggle('pro', LIC.isPro);
+  }
+  return LIC;
+}
+// Гейт Pro-функции: если нет доступа — показать апгрейд и вернуть false.
+async function ensurePro(featureLabel) {
+  await refreshLicense();
+  if (LIC.isPro) return true;
+  upgradeModal(featureLabel);
+  return false;
+}
+// Гейт лимита (agents/tasks/servers/translateChars).
+async function ensureLimit(kind, currentCount, label) {
+  const r = await N.license.can(kind, currentCount);
+  if (r.allowed) return true;
+  upgradeModal(label, r.reason === 'limit' ? `Бесплатный тариф: до ${r.limit}. Перейдите на Pro, чтобы снять лимит.` : '');
+  return false;
+}
+function upgradeModal(feature, note) {
+  modal(`
+    <div style="text-align:center">
+      <div class="onb-logo" style="margin:0 auto 14px">⭐</div>
+      <h2>Это возможность Nexus Pro</h2>
+      <p class="muted" style="margin:8px 0">${esc(feature ? feature + '. ' : '')}${esc(note || 'Откройте все функции без ограничений.')}</p>
+    </div>
+    <div class="modal-actions" style="justify-content:center">
+      <button class="btn ghost" id="up-later">Позже</button>
+      <button class="btn primary" id="up-go">⭐ Открыть Nexus Pro</button>
+    </div>`, (m, close) => {
+    $('#up-later', m).onclick = close;
+    $('#up-go', m).onclick = () => { close(); navigate('pro'); };
+  });
+}
+
 /* ================= VIEWS ================= */
 const content = $('#content');
 function render() {
   content.scrollTop = 0;
   content.className = 'content fade-in';
-  const map = { dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, voice: viewVoice, settings: viewSettings };
+  const map = { dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, prompts: viewPrompts, voice: viewVoice, settings: viewSettings, pro: viewPro };
   (map[state.view] || viewDashboard)();
 }
 
@@ -194,11 +253,11 @@ async function viewAgents() {
 
   content.innerHTML = `
     <div class="view-head row between"><div><h1>Агенты</h1><p>Автономные помощники с доступом к компьютеру и интернету</p></div>
-      <button class="btn primary" id="new-agent">＋ Новый агент</button></div>
+      <div class="row"><button class="btn ghost" id="import-agent">📥 Импорт</button><button class="btn primary" id="new-agent">＋ Новый агент</button></div></div>
     <div class="agents-layout">
       <div class="agent-list" id="agent-list"></div>
       <div class="chat" id="chat">
-        <div class="chat-head"><div id="chat-title"></div><div class="row"><button class="btn ghost sm" id="mem-agent">🧠 Память</button><button class="btn ghost sm" id="edit-agent">✎ Настроить</button><button class="btn ghost sm" id="clear-chat">Очистить</button></div></div>
+        <div class="chat-head"><div id="chat-title"></div><div class="row"><button class="btn ghost sm" id="mem-agent">🧠 Память</button><button class="btn ghost sm" id="export-agent">📤</button><button class="btn ghost sm" id="edit-agent">✎ Настроить</button><button class="btn ghost sm" id="clear-chat">Очистить</button></div></div>
         <div class="chat-body" id="chat-body"></div>
         <div class="chat-input">
           <textarea id="chat-text" placeholder="Напишите задачу… (агент может управлять ПК и искать в сети)"></textarea>
@@ -207,7 +266,12 @@ async function viewAgents() {
       </div>
     </div>`;
 
-  $('#new-agent').onclick = () => editAgent(null);
+  $('#new-agent').onclick = async () => {
+    const count = state.agents.length;
+    if (await ensureLimit('agents', count, 'Лимит агентов на бесплатном тарифе')) editAgent(null);
+  };
+  $('#import-agent').onclick = () => $('#agent-import-input').click();
+  $('#export-agent').onclick = () => exportActiveAgent();
   $('#edit-agent').onclick = () => editAgent(state.agents.find(a => a.id === state.activeAgentId));
   $('#clear-chat').onclick = () => { state.chat = []; renderChat(); };
   $('#mem-agent').onclick = () => showMemory(state.activeAgentId);
@@ -226,6 +290,19 @@ async function viewAgents() {
 
   $('#send-btn').onclick = sendChat;
   $('#chat-text').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } });
+
+  // Промпт из библиотеки — подставляем в поле ввода.
+  if (state.pendingPrompt) { $('#chat-text').value = state.pendingPrompt; state.pendingPrompt = null; $('#chat-text').focus(); }
+}
+
+async function exportActiveAgent() {
+  if (!state.activeAgentId) return;
+  const data = await N.agents.export(state.activeAgentId);
+  if (!data) return toast('Ошибка', 'Агент не найден', 'err');
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = el('a'); a.href = URL.createObjectURL(blob); a.download = (data.name || 'agent').replace(/[^\wа-яА-Я-]+/g, '_') + '.nexus.json';
+  a.click(); URL.revokeObjectURL(a.href);
+  toast('Экспортировано', data.name, 'ok');
 }
 
 function autonomyLabel(a) { return ({ 'chat-only': 'только чат', balanced: 'сбалансированный', autonomous: 'автономный' })[a] || 'сбалансированный'; }
@@ -330,7 +407,7 @@ async function viewScheduler() {
     <div class="view-head row between"><div><h1>Планировщик задач</h1><p>Что делать при включении ПК, по расписанию или интервалу</p></div>
       <button class="btn primary" id="new-task">＋ Новая задача</button></div>
     <div class="grid" id="tasks"></div>`;
-  $('#new-task').onclick = () => editTask(null, agents);
+  $('#new-task').onclick = async () => { if (await ensureLimit('tasks', tasks.length, 'Лимит задач на бесплатном тарифе')) editTask(null, agents); };
 
   const wrap = $('#tasks');
   if (!tasks.length) { wrap.innerHTML = `<div class="empty"><div class="big-ico">⏰</div><p>Задач пока нет. Создайте автоматизацию: например, утренний брифинг при включении ПК.</p></div>`; return; }
@@ -480,7 +557,7 @@ async function viewServers() {
       <button class="btn primary" id="srv-new">＋ Подключение</button></div>
     ${!available ? '<div class="card" style="border-color:var(--warn);margin-bottom:16px"><p class="muted">⚠️ Модуль SSH (ssh2) не установлен. Выполните <code>npm install</code> и перезапустите.</p></div>' : ''}
     <div class="grid cols-2"><div id="srv-list"></div><div class="card" id="srv-explorer"><p class="muted">Выберите сервер слева, чтобы открыть файловую систему.</p></div></div>`;
-  $('#srv-new').onclick = () => editServer(null);
+  $('#srv-new').onclick = async () => { if (await ensureLimit('servers', servers.length, 'Лимит серверов на бесплатном тарифе')) editServer(null); };
 
   const list = $('#srv-list');
   if (!servers.length) { list.innerHTML = `<div class="empty"><div class="big-ico">🖥️</div><p>Серверов нет.</p></div>`; return; }
@@ -603,6 +680,8 @@ async function viewTranslator() {
   $('#tr-go').onclick = async () => {
     const text = $('#tr-input').value.trim();
     if (!text) return toast('Пусто', 'Введите текст', 'err');
+    const lim = await N.license.can('translateChars', text.length);
+    if (!lim.allowed) return upgradeModal('Перевод больших объёмов', `Бесплатно — до ${lim.limit} символов за раз. В тексте ${text.length}. Откройте Pro для безлимита.`);
     $('#tr-prog').style.display = 'block'; $('#tr-go').disabled = true; $('#tr-go').innerHTML = '<span class="spin"></span> Перевод…';
     const r = await N.translate.text({ model: $('#tr-model').value, text, targetLang: $('#tr-dst').value, sourceLang: $('#tr-src').value });
     $('#tr-output').value = r; $('#tr-go').disabled = false; $('#tr-go').textContent = '🌐 Перевести';
@@ -661,9 +740,19 @@ async function viewSettings() {
     workspace: await N.store.get('settings.workspace', '')
   };
   const info = await N.system.info();
+  const theme = await N.store.get('settings.theme', { mode: 'dark', accent: 'violet' });
+  await refreshLicense();
+  const swatches = Object.entries(ACCENTS).map(([k, a]) =>
+    `<span class="theme-swatch ${theme.accent === k ? 'sel' : ''}" data-accent="${k}" title="${a.name}${a.pro ? ' (Pro)' : ''}" style="background:linear-gradient(135deg,${a.a},${a.b})">${a.pro && !LIC.isPro ? '🔒' : ''}</span>`).join('');
   content.innerHTML = `
-    <div class="view-head"><h1>Настройки</h1><p>Поведение приложения и безопасность агентов</p></div>
+    <div class="view-head"><h1>Настройки</h1><p>Поведение приложения, оформление и безопасность агентов</p></div>
     <div class="grid cols-2">
+      <div class="card">
+        <h3>🎨 Оформление</h3>
+        ${toggleRow('set-light', 'Светлая тема', theme.mode === 'light')}
+        <p class="muted" style="margin:10px 0 6px">Акцентный цвет</p>
+        <div id="accent-row">${swatches}</div>
+      </div>
       <div class="card">
         <h3>🚀 Запуск</h3>
         ${toggleRow('set-autostart', 'Запускать вместе с Windows', s.autostart)}
@@ -694,6 +783,13 @@ async function viewSettings() {
   bindToggle('set-shell', (v) => N.store.set('settings.allowShell', v));
   bindToggle('set-vreplies', (v) => N.store.set('settings.voiceReplies', v));
   bindToggle('set-mem', (v) => N.store.set('settings.longMemory', v));
+  bindToggle('set-light', async (v) => { const t = await N.store.get('settings.theme', { mode: 'dark', accent: 'violet' }); t.mode = v ? 'light' : 'dark'; await N.store.set('settings.theme', t); applyTheme(); });
+  $$('#accent-row .theme-swatch').forEach((sw) => sw.onclick = async () => {
+    const key = sw.dataset.accent;
+    if (ACCENTS[key].pro && !LIC.isPro) return upgradeModal('Премиум-темы оформления');
+    const t = await N.store.get('settings.theme', { mode: 'dark', accent: 'violet' });
+    t.accent = key; await N.store.set('settings.theme', t); applyTheme(); viewSettings();
+  });
 }
 
 function toggleRow(id, label, on) {
@@ -768,6 +864,247 @@ function speakOut(text) {
 /* Плавающая кнопка голоса */
 $('#voice-fab').onclick = () => { if (state.view !== 'voice') navigate('voice'); toggleVoice(); };
 
+/* ---------- Pro / Upgrade view ---------- */
+async function viewPro() {
+  const lic = await refreshLicense();
+  const free = lic.limits;
+  content.innerHTML = `
+    <div class="view-head"><h1>Nexus Pro</h1><p>Снимите все ограничения и откройте продвинутые возможности</p></div>
+    ${lic.isPro ? `<div class="hero"><h2>✨ У вас активен ${lic.plan === 'trial' ? 'пробный период Pro' : 'тариф Pro'}</h2>
+      <p>${lic.plan === 'trial' ? 'Осталось дней: ' + lic.daysLeft + '. ' : ''}Спасибо за поддержку! Все функции разблокированы.</p>
+      <button class="btn ghost" id="deact">Отвязать ключ</button></div>` : ''}
+    <div class="pricing">
+      <div class="price-card">
+        <div class="plan-name">Free</div>
+        <div class="price">0 ₽<small>/ навсегда</small></div>
+        <ul>
+          <li>Локальные нейросети без ограничений</li>
+          <li>До ${free.agents} агентов</li>
+          <li>До ${free.tasks} задач планировщика</li>
+          <li>1 удалённый сервер</li>
+          <li>Перевод до ${(free.translateChars/1000)}k символов за раз</li>
+          <li class="off">Премиум-темы</li>
+          <li class="off">RAG-память и мультиагентные сценарии</li>
+          <li class="off">Облачный мост и приоритетная поддержка</li>
+        </ul>
+        <button class="btn ghost" disabled>${lic.isPro ? 'Базовый' : 'Текущий план'}</button>
+      </div>
+      <div class="price-card featured">
+        <div class="ribbon">Популярный</div>
+        <div class="plan-name">Pro</div>
+        <div class="price">499 ₽<small>/ мес · или 3990 ₽/год</small></div>
+        <ul>
+          <li>Всё из Free, без лимитов</li>
+          <li>Неограниченно агентов, задач и серверов</li>
+          <li>Премиум-темы оформления</li>
+          <li>RAG-память (эмбеддинги) и мультиагентные сценарии</li>
+          <li>Облачный мост: резерв на мощные модели</li>
+          <li>Приоритетная поддержка и ранний доступ</li>
+        </ul>
+        <div class="row" style="gap:8px">
+          ${lic.isPro ? '<button class="btn primary" disabled>Активно</button>' :
+            `<button class="btn primary" id="buy">Оформить Pro</button>
+             ${lic.trialUsed ? '' : '<button class="btn ghost" id="trial">14 дней бесплатно</button>'}`}
+        </div>
+      </div>
+    </div>
+    <div class="card" style="margin-top:18px">
+      <h3>🔑 Активация по ключу</h3>
+      <p class="muted">Уже есть лицензионный ключ? Введите его (формат NEXUS-PRO-XXXXXXXX-XXXX).</p>
+      <div class="row" style="margin-top:10px"><input id="lic-key" placeholder="NEXUS-PRO-........-...."><button class="btn primary" id="lic-act">Активировать</button></div>
+    </div>`;
+
+  if ($('#deact')) $('#deact').onclick = async () => { await N.license.deactivate(); toast('Готово', 'Ключ отвязан'); refreshLicense(); viewPro(); };
+  if ($('#buy')) $('#buy').onclick = () => N.system.openExternal('https://nexus-ai-hub.app/pro');
+  if ($('#trial')) $('#trial').onclick = async () => {
+    const r = await N.license.startTrial();
+    if (r.ok) { toast('Пробный Pro активирован', r.daysLeft + ' дней', 'ok'); refreshLicense(); viewPro(); }
+    else toast('Не вышло', r.error, 'err');
+  };
+  $('#lic-act').onclick = async () => {
+    const r = await N.license.activate($('#lic-key').value);
+    if (r.ok) { toast('Pro активирован', 'Спасибо!', 'ok'); await applyTheme(); refreshLicense(); viewPro(); }
+    else toast('Ошибка ключа', r.error, 'err');
+  };
+}
+
+/* ---------- Prompts library ---------- */
+const PROMPT_LIB = {
+  'Продуктивность': [
+    { t: 'Утренний брифинг', p: 'Составь краткий план на сегодня: погода, важные задачи и одна мотивирующая мысль.' },
+    { t: 'Разбор папки Загрузки', p: 'Посмотри файлы в папке загрузок и предложи, как их разложить по категориям.' },
+    { t: 'Резюме документа', p: 'Прочитай указанный файл и сделай краткое резюме в 5 пунктах.' }
+  ],
+  'Система и автоматизация': [
+    { t: 'Очистка диска', p: 'Найди, что занимает место на диске, и предложи безопасные способы освободить место.' },
+    { t: 'Информация о ПК', p: 'Покажи характеристики системы и текущую нагрузку.' },
+    { t: 'Бэкап проекта', p: 'Создай архив указанной папки с датой в имени.' }
+  ],
+  'Разработка': [
+    { t: 'Плагин Minecraft', p: 'Создай плагин Minecraft с командой /heal, которая лечит игрока, и скомпилируй его.' },
+    { t: 'Настройка сервера', p: 'Подключись к серверу, открой конфиг nginx и покажи его содержимое.' },
+    { t: 'Скрипт автоматизации', p: 'Напиши и запусти PowerShell-скрипт, который переименует все .txt в папке по шаблону.' }
+  ],
+  'Данные и контент': [
+    { t: 'Перевод файла', p: 'Переведи файл локализации messages.json на английский, сохранив плейсхолдеры.' },
+    { t: 'Поиск и сводка', p: 'Найди в интернете последние новости по теме ИИ и сделай сводку с источниками.' }
+  ]
+};
+async function viewPrompts() {
+  content.innerHTML = `<div class="view-head"><h1>Библиотека промптов</h1><p>Готовые задачи в один клик — отправятся выбранному агенту</p></div><div id="pl"></div>`;
+  const wrap = $('#pl');
+  for (const [cat, items] of Object.entries(PROMPT_LIB)) {
+    wrap.appendChild(el('div', 'prompt-cat', cat));
+    const grid = el('div', 'grid cols-3');
+    items.forEach((it) => {
+      const c = el('div', 'card prompt-card', `<h3>${esc(it.t)}</h3><p class="muted">${esc(it.p)}</p>`);
+      c.onclick = () => { state.pendingPrompt = it.p; navigate('agents'); };
+      grid.appendChild(c);
+    });
+    wrap.appendChild(grid);
+  }
+}
+
+/* ---------- Command Palette (Ctrl+K) ---------- */
+let cmdkSel = 0, cmdkItems = [];
+function buildCommands() {
+  const nav = (v, ico, label, sub) => ({ ico, label, sub: sub || 'Раздел', run: () => navigate(v) });
+  const cmds = [
+    nav('dashboard', '🏠', 'Главная'),
+    nav('agents', '🤖', 'Агенты'),
+    nav('marketplace', '⬇️', 'Установка ИИ'),
+    nav('scheduler', '⏰', 'Планировщик'),
+    nav('minecraft', '🧱', 'Minecraft студия'),
+    nav('servers', '🖥️', 'Удалённые серверы'),
+    nav('translator', '🌐', 'Перевод данных'),
+    nav('prompts', '💡', 'Библиотека промптов'),
+    nav('voice', '🎙️', 'Голосовой ассистент'),
+    nav('settings', '⚙️', 'Настройки'),
+    nav('pro', '⭐', 'Nexus Pro'),
+    { ico: '➕', label: 'Новый агент', sub: 'Действие', run: () => { navigate('agents'); setTimeout(() => editAgent(null), 50); } },
+    { ico: '⚡', label: 'Быстрая установка моделей', sub: 'Действие', run: () => { navigate('dashboard'); setTimeout(quickSetup, 50); } },
+    { ico: '🎤', label: 'Включить/выключить голос', sub: 'Действие', run: () => { navigate('voice'); toggleVoice(); } },
+    { ico: '🌗', label: 'Переключить тему', sub: 'Действие', run: toggleThemeMode },
+    { ico: '📥', label: 'Импортировать агента', sub: 'Действие', run: () => $('#agent-import-input').click() }
+  ];
+  return cmds;
+}
+function openCmdk() {
+  const back = $('#cmdk'); back.style.display = 'flex';
+  const inp = $('#cmdk-input'); inp.value = ''; cmdkSel = 0;
+  renderCmdk('');
+  setTimeout(() => inp.focus(), 30);
+}
+function closeCmdk() { $('#cmdk').style.display = 'none'; }
+function renderCmdk(q) {
+  const all = buildCommands();
+  cmdkItems = q ? all.filter((c) => (c.label + ' ' + c.sub).toLowerCase().includes(q.toLowerCase())) : all;
+  if (cmdkSel >= cmdkItems.length) cmdkSel = 0;
+  const list = $('#cmdk-list');
+  list.innerHTML = cmdkItems.map((c, i) => `<div class="cmdk-item ${i === cmdkSel ? 'sel' : ''}" data-i="${i}"><span class="ico">${c.ico}</span><span>${esc(c.label)}</span><span class="sub">${esc(c.sub)}</span></div>`).join('') || '<div class="cmdk-item">Ничего не найдено</div>';
+  $$('.cmdk-item', list).forEach((it) => { if (it.dataset.i != null) it.onclick = () => runCmdk(+it.dataset.i); });
+}
+function runCmdk(i) { const c = cmdkItems[i]; if (c) { closeCmdk(); c.run(); } }
+
+async function toggleThemeMode() {
+  const t = await N.store.get('settings.theme', { mode: 'dark', accent: 'violet' });
+  t.mode = t.mode === 'light' ? 'dark' : 'light';
+  await N.store.set('settings.theme', t);
+  applyTheme();
+}
+
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); $('#cmdk').style.display === 'flex' ? closeCmdk() : openCmdk(); return; }
+  if ($('#cmdk').style.display === 'flex') {
+    if (e.key === 'Escape') closeCmdk();
+    else if (e.key === 'ArrowDown') { e.preventDefault(); cmdkSel = Math.min(cmdkItems.length - 1, cmdkSel + 1); renderCmdk($('#cmdk-input').value); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); cmdkSel = Math.max(0, cmdkSel - 1); renderCmdk($('#cmdk-input').value); }
+    else if (e.key === 'Enter') { e.preventDefault(); runCmdk(cmdkSel); }
+  }
+});
+$('#cmdk-input').addEventListener('input', (e) => { cmdkSel = 0; renderCmdk(e.target.value); });
+$('#cmdk').addEventListener('click', (e) => { if (e.target.id === 'cmdk') closeCmdk(); });
+$('#cmdk-hint').onclick = openCmdk;
+$('#plan-badge').onclick = () => navigate('pro');
+
+/* Импорт агента из файла */
+$('#agent-import-input').addEventListener('change', async (e) => {
+  const file = e.target.files[0]; if (!file) return;
+  try {
+    const obj = JSON.parse(await file.text());
+    const r = await N.agents.import(obj);
+    if (r.ok) { toast('Импортировано', r.agent.name, 'ok'); state.activeAgentId = r.agent.id; if (state.view === 'agents') viewAgents(); else navigate('agents'); }
+    else toast('Ошибка', r.error, 'err');
+  } catch { toast('Ошибка', 'Не удалось прочитать файл', 'err'); }
+  e.target.value = '';
+});
+
+/* ---------- Onboarding wizard ---------- */
+const ONB_USECASES = [
+  { id: 'assistant', ico: '🧠', name: 'Личный ассистент', sub: 'Ответы, поиск, помощь по задачам' },
+  { id: 'automation', ico: '⚙️', name: 'Автоматизация ПК', sub: 'Команды, файлы, рутина' },
+  { id: 'coding', ico: '💻', name: 'Разработка', sub: 'Код, Minecraft, серверы' },
+  { id: 'voice', ico: '🎙️', name: 'Голосовой помощник', sub: 'Управление голосом' }
+];
+async function startOnboarding() {
+  const onb = $('#onb'); onb.style.display = 'flex';
+  let step = 0; const picks = new Set(['assistant']);
+  const rec = await N.installer.recommend();
+
+  function steps() {
+    return [
+      // 0 — Welcome
+      `<div class="onb-logo">🧠</div>
+       <h1>Добро пожаловать в Nexus AI Hub</h1>
+       <p class="lead">За пару минут настроим автономных AI-агентов, которые работают прямо на вашем ПК — приватно, без подписок и без облака. Они умеют управлять компьютером, искать в интернете и выполнять задачи по расписанию.</p>
+       <div class="onb-actions"><span></span><button class="btn primary" id="onb-next">Начать →</button></div>`,
+      // 1 — Use cases
+      `<h1>Для чего будете использовать?</h1>
+       <p class="lead">Выберите одно или несколько — подберём подходящих агентов и модели.</p>
+       <div class="usecase-grid">${ONB_USECASES.map((u) => `<div class="usecase ${picks.has(u.id) ? 'sel' : ''}" data-uc="${u.id}"><span class="ico">${u.ico}</span><div><b>${u.name}</b><br><small>${u.sub}</small></div></div>`).join('')}</div>
+       <div class="onb-actions"><button class="btn ghost" id="onb-back">← Назад</button><button class="btn primary" id="onb-next">Далее →</button></div>`,
+      // 2 — Hardware + models
+      `<h1>Ваш компьютер готов</h1>
+       <p class="lead">Обнаружено ОЗУ: <b>${rec.totalGb} ГБ</b>. Под него подобраны оптимальные локальные модели:</p>
+       <div class="onb-pick">${rec.models.map((m) => `<div class="onb-model-row"><div><b>${esc(m.name)}</b> <span class="model-size">${esc(m.size)}</span><br><small class="muted">${esc(m.desc)}</small></div></div>`).join('')}</div>
+       <div class="onb-actions"><button class="btn ghost" id="onb-back">← Назад</button><div class="row"><button class="btn ghost" id="onb-skip">Пропустить</button><button class="btn primary" id="onb-install">⚡ Установить и настроить</button></div></div>`,
+      // 3 — Installing
+      `<div class="onb-logo">⚙️</div>
+       <h1>Устанавливаем…</h1>
+       <p class="lead">Скачиваем движок и модели. Можно свернуть окно — мы продолжим в фоне.</p>
+       <div class="progress" style="height:10px"><i id="onb-bar"></i></div>
+       <p class="muted" id="onb-msg" style="margin-top:10px">Подготовка…</p>
+       <div class="onb-actions"><span></span><button class="btn ghost" id="onb-bg" disabled>Готово</button></div>`,
+      // 4 — Done
+      `<div class="onb-logo">🎉</div>
+       <h1>Всё готово!</h1>
+       <p class="lead">Агенты настроены. Откройте раздел «Агенты» и начните диалог, или нажмите <b>Ctrl+K</b> для быстрого доступа к любой функции. Голос — по кнопке 🎤 или <b>Ctrl+Shift+Space</b>.</p>
+       <div class="onb-actions"><span></span><button class="btn primary" id="onb-finish">Начать работу →</button></div>`
+    ];
+  }
+  function draw() {
+    const total = 5;
+    onb.innerHTML = `<div class="onb-card"><div class="onb-steps">${Array.from({ length: total }, (_, i) => `<i class="${i <= step ? 'on' : ''}"></i>`).join('')}</div>${steps()[step]}</div>`;
+    const next = $('#onb-next', onb); if (next) next.onclick = () => { step++; draw(); };
+    const back = $('#onb-back', onb); if (back) back.onclick = () => { step--; draw(); };
+    const finish = $('#onb-finish', onb); if (finish) finish.onclick = async () => { await N.store.set('onboarded', true); onb.style.display = 'none'; navigate('agents'); };
+    const skip = $('#onb-skip', onb); if (skip) skip.onclick = async () => { await N.store.set('onboarded', true); onb.style.display = 'none'; render(); };
+    $$('.usecase', onb).forEach((u) => u.onclick = () => { const id = u.dataset.uc; picks.has(id) ? picks.delete(id) : picks.add(id); u.classList.toggle('sel'); });
+    const inst = $('#onb-install', onb);
+    if (inst) inst.onclick = async () => {
+      step = 3; draw();
+      window.__onbActive = true;
+      const r = await N.installer.quickSetup();
+      window.__onbActive = false;
+      const bar = $('#onb-bar', onb); if (bar) bar.style.width = '100%';
+      const bg = $('#onb-bg', onb); if (bg) bg.disabled = false;
+      step = 4; draw();
+      if (!r.ok) toast('Установка', r.error || 'Возникла ошибка, можно повторить в разделе «Установка ИИ»', 'err');
+    };
+  }
+  draw();
+}
+
 /* ================= IPC events ================= */
 N.on('navigate', (view) => navigate(view));
 
@@ -795,16 +1132,29 @@ N.on('agents:toolResult', ({ name, result }) => {
 N.on('agents:notify', ({ title, message }) => toast(title || 'Агент', message));
 N.on('agents:done', ({ text }) => { state.busy = false; });
 
+function fmtBytes(n) { if (!n) return '0'; const u = ['Б', 'КБ', 'МБ', 'ГБ']; let i = 0; while (n >= 1024 && i < 3) { n /= 1024; i++; } return n.toFixed(i ? 1 : 0) + ' ' + u[i]; }
+function fmtEta(s) { if (s == null) return ''; if (s < 60) return s + ' с'; const m = Math.floor(s / 60); return m + ' мин ' + (s % 60) + ' с'; }
+function dlLine(p) {
+  let line = p.message || 'Загрузка…';
+  if (p.total) line += ` · ${fmtBytes(p.completed)} / ${fmtBytes(p.total)}`;
+  if (p.speed) line += ` · ${fmtBytes(p.speed)}/с`;
+  if (p.etaSec != null && p.etaSec > 0) line += ` · осталось ${fmtEta(p.etaSec)}`;
+  return line;
+}
 N.on('installer:progress', (p) => {
+  const line = dlLine(p);
   const bar = $('#qsbar'); const msg = $('#qsmsg');
   if (bar) bar.style.width = (p.percent || 0) + '%';
-  if (msg) msg.textContent = p.message || '';
+  if (msg) msg.textContent = line;
+  // прогресс онбординга
+  const ob = $('#onb-bar'); const om = $('#onb-msg');
+  if (window.__onbActive && ob) { ob.style.width = (p.percent || 0) + '%'; if (om) om.textContent = line; }
   // прогресс на карточках marketplace
   $$('.model-card').forEach((c) => {
     if (p.model && (c.innerHTML.includes(p.model))) {
       const pr = c.querySelector('.progress'); const pm = c.querySelector('.prog-msg');
       if (pr) { pr.style.display = 'block'; pr.querySelector('i').style.width = (p.percent || 0) + '%'; }
-      if (pm) pm.textContent = p.message || '';
+      if (pm) pm.textContent = line;
     }
   });
 });
@@ -850,8 +1200,14 @@ async function pollOllama() {
 (async function boot() {
   // Загружаем голоса синтеза заранее.
   if ('speechSynthesis' in window) speechSynthesis.getVoices();
+  await applyTheme();
+  await refreshLicense();
   render();
   pollStats(); pollOllama();
   setInterval(pollStats, 3000);
   setInterval(pollOllama, 5000);
+  setInterval(refreshLicense, 60000);
+  // Первый запуск — мастер настройки.
+  const onboarded = await N.store.get('onboarded', false);
+  if (!onboarded) startOnboarding();
 })();

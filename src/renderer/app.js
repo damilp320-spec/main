@@ -296,6 +296,24 @@ async function viewAgents() {
   if (state.pendingPrompt) { $('#chat-text').value = state.pendingPrompt; state.pendingPrompt = null; $('#chat-text').focus(); }
 }
 
+// В начале render()
+async function render() {
+  content.scrollTop = 0;
+  content.className = 'content fade-in';
+  try {
+    const map = { ... };
+    const fn = map[state.view] || viewDashboard;
+    await fn();                    // ← await + try
+  } catch (e) {
+    console.error('Render error:', e);
+    content.innerHTML = `<div class="card" style="color:var(--danger);padding:40px">
+      <h2>Ошибка загрузки вкладки</h2>
+      <p>${esc(e.message || e)}</p>
+      <button onclick="location.reload()">Перезагрузить</button>
+    </div>`;
+  }
+}
+
 async function exportActiveAgent() {
   if (!state.activeAgentId) return;
   const data = await N.agents.export(state.activeAgentId);

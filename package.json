@@ -1,10 +1,10 @@
 {
-  "name": "nexus-ai-hub",
-  "productName": "Nexus AI Hub",
+  "name": "mythera-ai-hub",
+  "productName": "Mythera AI Hub",
   "version": "1.0.0",
   "description": "Автономные AI-агенты для Windows 11: установка локальных нейросетей, управление компьютером, планировщик задач и голосовой ассистент",
   "main": "src/main/main.js",
-  "author": "Nexus AI Hub",
+  "author": "Mythera AI Hub",
   "license": "MIT",
   "scripts": {
     "start": "electron .",
@@ -21,9 +21,9 @@
     "electron-builder": "^25.1.8"
   },
   "build": {
-    "appId": "com.nexus.aihub",
-    "productName": "Nexus AI Hub",
-    "copyright": "Copyright © 2026 Nexus AI Hub",
+    "appId": "com.mythera.aihub",
+    "productName": "Mythera AI Hub",
+    "copyright": "Copyright © 2026 Mythera AI Hub",
     "directories": {
       "output": "dist",
       "buildResources": "build"

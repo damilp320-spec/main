@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:;" />
-  <title>Nexus AI Hub</title>
+  <title>Mythera AI Hub</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -11,7 +11,7 @@
   <header class="titlebar">
     <div class="titlebar-left">
       <div class="logo-dot"></div>
-      <span class="title">Nexus AI Hub</span>
+      <span class="title">Mythera AI Hub</span>
       <span class="badge" id="ollama-badge">● проверка…</span>
     </div>
     <div class="titlebar-right">
@@ -35,6 +35,10 @@
       <button class="nav-item" data-view="minecraft"><span class="nav-ico">🧱</span><span data-i18n="nav.minecraft">Minecraft</span></button>
       <button class="nav-item" data-view="servers"><span class="nav-ico">🖥️</span><span data-i18n="nav.servers">Серверы</span></button>
       <button class="nav-item" data-view="translator"><span class="nav-ico">🌐</span><span data-i18n="nav.translator">Перевод</span></button>
+      <button class="nav-item" data-view="knowledge"><span class="nav-ico">📚</span><span data-i18n="nav.knowledge">База знаний</span></button>
+      <button class="nav-item" data-view="swarm"><span class="nav-ico">🐝</span><span data-i18n="nav.swarm">Команда (Swarm)</span></button>
+      <button class="nav-item" data-view="skills"><span class="nav-ico">🧩</span><span data-i18n="nav.skills">Скилы</span></button>
+      <button class="nav-item" data-view="dispatch"><span class="nav-ico">📡</span><span data-i18n="nav.dispatch">Удалённый доступ</span></button>
       <button class="nav-item" data-view="prompts"><span class="nav-ico">💡</span><span data-i18n="nav.prompts">Промпты</span></button>
       <button class="nav-item" data-view="voice"><span class="nav-ico">🎙️</span><span data-i18n="nav.voice">Голос</span></button>
       <button class="nav-item" data-view="settings"><span class="nav-ico">⚙️</span><span data-i18n="nav.settings">Настройки</span></button>
@@ -70,8 +74,9 @@
   <!-- Онбординг-мастер (первый запуск) -->
   <div class="onb-backdrop" id="onb" style="display:none"></div>
 
-  <!-- Импорт агента -->
+  <!-- Импорт агента / скила -->
   <input type="file" id="agent-import-input" accept="application/json" style="display:none" />
+  <input type="file" id="skill-import-input" accept="application/json" style="display:none" />
 
   <script src="i18n.js"></script>
   <script src="app.js"></script>

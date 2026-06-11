@@ -8,7 +8,7 @@ const on = (ch, fn) => {
   return () => ipcRenderer.removeListener(ch, handler);
 };
 
-contextBridge.exposeInMainWorld('nexus', {
+contextBridge.exposeInMainWorld('mythera', {
   // Окно
   win: {
     minimize: () => invoke('win:minimize'),
@@ -27,7 +27,9 @@ contextBridge.exposeInMainWorld('nexus', {
     setAutostart: (e) => invoke('system:setAutostart', e),
     openExternal: (u) => invoke('system:openExternal', u),
     listDrives: () => invoke('system:listDrives'),
-    pickFolder: (o) => invoke('system:pickFolder', o)
+    pickFolder: (o) => invoke('system:pickFolder', o),
+    security: () => invoke('system:security'),
+    testCommand: (cmd) => invoke('system:testCommand', cmd)
   },
   // Ollama / установка
   installer: {
@@ -79,14 +81,51 @@ contextBridge.exposeInMainWorld('nexus', {
     clear: (agentId) => invoke('memory:clear', agentId),
     add: (agentId, text) => invoke('memory:add', agentId, text)
   },
-  // Minecraft-студия
+  // Minecraft-студия (плагины + Forge/Fabric моды)
   mc: {
     checkEnv: () => invoke('mc:checkEnv'),
     templates: () => invoke('mc:templates'),
     list: () => invoke('mc:list'),
     create: (o) => invoke('mc:create', o),
     compile: (n) => invoke('mc:compile', n),
-    delete: (n) => invoke('mc:delete', n)
+    delete: (n) => invoke('mc:delete', n),
+    createMod: (o) => invoke('mc:createMod', o),
+    compileMod: (n) => invoke('mc:compileMod', n),
+    modLoaders: () => invoke('mc:modLoaders')
+  },
+  // RAG-память (эмбеддинги)
+  rag: {
+    stats: (scope) => invoke('rag:stats', scope),
+    add: (scope, text, source) => invoke('rag:add', scope, text, source),
+    ingestFile: (scope, file) => invoke('rag:ingestFile', scope, file),
+    clear: (scope) => invoke('rag:clear', scope),
+    retrieve: (scope, q) => invoke('rag:retrieve', scope, q)
+  },
+  // Мультиагентные сценарии (swarm)
+  swarm: { run: (o) => invoke('swarm:run', o) },
+  // Плагины-скилы
+  skills: {
+    list: () => invoke('skills:list'),
+    save: (s) => invoke('skills:save', s),
+    delete: (id) => invoke('skills:delete', id),
+    export: (id) => invoke('skills:export', id),
+    import: (o) => invoke('skills:import', o)
+  },
+  // Компьютерное зрение
+  screen: { capture: () => invoke('screen:capture') },
+  // Локальная речь (Piper / Faster-Whisper)
+  speech: {
+    detect: () => invoke('speech:detect'),
+    synthesize: (t) => invoke('speech:synthesize', t),
+    transcribe: (b64, mime) => invoke('speech:transcribe', b64, mime)
+  },
+  // Удалённый доступ (dispatch)
+  dispatch: {
+    status: () => invoke('dispatch:status'),
+    start: () => invoke('dispatch:start'),
+    stop: () => invoke('dispatch:stop'),
+    regenToken: () => invoke('dispatch:regenToken'),
+    setOption: (k, v) => invoke('dispatch:setOption', k, v)
   },
   // Удалённые серверы
   remote: {

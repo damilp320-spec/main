@@ -4,10 +4,13 @@ const I18N = {
     'nav.dashboard': 'Главная', 'nav.agents': 'Агенты', 'nav.marketplace': 'Установка ИИ', 'nav.scheduler': 'Планировщик',
     'nav.minecraft': 'Minecraft', 'nav.servers': 'Серверы', 'nav.translator': 'Перевод', 'nav.prompts': 'Промпты',
     'nav.scenarios': 'Сценарии', 'nav.voice': 'Голос', 'nav.settings': 'Настройки',
+    'nav.knowledge': 'База знаний', 'nav.swarm': 'Команда (Swarm)', 'nav.skills': 'Скилы', 'nav.dispatch': 'Удалённый доступ',
+    'set.voiceEngine': 'Движок речи', 'set.ttsEngine': 'Синтез (TTS)', 'set.sttEngine': 'Распознавание (STT)',
+    'set.wakeEnabled': 'Активация по имени', 'set.wakeWord': 'Имя ассистента', 'set.rag': 'RAG-память (эмбеддинги)', 'set.embedModel': 'Модель эмбеддингов',
     'btn.save': 'Сохранить', 'btn.cancel': 'Отмена', 'btn.delete': 'Удалить', 'btn.close': 'Закрыть', 'btn.add': 'Добавить',
     'btn.run': 'Запустить', 'btn.install': 'Установить', 'btn.back': 'Назад', 'btn.next': 'Далее', 'btn.newAgent': 'Новый агент', 'btn.import': 'Импорт',
     'dash.title': 'Главная', 'dash.sub': 'Центр управления автономными AI-агентами',
-    'dash.welcome': 'Добро пожаловать в Nexus AI Hub',
+    'dash.welcome': 'Добро пожаловать в Mythera AI Hub',
     'dash.welcomeSub': 'Локальные нейросети, которые работают автономно на вашем ПК, управляют компьютером, имеют доступ к интернету и выполняют задачи по расписанию. Всё приватно — данные не покидают устройство.',
     'dash.quickInstall': '⚡ Быстрая установка', 'dash.openAgents': '🤖 Открыть агентов',
     'dash.statusOllama': 'Статус Ollama', 'dash.models': 'Моделей', 'dash.agents': 'Агентов', 'dash.tasks': 'Задач',
@@ -31,10 +34,13 @@ const I18N = {
     'nav.dashboard': 'Home', 'nav.agents': 'Agents', 'nav.marketplace': 'Install AI', 'nav.scheduler': 'Scheduler',
     'nav.minecraft': 'Minecraft', 'nav.servers': 'Servers', 'nav.translator': 'Translate', 'nav.prompts': 'Prompts',
     'nav.scenarios': 'Scenarios', 'nav.voice': 'Voice', 'nav.settings': 'Settings',
+    'nav.knowledge': 'Knowledge', 'nav.swarm': 'Team (Swarm)', 'nav.skills': 'Skills', 'nav.dispatch': 'Remote access',
+    'set.voiceEngine': 'Speech engine', 'set.ttsEngine': 'Synthesis (TTS)', 'set.sttEngine': 'Recognition (STT)',
+    'set.wakeEnabled': 'Wake-word activation', 'set.wakeWord': 'Assistant name', 'set.rag': 'RAG memory (embeddings)', 'set.embedModel': 'Embedding model',
     'btn.save': 'Save', 'btn.cancel': 'Cancel', 'btn.delete': 'Delete', 'btn.close': 'Close', 'btn.add': 'Add',
     'btn.run': 'Run', 'btn.install': 'Install', 'btn.back': 'Back', 'btn.next': 'Next', 'btn.newAgent': 'New agent', 'btn.import': 'Import',
     'dash.title': 'Home', 'dash.sub': 'Control center for autonomous AI agents',
-    'dash.welcome': 'Welcome to Nexus AI Hub',
+    'dash.welcome': 'Welcome to Mythera AI Hub',
     'dash.welcomeSub': 'Local neural networks that run autonomously on your PC, control the computer, access the internet and run tasks on schedule. Fully private — your data never leaves the device.',
     'dash.quickInstall': '⚡ Quick install', 'dash.openAgents': '🤖 Open agents',
     'dash.statusOllama': 'Ollama status', 'dash.models': 'Models', 'dash.agents': 'Agents', 'dash.tasks': 'Tasks',
@@ -61,7 +67,7 @@ const I18N = {
     'btn.save': 'Зберегти', 'btn.cancel': 'Скасувати', 'btn.delete': 'Видалити', 'btn.close': 'Закрити', 'btn.add': 'Додати',
     'btn.run': 'Запустити', 'btn.install': 'Встановити', 'btn.back': 'Назад', 'btn.next': 'Далі', 'btn.newAgent': 'Новий агент', 'btn.import': 'Імпорт',
     'dash.title': 'Головна', 'dash.sub': 'Центр керування автономними AI-агентами',
-    'dash.welcome': 'Ласкаво просимо до Nexus AI Hub',
+    'dash.welcome': 'Ласкаво просимо до Mythera AI Hub',
     'dash.welcomeSub': 'Локальні нейромережі, що працюють автономно на вашому ПК, керують комп’ютером, мають доступ до інтернету та виконують завдання за розкладом. Усе приватно — дані не залишають пристрій.',
     'dash.quickInstall': '⚡ Швидке встановлення', 'dash.openAgents': '🤖 Відкрити агентів',
     'dash.statusOllama': 'Статус Ollama', 'dash.models': 'Моделей', 'dash.agents': 'Агентів', 'dash.tasks': 'Завдань',
@@ -88,7 +94,7 @@ const I18N = {
     'btn.save': 'Guardar', 'btn.cancel': 'Cancelar', 'btn.delete': 'Eliminar', 'btn.close': 'Cerrar', 'btn.add': 'Añadir',
     'btn.run': 'Ejecutar', 'btn.install': 'Instalar', 'btn.back': 'Atrás', 'btn.next': 'Siguiente', 'btn.newAgent': 'Nuevo agente', 'btn.import': 'Importar',
     'dash.title': 'Inicio', 'dash.sub': 'Centro de control de agentes de IA autónomos',
-    'dash.welcome': 'Bienvenido a Nexus AI Hub',
+    'dash.welcome': 'Bienvenido a Mythera AI Hub',
     'dash.welcomeSub': 'Redes neuronales locales que funcionan de forma autónoma en tu PC, controlan el equipo, acceden a internet y ejecutan tareas programadas. Todo privado: tus datos nunca salen del dispositivo.',
     'dash.quickInstall': '⚡ Instalación rápida', 'dash.openAgents': '🤖 Abrir agentes',
     'dash.statusOllama': 'Estado de Ollama', 'dash.models': 'Modelos', 'dash.agents': 'Agentes', 'dash.tasks': 'Tareas',
@@ -115,7 +121,7 @@ const I18N = {
     'btn.save': 'Speichern', 'btn.cancel': 'Abbrechen', 'btn.delete': 'Löschen', 'btn.close': 'Schließen', 'btn.add': 'Hinzufügen',
     'btn.run': 'Starten', 'btn.install': 'Installieren', 'btn.back': 'Zurück', 'btn.next': 'Weiter', 'btn.newAgent': 'Neuer Agent', 'btn.import': 'Import',
     'dash.title': 'Start', 'dash.sub': 'Steuerzentrale für autonome KI-Agenten',
-    'dash.welcome': 'Willkommen bei Nexus AI Hub',
+    'dash.welcome': 'Willkommen bei Mythera AI Hub',
     'dash.welcomeSub': 'Lokale neuronale Netze, die autonom auf Ihrem PC laufen, den Computer steuern, auf das Internet zugreifen und Aufgaben nach Zeitplan ausführen. Vollständig privat — Ihre Daten verlassen das Gerät nie.',
     'dash.quickInstall': '⚡ Schnellinstallation', 'dash.openAgents': '🤖 Agenten öffnen',
     'dash.statusOllama': 'Ollama-Status', 'dash.models': 'Modelle', 'dash.agents': 'Agenten', 'dash.tasks': 'Aufgaben',
@@ -142,7 +148,7 @@ const I18N = {
     'btn.save': '保存', 'btn.cancel': '取消', 'btn.delete': '删除', 'btn.close': '关闭', 'btn.add': '添加',
     'btn.run': '运行', 'btn.install': '安装', 'btn.back': '返回', 'btn.next': '下一步', 'btn.newAgent': '新建智能体', 'btn.import': '导入',
     'dash.title': '主页', 'dash.sub': '自主 AI 智能体控制中心',
-    'dash.welcome': '欢迎使用 Nexus AI Hub',
+    'dash.welcome': '欢迎使用 Mythera AI Hub',
     'dash.welcomeSub': '本地神经网络在你的电脑上自主运行，控制计算机、访问互联网并按计划执行任务。完全私密——数据绝不离开设备。',
     'dash.quickInstall': '⚡ 一键安装', 'dash.openAgents': '🤖 打开智能体',
     'dash.statusOllama': 'Ollama 状态', 'dash.models': '模型', 'dash.agents': '智能体', 'dash.tasks': '任务',
@@ -169,8 +175,8 @@ const LANGS = [
   { code: 'es', name: 'Español' }, { code: 'de', name: 'Deutsch' }, { code: 'zh', name: '中文' }
 ];
 
-let CUR_LANG = 'ru';
-function setLangCode(code) { CUR_LANG = I18N[code] ? code : 'ru'; }
+let CUR_LANG = 'en';
+function setLangCode(code) { CUR_LANG = I18N[code] ? code : 'en'; }
 function getLangCode() { return CUR_LANG; }
 function t(key) {
   return (I18N[CUR_LANG] && I18N[CUR_LANG][key]) || I18N.en[key] || I18N.ru[key] || key;

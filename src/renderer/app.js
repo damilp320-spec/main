@@ -1,5 +1,5 @@
-/* Nexus AI Hub — логика интерфейса (рендерер) */
-const N = window.nexus;
+/* Mythera AI Hub — логика интерфейса (рендерер) */
+const N = window.mythera;
 const { t, setLangCode, getLangCode, applyStaticI18n, LANGS } = window.I18N_API;
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -79,7 +79,7 @@ const content = $('#content');
 function render() {
   content.scrollTop = 0;
   content.className = 'content fade-in';
-  const map = { dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scenarios: viewScenarios, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, prompts: viewPrompts, voice: viewVoice, settings: viewSettings };
+  const map = { dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scenarios: viewScenarios, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, knowledge: viewKnowledge, swarm: viewSwarm, skills: viewSkills, dispatch: viewDispatch, prompts: viewPrompts, voice: viewVoice, settings: viewSettings };
   (map[state.view] || viewDashboard)();
 }
 
@@ -269,7 +269,7 @@ async function exportActiveAgent() {
   const data = await N.agents.export(state.activeAgentId);
   if (!data) return toast('Ошибка', 'Агент не найден', 'err');
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-  const a = el('a'); a.href = URL.createObjectURL(blob); a.download = (data.name || 'agent').replace(/[^\wа-яА-Я-]+/g, '_') + '.nexus.json';
+  const a = el('a'); a.href = URL.createObjectURL(blob); a.download = (data.name || 'agent').replace(/[^\wа-яА-Я-]+/g, '_') + '.mythera.json';
   a.click(); URL.revokeObjectURL(a.href);
   toast('Экспортировано', data.name, 'ok');
 }
@@ -485,23 +485,28 @@ async function viewMinecraft() {
   const env = await N.mc.checkEnv();
   const projects = await N.mc.list();
   const templates = await N.mc.templates();
+  const loaders = await N.mc.modLoaders();
   content.innerHTML = `
-    <div class="view-head row between"><div><h1>Minecraft студия</h1><p>Создание и компиляция плагинов Paper/Spigot в .jar</p></div>
-      <button class="btn primary" id="mc-new">＋ Новый плагин</button></div>
-    <div class="grid cols-2" style="margin-bottom:16px">
+    <div class="view-head row between"><div><h1>Minecraft студия</h1><p>Плагины Paper/Spigot (Maven) и моды Forge/Fabric (Gradle) — генерация и компиляция в .jar</p></div>
+      <div class="row"><button class="btn ghost" id="mc-newmod">＋ Мод</button><button class="btn primary" id="mc-new">＋ Плагин</button></div></div>
+    <div class="grid cols-3" style="margin-bottom:16px">
       <div class="card"><h3>☕ Java (JDK)</h3><p class="muted">${env.java ? '✅ ' + esc(env.javaVersion || 'установлена') : '❌ не найдена · <code>' + esc(env.hints.java) + '</code>'}</p></div>
       <div class="card"><h3>📦 Maven</h3><p class="muted">${env.maven ? '✅ ' + esc(env.mavenVersion || 'установлен') : '❌ не найден · <code>' + esc(env.hints.maven) + '</code>'}</p></div>
+      <div class="card"><h3>🐘 Gradle</h3><p class="muted">${env.gradle ? '✅ ' + esc(env.gradleVersion || 'установлен') : '❌ не найден · <code>' + esc(env.hints.gradle) + '</code>'}</p></div>
     </div>
     <div class="grid" id="mc-projects"></div>`;
   $('#mc-new').onclick = () => newMcPlugin(templates);
+  $('#mc-newmod').onclick = () => newMcMod(loaders);
 
   const wrap = $('#mc-projects');
-  if (!projects.length) { wrap.innerHTML = `<div class="empty"><div class="big-ico">🧱</div><p>Плагинов пока нет. Создайте первый — или попросите агента: «создай плагин с командой».</p></div>`; return; }
+  if (!projects.length) { wrap.innerHTML = `<div class="empty"><div class="big-ico">🧱</div><p>Проектов пока нет. Создайте плагин или мод — или попросите агента: «создай мод Fabric».</p></div>`; return; }
+  const kindIco = { plugin: '🧱', fabric: '🧵', forge: '🔨' };
   projects.forEach((p) => {
+    const isMod = p.kind === 'forge' || p.kind === 'fabric';
     const c = el('div', 'card');
     c.innerHTML = `
-      <div class="row between"><div><h3>🧱 ${esc(p.name)}</h3>
-        <p class="muted">${p.jar ? '✅ собран: ' + esc(p.jar.split(/[\\/]/).pop()) : (p.hasPom ? 'готов к сборке' : 'нет pom.xml')}</p></div>
+      <div class="row between"><div><h3>${kindIco[p.kind] || '🧱'} ${esc(p.name)} <span class="tag">${esc(p.kind)}</span></h3>
+        <p class="muted">${p.jar ? '✅ собран: ' + esc(p.jar.split(/[\\/]/).pop()) : (p.buildable ? 'готов к сборке' : 'нет файла сборки')}</p></div>
         <div class="row">
           <button class="btn primary sm" data-compile="${esc(p.name)}">⚙️ Компилировать</button>
           <button class="btn danger sm" data-del="${esc(p.name)}">Удалить</button>
@@ -512,12 +517,33 @@ async function viewMinecraft() {
       const log = c.querySelector('.mc-log'); log.style.display = 'block'; log.textContent = '';
       window.__mcLog = log;
       e.target.disabled = true; e.target.innerHTML = '<span class="spin"></span> Сборка…';
-      const r = await N.mc.compile(p.name);
+      const r = isMod ? await N.mc.compileMod(p.name) : await N.mc.compile(p.name);
       e.target.disabled = false; e.target.textContent = '⚙️ Компилировать';
       if (r.ok) { toast('Собрано', p.name + '.jar готов', 'ok'); log.textContent += '\n✅ JAR: ' + r.jar; }
       else { toast('Ошибка сборки', r.error, 'err'); log.textContent += '\n❌ ' + r.error; }
     };
     c.querySelector('[data-del]').onclick = async () => { await N.mc.delete(p.name); toast('Удалено', p.name); viewMinecraft(); };
+  });
+}
+
+function newMcMod(loaders) {
+  const opts = Object.entries(loaders).map(([k, l]) => `<option value="${k}">${esc(l.label)} — ${esc(l.desc)}</option>`).join('');
+  modal(`
+    <h2>Новый мод Minecraft</h2>
+    <label class="field"><span>Имя мода</span><input id="mm-name" placeholder="MyAwesomeMod"></label>
+    <label class="field"><span>Лоадер</span><select id="mm-loader">${opts}</select></label>
+    <div class="row">
+      <label class="field" style="flex:1"><span>Версия MC</span><input id="mm-ver" value="1.21.1"></label>
+      <label class="field" style="flex:1"><span>Автор</span><input id="mm-author" value="MytheraAI"></label>
+    </div>
+    <p class="muted">Создаётся Gradle-проект. Первая сборка скачивает зависимости (нужен интернет).</p>
+    <div class="modal-actions"><button class="btn ghost" id="mm-cancel">${esc(t('btn.cancel'))}</button><button class="btn primary" id="mm-save">Создать</button></div>`, (m, close) => {
+    $('#mm-cancel', m).onclick = close;
+    $('#mm-save', m).onclick = async () => {
+      const r = await N.mc.createMod({ name: $('#mm-name', m).value.trim() || 'MyMod', loader: $('#mm-loader', m).value, mcVersion: $('#mm-ver', m).value, author: $('#mm-author', m).value });
+      if (r.ok) { toast('Создано', r.name + ' (' + r.loader + ')', 'ok'); close(); viewMinecraft(); }
+      else toast('Ошибка', r.error, 'err');
+    };
   });
 }
 
@@ -529,7 +555,7 @@ function newMcPlugin(templates) {
     <label class="field"><span>Шаблон</span><select id="mc-tpl">${opts}</select></label>
     <div class="row">
       <label class="field" style="flex:1"><span>Версия MC</span><input id="mc-ver" value="1.21"></label>
-      <label class="field" style="flex:1"><span>Автор</span><input id="mc-author" value="NexusAI"></label>
+      <label class="field" style="flex:1"><span>Автор</span><input id="mc-author" value="MytheraAI"></label>
     </div>
     <div class="modal-actions"><button class="btn ghost" id="mc-cancel">Отмена</button><button class="btn primary" id="mc-save">Создать</button></div>`, (m, close) => {
     $('#mc-cancel', m).onclick = close;
@@ -679,7 +705,7 @@ async function viewTranslator() {
     $('#tr-output').value = r; $('#tr-go').disabled = false; $('#tr-go').textContent = '🌐 Перевести';
     toast('Готово', 'Перевод завершён', 'ok');
   };
-  $('#tr-file').onclick = () => modal(`<h2>Перевести файл</h2><p class="muted">Путь относительно рабочего пространства (~/NexusAI-Workspace) или абсолютный.</p>
+  $('#tr-file').onclick = () => modal(`<h2>Перевести файл</h2><p class="muted">Путь относительно рабочего пространства (~/MytheraAI-Workspace) или абсолютный.</p>
     <label class="field"><input id="trf-path" placeholder="data/messages.json"></label>
     <div class="modal-actions"><button class="btn ghost" id="trf-cancel">Отмена</button><button class="btn primary" id="trf-go">Перевести</button></div>`, (m, close) => {
     $('#trf-cancel', m).onclick = close;
@@ -693,32 +719,221 @@ async function viewTranslator() {
   $('#tr-copy').onclick = () => { navigator.clipboard.writeText($('#tr-output').value); toast('Скопировано', '', 'ok'); };
 }
 
+/* ---------- Knowledge base (RAG) ---------- */
+async function viewKnowledge() {
+  const ragOn = await N.store.get('settings.rag', false);
+  const embed = await N.store.get('settings.embedModel', 'nomic-embed-text');
+  const st = await N.rag.stats('kb');
+  content.innerHTML = `
+    <div class="view-head"><h1>📚 ${esc(t('nav.knowledge'))}</h1><p>RAG-память на эмбеддингах: агенты подтягивают релевантные знания под запрос</p></div>
+    <div class="card" style="margin-bottom:16px">
+      <div class="row between"><div><b>RAG-память</b><br><small class="muted">Модель эмбеддингов: ${esc(embed)} · документов в базе: ${st.count}</small></div>
+      <label class="switch"><input type="checkbox" id="rag-on" ${ragOn ? 'checked' : ''}><span class="slider"></span></label></div>
+      ${st.count ? `<div style="margin-top:10px">${st.sources.map((s) => `<span class="tag accent">${esc(s)}</span>`).join('')}</div>` : ''}
+    </div>
+    <div class="card">
+      <h3>➕ Добавить знание</h3>
+      <label class="field"><span>Текст / заметка</span><textarea id="kb-text" style="min-height:120px" placeholder="Вставьте текст, который агенты должны помнить и использовать…"></textarea></label>
+      <div class="row wrap">
+        <button class="btn primary" id="kb-add">Добавить в базу</button>
+        <button class="btn ghost" id="kb-file">📄 Импорт файла из рабочего пространства</button>
+        <button class="btn danger" id="kb-clear">Очистить базу</button>
+      </div>
+      <div id="kb-status" class="muted" style="margin-top:10px"></div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <h3>🔎 Проверить поиск</h3>
+      <div class="row"><input id="kb-q" placeholder="Запрос для проверки релевантности…"><button class="btn" id="kb-search">Найти</button></div>
+      <div id="kb-results" style="margin-top:10px"></div>
+    </div>`;
+  $('#rag-on').onchange = (e) => { N.store.set('settings.rag', e.target.checked); toast('RAG', e.target.checked ? 'включён' : 'выключен', 'ok'); };
+  $('#kb-add').onclick = async () => {
+    const text = $('#kb-text').value.trim(); if (!text) return;
+    $('#kb-status').textContent = 'Индексация…';
+    const r = await N.rag.add('kb', text, 'note');
+    $('#kb-status').textContent = r.ok ? `Добавлено фрагментов: ${r.added}` : 'Ошибка: ' + r.error + ' (установлена ли модель эмбеддингов?)';
+    if (r.ok) { $('#kb-text').value = ''; viewKnowledge(); }
+  };
+  $('#kb-file').onclick = () => modal(`<h2>Импорт файла в базу знаний</h2><p class="muted">Путь относительно рабочего пространства или абсолютный.</p>
+    <label class="field"><input id="kbf-path" placeholder="docs/manual.txt"></label>
+    <div class="modal-actions"><button class="btn ghost" id="kbf-cancel">${esc(t('btn.cancel'))}</button><button class="btn primary" id="kbf-go">Импорт</button></div>`, (m, close) => {
+    $('#kbf-cancel', m).onclick = close;
+    $('#kbf-go', m).onclick = async () => { const r = await N.rag.ingestFile('kb', $('#kbf-path', m).value.trim()); toast(r.ok ? 'OK' : 'Ошибка', r.ok ? `Фрагментов: ${r.added}` : r.error, r.ok ? 'ok' : 'err'); if (r.ok) { close(); viewKnowledge(); } };
+  });
+  $('#kb-clear').onclick = async () => { if (await confirmModal('Очистить базу знаний?', 'Все документы будут удалены.')) { await N.rag.clear('kb'); viewKnowledge(); } };
+  $('#kb-search').onclick = async () => {
+    const q = $('#kb-q').value.trim(); if (!q) return;
+    $('#kb-results').innerHTML = '<span class="spin"></span>';
+    const hits = await N.rag.retrieve('kb', q);
+    $('#kb-results').innerHTML = hits.length ? hits.map((h) => `<div class="card" style="margin-bottom:8px"><small class="muted">${esc(h.source)} · ${h.score}</small><br>${esc(h.text.slice(0, 300))}</div>`).join('') : '<p class="muted">Ничего не найдено (или RAG/модель не настроены).</p>';
+  };
+}
+
+/* ---------- Swarm (multi-agent) ---------- */
+let swarmState = { running: false };
+async function viewSwarm() {
+  const agents = await N.agents.list();
+  content.innerHTML = `
+    <div class="view-head"><h1>🐝 ${esc(t('nav.swarm'))}</h1><p>Команда агентов: координатор делит цель на подзадачи и распределяет их между специалистами</p></div>
+    <div class="card">
+      <label class="field"><span>Цель</span><textarea id="sw-goal" style="min-height:90px" placeholder="Например: исследуй тему X, напиши отчёт и сохрани в файл"></textarea></label>
+      <p class="muted" style="margin:6px 0">Участники команды</p>
+      <div id="sw-agents" class="grid cols-3"></div>
+      <div class="row" style="margin-top:12px"><button class="btn primary" id="sw-run">▶ Запустить команду</button></div>
+    </div>
+    <div id="sw-out" style="margin-top:16px"></div>`;
+  const wrap = $('#sw-agents');
+  agents.forEach((a) => {
+    const c = el('label', 'card', `<div class="row" style="gap:8px"><input type="checkbox" data-ag="${a.id}"><span>${a.icon || '🤖'} ${esc(a.name)}</span></div>`);
+    c.style.cursor = 'pointer';
+    wrap.appendChild(c);
+  });
+  $('#sw-run').onclick = async () => {
+    const goal = $('#sw-goal').value.trim();
+    const agentIds = $$('#sw-agents [data-ag]:checked').map((x) => x.dataset.ag);
+    if (!goal || !agentIds.length) return toast('Заполните', 'Нужны цель и хотя бы один агент', 'err');
+    swarmState.running = true;
+    $('#sw-out').innerHTML = '<div class="card"><b>План…</b><div id="sw-steps" style="margin-top:10px"></div><div id="sw-final" class="msg bot" style="margin-top:12px;display:none"></div></div>';
+    $('#sw-run').disabled = true; $('#sw-run').innerHTML = '<span class="spin"></span> Работает…';
+    await N.swarm.run({ goal, agentIds });
+    $('#sw-run').disabled = false; $('#sw-run').textContent = '▶ Запустить команду';
+    swarmState.running = false;
+  };
+}
+
+/* ---------- Skills (plugins) ---------- */
+async function viewSkills() {
+  const list = await N.skills.list();
+  content.innerHTML = `
+    <div class="view-head row between"><div><h1>🧩 ${esc(t('nav.skills'))}</h1><p>Плагины-навыки агентов: безопасные шаблоны команд и HTTP-запросов</p></div>
+      <div class="row"><button class="btn ghost" id="sk-import">📥 ${esc(t('btn.import'))}</button><button class="btn primary" id="sk-new">＋ Новый скил</button></div></div>
+    <div class="grid cols-2" id="sk-list"></div>`;
+  $('#sk-new').onclick = () => editSkill(null);
+  $('#sk-import').onclick = () => $('#skill-import-input').click();
+  const wrap = $('#sk-list');
+  list.forEach((s) => {
+    const c = el('div', 'card', `<div class="row between"><div><b>${s.type === 'http' ? '🌐' : '⌨️'} ${esc(s.label || s.name)}</b> <span class="tag">${esc(s.type)}</span><br><small class="muted">${esc(s.description || '')}</small><br><code style="font-size:11px;color:var(--muted)">${esc(String(s.template).slice(0, 90))}</code></div></div>
+      <div class="row" style="margin-top:8px"><button class="btn ghost sm" data-edit="${s.id}">✎</button><button class="btn ghost sm" data-exp="${s.id}">📤</button><button class="btn danger sm" data-del="${s.id}">${esc(t('btn.delete'))}</button></div>`);
+    wrap.appendChild(c);
+    c.querySelector('[data-edit]').onclick = () => editSkill(s);
+    c.querySelector('[data-del]').onclick = async () => { await N.skills.delete(s.id); viewSkills(); };
+    c.querySelector('[data-exp]').onclick = async () => { const data = await N.skills.export(s.id); downloadJson(data, (s.name || 'skill') + '.skill.json'); };
+  });
+}
+function editSkill(skill) {
+  const isNew = !skill;
+  skill = skill || { label: '', name: '', type: 'command', description: '', method: 'GET', params: [], template: '' };
+  const paramsStr = (skill.params || []).map((p) => p.name).join(', ');
+  modal(`<h2>${isNew ? 'Новый скил' : 'Скил'}</h2>
+    <label class="field"><span>Название</span><input id="sk-label" value="${esc(skill.label)}" placeholder="Погода"></label>
+    <div class="row"><label class="field" style="flex:1"><span>Имя инструмента (a-z_)</span><input id="sk-name" value="${esc(skill.name)}" placeholder="weather"></label>
+      <label class="field" style="flex:1"><span>Тип</span><select id="sk-type"><option value="command" ${skill.type === 'command' ? 'selected' : ''}>command</option><option value="http" ${skill.type === 'http' ? 'selected' : ''}>http</option></select></label></div>
+    <label class="field"><span>Описание</span><input id="sk-desc" value="${esc(skill.description)}"></label>
+    <label class="field"><span>Параметры (через запятую)</span><input id="sk-params" value="${esc(paramsStr)}" placeholder="city"></label>
+    <label class="field"><span>Шаблон (плейсхолдеры {param}). command — команда; http — URL</span><textarea id="sk-tpl" style="min-height:80px;font-family:monospace">${esc(skill.template)}</textarea></label>
+    <p class="muted">⚠️ command-скилы проходят тот же фильтр опасных команд, что и агент.</p>
+    <div class="modal-actions"><button class="btn ghost" id="sk-cancel">${esc(t('btn.cancel'))}</button><button class="btn primary" id="sk-save">${esc(t('btn.save'))}</button></div>`, (m, close) => {
+    $('#sk-cancel', m).onclick = close;
+    $('#sk-save', m).onclick = async () => {
+      const params = $('#sk-params', m).value.split(',').map((s) => s.trim()).filter(Boolean).map((n) => ({ name: n, description: '' }));
+      await N.skills.save({ ...skill, label: $('#sk-label', m).value.trim() || 'Скил', name: $('#sk-name', m).value.trim() || $('#sk-label', m).value.trim(), type: $('#sk-type', m).value, description: $('#sk-desc', m).value, params, template: $('#sk-tpl', m).value });
+      close(); toast('OK', 'Скил сохранён', 'ok'); viewSkills();
+    };
+  });
+}
+
+/* ---------- Dispatch (remote access) ---------- */
+async function viewDispatch() {
+  const s = await N.dispatch.status();
+  content.innerHTML = `
+    <div class="view-head"><h1>📡 ${esc(t('nav.dispatch'))}</h1><p>Локальный удалённый доступ к агентам (в духе Claude dispatch) — управляйте ими с телефона в той же сети</p></div>
+    <div class="card">
+      <div class="row between"><div><b>Локальный сервер</b><br><small class="muted">${s.running ? 'запущен' : 'остановлен'} · режим: ${s.mode}</small></div>
+      <label class="switch"><input type="checkbox" id="dp-on" ${s.running ? 'checked' : ''}><span class="slider"></span></label></div>
+      ${s.running ? `<div style="margin-top:14px">
+        <p class="muted">Откройте на другом устройстве в той же сети:</p>
+        ${s.urls.map((u) => `<div class="row between" style="padding:6px 0"><code>${esc(u)}</code><button class="btn ghost sm" data-copy="${esc(u)}">Копировать</button></div>`).join('')}
+        <p class="muted" style="margin-top:10px">Токен доступа:</p>
+        <div class="row"><code style="font-size:16px;letter-spacing:1px">${esc(s.token)}</code><button class="btn ghost sm" id="dp-regen">Обновить токен</button></div>
+      </div>` : ''}
+      <div class="row between" style="margin-top:14px"><span>Разрешить доступ из локальной сети (не только localhost)</span>
+        <label class="switch"><input type="checkbox" id="dp-lan" ${s.lan ? 'checked' : ''}><span class="slider"></span></label></div>
+      <label class="field" style="margin-top:10px"><span>Порт</span><input id="dp-port" type="number" value="${s.port}" style="max-width:140px"></label>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <h3>🗺️ Дорожная карта доступа</h3>
+      <p class="muted">✅ Сейчас: локальный режим (этот ПК / своя Wi-Fi сеть, с токеном).<br>
+      🔜 В планах: <b>облачный режим</b> — защищённый туннель к ПК без проброса портов.<br>
+      📱 В далёком будущем: <b>мобильное приложение</b> (веб-интерфейс уже спроектирован как основа PWA).</p>
+    </div>`;
+  $('#dp-on').onchange = async (e) => { const r = e.target.checked ? await N.dispatch.start() : await N.dispatch.stop(); toast('Dispatch', e.target.checked ? (r.running ? 'запущен' : 'ошибка: ' + (r.error || '')) : 'остановлен', r.running || !e.target.checked ? 'ok' : 'err'); viewDispatch(); };
+  $('#dp-lan').onchange = async (e) => { await N.dispatch.setOption('lan', e.target.checked); toast('Перезапустите сервер', 'чтобы применить', 'ok'); };
+  $('#dp-port').onchange = async (e) => { await N.dispatch.setOption('port', +e.target.value || 8765); };
+  if ($('#dp-regen')) $('#dp-regen').onclick = async () => { await N.dispatch.regenToken(); viewDispatch(); };
+  $$('[data-copy]').forEach((b) => b.onclick = () => { navigator.clipboard.writeText(b.dataset.copy); toast('Скопировано', '', 'ok'); });
+}
+
+function downloadJson(data, filename) {
+  if (!data) return;
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = el('a'); a.href = URL.createObjectURL(blob); a.download = filename; a.click(); URL.revokeObjectURL(a.href);
+}
+
 /* ---------- Voice ---------- */
 async function viewVoice() {
   const replies = await N.store.get('settings.voiceReplies', true);
+  const wakeOn = await N.store.get('settings.wakeEnabled', false);
+  const wakeWord = await N.store.get('settings.wakeWord', 'Mythera');
+  const ttsEngine = await N.store.get('settings.ttsEngine', 'web');
+  const sttEngine = await N.store.get('settings.sttEngine', 'web');
+  const sp = await N.speech.detect();
   content.innerHTML = `
-    <div class="view-head"><h1>Голосовой ассистент</h1><p>Говорите — агент слушает, выполняет и отвечает голосом</p></div>
+    <div class="view-head"><h1>${esc(t('nav.voice'))}</h1><p>Говорите — агент слушает, выполняет и отвечает голосом</p></div>
     <div class="card">
       <div class="voice-stage">
         <div class="orb ${state.voiceListening ? 'listening' : ''}" id="orb">${state.voiceListening ? '👂' : '🎙️'}</div>
-        <div class="voice-transcript" id="vt">${state.voiceListening ? 'Слушаю…' : 'Нажмите, чтобы начать'}</div>
+        <div class="voice-transcript" id="vt">${state.voiceListening ? (wakeOn ? 'Скажите «' + esc(wakeWord) + '»…' : 'Слушаю…') : 'Нажмите, чтобы начать'}</div>
         <div class="row">
           <button class="btn primary" id="voice-toggle">${state.voiceListening ? '⏹ Остановить' : '🎤 Начать слушать'}</button>
           <button class="btn ghost" id="voice-test">🔊 Проверить голос</button>
         </div>
-        <p class="voice-hint">Горячая клавиша: Ctrl+Shift+Space · Команды обрабатывает «Голосовой компаньон»</p>
-        <label class="row" style="gap:10px"><label class="switch"><input type="checkbox" id="vreplies" ${replies ? 'checked' : ''}><span class="slider"></span></label><span class="muted">Озвучивать ответы агента</span></label>
+        <p class="voice-hint">Горячая клавиша: Ctrl+Shift+Space</p>
+        <label class="row" style="gap:10px"><label class="switch"><input type="checkbox" id="vreplies" ${replies ? 'checked' : ''}><span class="slider"></span></label><span class="muted">${esc(t('set.voiceReplies'))}</span></label>
+      </div>
+    </div>
+    <div class="grid cols-2" style="margin-top:16px">
+      <div class="card">
+        <h3>🔔 ${esc(t('set.wakeEnabled'))}</h3>
+        <label class="row between" style="margin:10px 0"><span>Реагировать только после имени</span><label class="switch"><input type="checkbox" id="wake-on" ${wakeOn ? 'checked' : ''}><span class="slider"></span></label></label>
+        <label class="field"><span>${esc(t('set.wakeWord'))}</span><input id="wake-word" value="${esc(wakeWord)}" placeholder="Mythera"></label>
+        <p class="muted">Например: «${esc(wakeWord)}, какая загрузка системы?»</p>
+      </div>
+      <div class="card">
+        <h3>🎚️ ${esc(t('set.voiceEngine'))}</h3>
+        <label class="field"><span>${esc(t('set.ttsEngine'))}</span><select id="tts-engine">
+          <option value="web" ${ttsEngine === 'web' ? 'selected' : ''}>Windows Speech (быстро)</option>
+          <option value="piper" ${ttsEngine === 'piper' ? 'selected' : ''}>Piper — лучше качество, оффлайн ${sp.piper.available ? '✅' : '⚠️ не настроен'}</option>
+        </select></label>
+        <label class="field"><span>${esc(t('set.sttEngine'))}</span><select id="stt-engine">
+          <option value="web" ${sttEngine === 'web' ? 'selected' : ''}>Web Speech (быстро)</option>
+          <option value="whisper" ${sttEngine === 'whisper' ? 'selected' : ''}>Faster-Whisper — точнее, оффлайн ${sp.whisper.available ? '✅' : '⚠️ не настроен'}</option>
+        </select></label>
+        <p class="muted">${sp.piper.available ? '' : 'Piper: ' + esc(sp.piper.hint) + '<br>'}${sp.whisper.available ? '' : 'Whisper: ' + esc(sp.whisper.hint)}</p>
       </div>
     </div>
     <div class="card" style="margin-top:16px">
       <h3>💡 Примеры команд</h3>
       <div style="margin-top:8px">
-        ${['Какая сейчас загрузка системы?', 'Найди в интернете погоду в Москве', 'Создай файл заметки на рабочем столе', 'Открой калькулятор', 'Составь план на день'].map(c => `<span class="tag accent">«${esc(c)}»</span>`).join('')}
+        ${['Какая сейчас загрузка системы?', 'Найди в интернете погоду', 'Сделай скриншот и опиши экран', 'Создай заметку на рабочем столе', 'Составь план на день'].map(c => `<span class="tag accent">«${esc(c)}»</span>`).join('')}
       </div>
     </div>`;
   $('#voice-toggle').onclick = toggleVoice;
-  $('#voice-test').onclick = () => speakOut('Голосовой ассистент Нексус готов к работе.');
+  $('#voice-test').onclick = () => speakOut('Mythera voice assistant is ready.');
   $('#vreplies').onchange = (e) => N.store.set('settings.voiceReplies', e.target.checked);
+  $('#wake-on').onchange = (e) => N.store.set('settings.wakeEnabled', e.target.checked);
+  $('#wake-word').onchange = (e) => N.store.set('settings.wakeWord', e.target.value.trim() || 'Mythera');
+  $('#tts-engine').onchange = (e) => { N.store.set('settings.ttsEngine', e.target.value); toast('TTS', e.target.value, 'ok'); };
+  $('#stt-engine').onchange = (e) => { N.store.set('settings.sttEngine', e.target.value); toast('STT', e.target.value, 'ok'); };
 }
 
 /* ---------- Settings ---------- */
@@ -771,6 +986,7 @@ async function viewSettings() {
         ${toggleRow('set-shell', t('set.allowShell'), s.allowShell)}
         ${toggleRow('set-fulldisk', t('set.fullDisk'), s.fullDiskAccess)}
         <p class="muted" style="margin-top:8px">${esc(t('set.dangerNote'))}</p>
+        <button class="btn ghost sm" id="set-secinfo" style="margin-top:6px">🛡️ Что именно блокируется?</button>
       </div>
       <div class="card">
         <h3>💽 ${esc(t('set.models'))}</h3>
@@ -797,7 +1013,7 @@ async function viewSettings() {
       </div>
       <div class="card" style="grid-column:1/-1">
         <h3>ℹ️ ${esc(t('set.about'))}</h3>
-        <p class="muted">Nexus AI Hub v${esc(info.appVersion)} · ${esc(info.platform)} ${esc(info.release)} · ${info.cpus} ${'ядер/cores'}</p>
+        <p class="muted">Mythera AI Hub v${esc(info.appVersion)} · ${esc(info.platform)} ${esc(info.release)} · ${info.cpus} ${'ядер/cores'}</p>
         <p class="muted" style="margin-top:8px">${esc(t('set.aboutLocal'))}</p>
         <p style="margin-top:12px;font-weight:700;background:var(--accent-grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;display:inline-block">${esc(t('set.madeBy'))} ❤️</p>
         <p class="muted" style="margin-top:6px">Sponsored by <b style="color:var(--accent)">SWAGA1ABE7</b></p>
@@ -810,6 +1026,7 @@ async function viewSettings() {
   bindToggle('set-startmin', (v) => N.store.set('settings.startMinimized', v));
   bindToggle('set-notif', (v) => N.store.set('settings.notifications', v));
   bindToggle('set-shell', (v) => N.store.set('settings.allowShell', v));
+  $('#set-secinfo').onclick = showSecurityInfo;
   bindToggle('set-fulldisk', async (v) => {
     if (v) { const ok = await confirmModal('⚠️ Полный доступ к диску', 'Агенты смогут читать и писать файлы вне песочницы (системные каталоги всё равно защищены). Включить?'); if (!ok) return viewSettings(); }
     N.store.set('settings.fullDiskAccess', v);
@@ -847,7 +1064,7 @@ async function viewSettings() {
     dl.innerHTML = drives.map((d) => `<button class="drive-chip" data-path="${esc(d.path)}" title="${esc(d.path)}">💽 ${esc(d.label || d.path)}${d.freeGb != null ? ` · ${d.freeGb} ГБ своб.` : ''}</button>`).join('');
     $$('.drive-chip', dl).forEach((b) => b.onclick = async () => {
       const base = b.dataset.path.replace(/[\\/]+$/, '');
-      const dir = base + (b.dataset.path.includes('\\') ? '\\NexusAI-Models' : '/NexusAI-Models');
+      const dir = base + (b.dataset.path.includes('\\') ? '\\MytheraAI-Models' : '/MytheraAI-Models');
       const r = await N.installer.setModelsDir(dir);
       toast(r.ok ? 'OK' : 'Ошибка', r.note || dir, r.ok ? 'ok' : 'err');
       viewSettings();
@@ -859,6 +1076,33 @@ function toggleRow(id, label, on) {
   return `<label class="row between" style="margin:12px 0"><span>${esc(label)}</span><label class="switch"><input type="checkbox" id="${id}" ${on ? 'checked' : ''}><span class="slider"></span></label></label>`;
 }
 function bindToggle(id, fn) { const e = $('#' + id); if (e) e.onchange = (ev) => fn(ev.target.checked); }
+
+// Прозрачность безопасности: показываем РЕАЛЬНЫЕ правила блокировки команд.
+async function showSecurityInfo() {
+  const info = await N.system.security();
+  modal(`<h2>🛡️ Как блокируются опасные команды</h2>
+    <p class="muted">Главный вопрос доверия к агенту, который может выполнять команды. Защита многоуровневая:</p>
+    <ol style="margin:10px 0 14px 18px;font-size:13px;line-height:1.7">
+      <li><b>Песочница файлов:</b> по умолчанию агент пишет только в <code>${esc(info.sandbox.workspace)}</code>. Выход за её пределы блокируется (если не включён полный доступ).</li>
+      <li><b>Защищённые каталоги:</b> запись в системные папки запрещена ВСЕГДА, даже при полном доступе.</li>
+      <li><b>Фильтр команд:</b> каждая команда проверяется регулярными выражениями ниже ещё ДО запуска. Совпадение → команда не выполняется.</li>
+      <li><b>Выключатель:</b> выполнение команд можно отключить целиком (сейчас: ${info.sandbox.allowShell ? 'включено' : 'выключено'}).</li>
+    </ol>
+    <p class="muted">Заблокированные шаблоны (regex, ${info.patterns.length}):</p>
+    <div style="max-height:160px;overflow:auto;background:var(--bg-2);border:1px solid var(--border);border-radius:8px;padding:10px;font-family:monospace;font-size:11px">${info.patterns.map((p) => esc(p)).join('<br>')}</div>
+    <p class="muted" style="margin-top:12px">Проверьте сами — введите команду:</p>
+    <div class="row"><input id="sec-test" placeholder="например: rm -rf /"><button class="btn" id="sec-run">Проверить</button></div>
+    <div id="sec-res" style="margin-top:8px"></div>
+    <div class="modal-actions"><button class="btn primary" id="sec-close">${esc(t('btn.close'))}</button></div>`, (m, close) => {
+    $('#sec-close', m).onclick = close;
+    const run = async () => {
+      const r = await N.system.testCommand($('#sec-test', m).value);
+      $('#sec-res', m).innerHTML = r.command ? `<div class="card" style="border-color:${r.blocked ? 'var(--danger)' : 'var(--ok)'}">${r.blocked ? '🚫 ЗАБЛОКИРОВАНО' : '✅ Разрешено'}${r.reason ? ' — ' + esc(r.reason) : ''}</div>` : '';
+    };
+    $('#sec-run', m).onclick = run;
+    $('#sec-test', m).addEventListener('keydown', (e) => { if (e.key === 'Enter') run(); });
+  });
+}
 
 // Простое подтверждение (да/нет).
 function confirmModal(title, text) {
@@ -874,14 +1118,15 @@ function confirmModal(title, text) {
   });
 }
 
-/* ================= VOICE (Web Speech API) ================= */
+/* ================= VOICE (Web Speech API + wake-word) ================= */
+const VOICE_LANG = () => ({ ru: 'ru-RU', en: 'en-US', uk: 'uk-UA', es: 'es-ES', de: 'de-DE', zh: 'zh-CN' }[getLangCode()] || 'en-US');
 let recognition = null;
 function setupRecognition() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) return null;
   const r = new SR();
-  r.lang = 'ru-RU';
-  r.continuous = false;
+  r.lang = VOICE_LANG();
+  r.continuous = true; // непрерывно — нужно для wake-word
   r.interimResults = true;
   r.onresult = (e) => {
     let interim = '', finalT = '';
@@ -889,7 +1134,7 @@ function setupRecognition() {
       const tr = e.results[i][0].transcript;
       if (e.results[i].isFinal) finalT += tr; else interim += tr;
     }
-    const vt = $('#vt'); if (vt) vt.textContent = finalT || interim || 'Слушаю…';
+    const vt = $('#vt'); if (vt) vt.textContent = finalT || interim || '…';
     if (finalT.trim()) handleVoiceCommand(finalT.trim());
   };
   r.onerror = () => {};
@@ -921,22 +1166,44 @@ function updateVoiceUI() {
   const vt = $('#vt'); if (vt && !state.voiceListening) vt.textContent = 'Нажмите, чтобы начать';
 }
 
-async function handleVoiceCommand(text) {
+async function handleVoiceCommand(rawText) {
+  let text = rawText.trim();
+  // Активация по имени: реагируем только если фраза начинается с «имени».
+  const wakeOn = await N.store.get('settings.wakeEnabled', false);
+  if (wakeOn) {
+    const wake = (await N.store.get('settings.wakeWord', 'Mythera')).toLowerCase();
+    const low = text.toLowerCase();
+    const idx = low.indexOf(wake);
+    if (idx === -1 || idx > 12) { const vt = $('#vt'); if (vt) vt.textContent = '😴 жду «' + wake + '»…'; return; }
+    // Убираем имя и возможную запятую из начала команды.
+    text = text.slice(idx + wake.length).replace(/^[\s,.:!—-]+/, '').trim();
+    if (!text) { const vt = $('#vt'); if (vt) vt.textContent = '👂 да?'; return; }
+  }
   const vt = $('#vt'); if (vt) vt.textContent = '💬 ' + text;
   N.voice.reportCommand(text);
-  // Если открыт экран голоса — показываем «думает».
   toast('Команда', text);
 }
 
 async function speakOut(text) {
+  // Piper (локальный TTS) — если включён и настроен; иначе Web Speech API.
+  const engine = await N.store.get('settings.ttsEngine', 'web');
+  if (engine === 'piper') {
+    try {
+      const r = await N.speech.synthesize(text);
+      if (r.ok && r.file) {
+        const audio = new Audio('file://' + r.file);
+        audio.playbackRate = await N.store.get('settings.voiceRate', 1);
+        audio.onended = async () => { if (state.voiceListening && await N.store.get('settings.autoListen', false)) { try { recognition && recognition.start(); } catch {} } };
+        audio.play(); return;
+      }
+    } catch {}
+  }
   if (!('speechSynthesis' in window)) return;
   const u = new SpeechSynthesisUtterance(text);
-  const langMap = { ru: 'ru-RU', en: 'en-US', uk: 'uk-UA', es: 'es-ES', de: 'de-DE', zh: 'zh-CN' };
-  u.lang = langMap[getLangCode()] || 'ru-RU';
+  u.lang = VOICE_LANG();
   u.rate = await N.store.get('settings.voiceRate', 1);
   const v = speechSynthesis.getVoices().find((x) => x.lang && x.lang.startsWith(u.lang.slice(0, 2)));
   if (v) u.voice = v;
-  // Авто-прослушивание после ответа.
   u.onend = async () => { if (state.voiceListening && await N.store.get('settings.autoListen', false)) { try { recognition && recognition.start(); } catch {} } };
   speechSynthesis.cancel();
   speechSynthesis.speak(u);
@@ -1135,6 +1402,16 @@ $('#agent-import-input').addEventListener('change', async (e) => {
   e.target.value = '';
 });
 
+$('#skill-import-input').addEventListener('change', async (e) => {
+  const file = e.target.files[0]; if (!file) return;
+  try {
+    const r = await N.skills.import(JSON.parse(await file.text()));
+    toast(r.ok ? 'Импортировано' : 'Ошибка', r.ok ? r.skill.label : r.error, r.ok ? 'ok' : 'err');
+    if (r.ok && state.view === 'skills') viewSkills();
+  } catch { toast('Ошибка', 'Не удалось прочитать файл', 'err'); }
+  e.target.value = '';
+});
+
 /* ---------- Onboarding wizard ---------- */
 const ONB_USECASES = [
   { id: 'assistant', ico: '🧠', name: 'Личный ассистент', sub: 'Ответы, поиск, помощь по задачам' },
@@ -1151,7 +1428,7 @@ async function startOnboarding() {
     return [
       // 0 — Welcome
       `<div class="onb-logo">🧠</div>
-       <h1>Добро пожаловать в Nexus AI Hub</h1>
+       <h1>Добро пожаловать в Mythera AI Hub</h1>
        <p class="lead">За пару минут настроим автономных AI-агентов, которые работают прямо на вашем ПК — приватно, без подписок и без облака. Они умеют управлять компьютером, искать в интернете и выполнять задачи по расписанию.</p>
        <div class="onb-actions"><span></span><button class="btn primary" id="onb-next">Начать →</button></div>`,
       // 1 — Use cases
@@ -1268,6 +1545,20 @@ N.on('voice:state', ({ listening }) => {
 N.on('scheduler:fired', async ({ name }) => { if (await N.store.get('settings.notifications', true)) toast('Задача выполнена', name, 'ok'); });
 
 N.on('mc:log', ({ log }) => { if (window.__mcLog) { window.__mcLog.textContent += log; window.__mcLog.scrollTop = window.__mcLog.scrollHeight; } });
+
+/* Swarm события */
+N.on('swarm:plan', ({ steps }) => {
+  const box = $('#sw-steps'); if (!box) return;
+  box.innerHTML = steps.map((s, i) => `<div class="card" id="sw-step-${i}" style="margin-bottom:8px"><b>${i + 1}. ${esc(s.agent)}</b> <span class="tag" id="sw-state-${i}">ожидание</span><br><small class="muted">${esc(s.task)}</small><div class="muted" id="sw-res-${i}" style="margin-top:6px"></div></div>`).join('');
+});
+N.on('swarm:step', ({ index, agent, state: stt, result }) => {
+  const tag = $('#sw-state-' + index); if (tag) tag.textContent = stt === 'run' ? '⏳ работает' : '✅ готово';
+  if (result) { const r = $('#sw-res-' + index); if (r) r.textContent = String(result).slice(0, 400); }
+});
+N.on('swarm:final-chunk', ({ chunk }) => {
+  const f = $('#sw-final'); if (f) { f.style.display = 'block'; f.textContent += chunk; }
+});
+N.on('swarm:done', () => { toast('Команда завершила работу', '', 'ok'); });
 N.on('translate:progress', (p) => {
   const bar = $('#tr-prog'); const msg = $('#tr-msg');
   if (bar) { bar.style.display = 'block'; bar.querySelector('i').style.width = (p.percent || 0) + '%'; }

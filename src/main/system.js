@@ -54,7 +54,7 @@ function setAutostart(enabled) {
 
 function safeRoot() {
   // По умолчанию агент работает в «песочнице» рабочего пространства.
-  const root = store.get('settings.workspace', path.join(os.homedir(), 'NexusAI-Workspace'));
+  const root = store.get('settings.workspace', path.join(os.homedir(), 'MytheraAI-Workspace'));
   fs.mkdirSync(root, { recursive: true });
   return root;
 }
@@ -99,6 +99,23 @@ function screenCommand(command) {
   if (DANGER_PATTERNS.some((re) => re.test(command))) return 'разрушительная операция';
   return null;
 }
+
+// Прозрачность для пользователя: что именно блокируется (вопрос доверия к tool-use).
+function securityInfo() {
+  return {
+    patterns: DANGER_PATTERNS.map((re) => re.source),
+    custom: store.get('settings.blockedCommands', []),
+    sandbox: {
+      workspace: safeRoot(),
+      fullDiskAccess: store.get('settings.fullDiskAccess', false),
+      allowShell: store.get('settings.allowShell', true),
+      protectedDirs: PROTECTED.map((re) => re.source)
+    }
+  };
+}
+
+// Демонстрация фильтра: проверяет команду так же, как при вызове агентом.
+function screenTest(cmd) { const reason = screenCommand(String(cmd || '')); return { command: cmd, blocked: !!reason, reason }; }
 
 function isSafeUrl(url) {
   try { const u = new URL(String(url)); return ['http:', 'https:', 'mailto:'].includes(u.protocol); }
@@ -209,7 +226,7 @@ const tools = {
 
   async notify({ title, message }) {
     // Уведомление пробрасывается в UI через возвращаемое значение и Notification API рендерера.
-    return `__NOTIFY__${JSON.stringify({ title: title || 'Nexus AI', message: message || '' })}`;
+    return `__NOTIFY__${JSON.stringify({ title: title || 'Mythera AI', message: message || '' })}`;
   }
 };
 
@@ -258,4 +275,4 @@ function listDrives() {
   });
 }
 
-module.exports = { getInfo, getStats, setAutostart, tools, toolSchemas, callTool, safeRoot, listDrives, isSafeUrl, resolveSafe };
+module.exports = { getInfo, getStats, setAutostart, tools, toolSchemas, callTool, safeRoot, listDrives, isSafeUrl, resolveSafe, screenCommand, securityInfo, screenTest };

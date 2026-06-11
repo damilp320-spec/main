@@ -13,6 +13,12 @@ const minecraft = require('./minecraft');
 const remote = require('./remote');
 const translator = require('./translator');
 const licensing = require('./licensing');
+const rag = require('./rag');
+const swarm = require('./swarm');
+const skills = require('./skills');
+const screen = require('./screen');
+const speech = require('./speech');
+const dispatch = require('./dispatch');
 
 let win = null;
 let tray = null;
@@ -74,12 +80,12 @@ function createTray() {
   }
   const icon = nativeImage.createFromBitmap(buf, { width: size, height: size });
   tray = new Tray(icon);
-  tray.setToolTip('Nexus AI Hub');
+  tray.setToolTip('Mythera AI Hub');
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: 'Открыть Nexus AI Hub', click: () => { win.show(); win.focus(); } },
-    { label: 'Голосовой ассистент', click: () => { win.show(); win.webContents.send('navigate', 'voice'); } },
+    { label: 'Open Mythera AI Hub', click: () => { win.show(); win.focus(); } },
+    { label: 'Voice assistant', click: () => { win.show(); win.webContents.send('navigate', 'voice'); } },
     { type: 'separator' },
-    { label: 'Выход', click: () => { isQuitting = true; app.quit(); } }
+    { label: 'Quit', click: () => { isQuitting = true; app.quit(); } }
   ]));
   tray.on('double-click', () => { win.show(); win.focus(); });
 }
@@ -118,6 +124,11 @@ app.whenReady().then(async () => {
     });
   } catch { /* hotkey may be taken */ }
 
+  // Удалённый доступ (локальный сервер) — автозапуск, если включён.
+  if (store.get('dispatch.enabled', false)) {
+    dispatch.start().then((s) => sendToUI('dispatch:status', s)).catch(() => {});
+  }
+
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 
@@ -139,6 +150,8 @@ ipcMain.handle('system:stats', () => system.getStats());
 ipcMain.handle('system:setAutostart', (_e, enabled) => system.setAutostart(enabled));
 ipcMain.handle('system:openExternal', (_e, url) => { if (system.isSafeUrl(url)) shell.openExternal(url); return true; });
 ipcMain.handle('system:listDrives', () => system.listDrives());
+ipcMain.handle('system:security', () => system.securityInfo());
+ipcMain.handle('system:testCommand', (_e, cmd) => system.screenTest(cmd));
 ipcMain.handle('system:pickFolder', async (_e, opts) => {
   const r = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'], title: (opts && opts.title) || 'Выберите папку' });
   return r.canceled ? null : r.filePaths[0];
@@ -196,6 +209,9 @@ ipcMain.handle('mc:list', () => minecraft.listProjects());
 ipcMain.handle('mc:create', (_e, opts) => minecraft.createProject(opts));
 ipcMain.handle('mc:compile', (_e, name) => minecraft.compileProject(name, (log) => sendToUI('mc:log', { name, log })));
 ipcMain.handle('mc:delete', (_e, name) => minecraft.deleteProject(name));
+ipcMain.handle('mc:createMod', (_e, opts) => minecraft.createMod(opts));
+ipcMain.handle('mc:compileMod', (_e, name) => minecraft.compileMod(name, (log) => sendToUI('mc:log', { name, log })));
+ipcMain.handle('mc:modLoaders', () => minecraft.MOD_LOADERS);
 
 /* ---------------- IPC: remote servers ---------------- */
 ipcMain.handle('remote:list', () => remote.listConnections());
@@ -220,3 +236,35 @@ ipcMain.handle('voice:state', () => voice.getState());
 // Рендерер сообщает распознанную фразу / финальную команду.
 ipcMain.handle('voice:transcript', (_e, text) => { voice.handleTranscript(text); return true; });
 ipcMain.handle('voice:command', (_e, text) => { voice.handleCommand(text); return true; });
+
+/* ---------------- IPC: speech (Piper / Faster-Whisper) ---------------- */
+ipcMain.handle('speech:detect', () => speech.detect());
+ipcMain.handle('speech:synthesize', (_e, text) => speech.synthesize(text));
+ipcMain.handle('speech:transcribe', (_e, b64, mime) => speech.transcribe(b64, mime));
+
+/* ---------------- IPC: RAG memory ---------------- */
+ipcMain.handle('rag:stats', (_e, scope) => rag.stats(scope || 'kb'));
+ipcMain.handle('rag:add', (_e, scope, text, source) => rag.addDocument(scope || 'kb', text, source));
+ipcMain.handle('rag:ingestFile', (_e, scope, file) => rag.ingestFile(scope || 'kb', file));
+ipcMain.handle('rag:clear', (_e, scope) => rag.clearDocs(scope || 'kb'));
+ipcMain.handle('rag:retrieve', (_e, scope, q) => rag.retrieve(scope || 'kb', q));
+
+/* ---------------- IPC: swarm (multi-agent) ---------------- */
+ipcMain.handle('swarm:run', (_e, opts) => swarm.run(opts, sendToUI));
+
+/* ---------------- IPC: skills (plugins) ---------------- */
+ipcMain.handle('skills:list', () => skills.listSkills());
+ipcMain.handle('skills:save', (_e, s) => skills.saveSkill(s));
+ipcMain.handle('skills:delete', (_e, id) => skills.deleteSkill(id));
+ipcMain.handle('skills:export', (_e, id) => skills.exportSkill(id));
+ipcMain.handle('skills:import', (_e, obj) => skills.importSkill(obj));
+
+/* ---------------- IPC: computer vision ---------------- */
+ipcMain.handle('screen:capture', () => screen.capture());
+
+/* ---------------- IPC: dispatch (remote access) ---------------- */
+ipcMain.handle('dispatch:status', () => dispatch.status());
+ipcMain.handle('dispatch:start', () => { store.set('dispatch.enabled', true); return dispatch.start(); });
+ipcMain.handle('dispatch:stop', () => { store.set('dispatch.enabled', false); return dispatch.stop(); });
+ipcMain.handle('dispatch:regenToken', () => { dispatch.regenToken(); return dispatch.status(); });
+ipcMain.handle('dispatch:setOption', (_e, key, value) => { store.set('dispatch.' + key, value); return dispatch.status(); });

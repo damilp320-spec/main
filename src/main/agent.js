@@ -7,22 +7,37 @@ const memory = require('./memory');
 const minecraft = require('./minecraft');
 const remote = require('./remote');
 const translator = require('./translator');
+const skills = require('./skills');
+const rag = require('./rag');
+const screen = require('./screen');
 
 const activeSessions = new Map(); // sessionId -> { stop: bool }
 
-// Полный набор инструментов = базовые + расширения (Minecraft, серверы, перевод).
+// Инструмент компьютерного зрения — захват скриншота для UI-агентов.
+const visionToolSchema = {
+  type: 'function',
+  function: { name: 'take_screenshot', description: 'Сделать скриншот экрана, чтобы УВИДЕТЬ, что сейчас на экране (для мультимодальных моделей).', parameters: { type: 'object', properties: {} } }
+};
+
+// Полный набор инструментов = базовые + расширения + скилы + зрение.
 function allToolSchemas() {
   return [
     ...system.toolSchemas,
     ...minecraft.toolSchemas,
     ...remote.toolSchemas,
-    ...translator.toolSchemas
+    ...translator.toolSchemas,
+    ...skills.toolSchemas(),
+    visionToolSchema
   ];
 }
 
 const extraHandlers = { ...minecraft.toolHandlers, ...remote.toolHandlers, ...translator.toolHandlers };
 
 async function dispatchTool(name, args) {
+  if (skills.isSkillTool(name)) {
+    try { return await skills.runSkill(name, args || {}); }
+    catch (e) { return `Ошибка скила ${name}: ${e.message}`; }
+  }
   if (extraHandlers[name]) {
     try { return await extraHandlers[name](args || {}); }
     catch (e) { return `Ошибка инструмента ${name}: ${e.message}`; }
@@ -134,12 +149,12 @@ function deleteAgent(id) {
 function exportAgent(id) {
   const a = listAgents().find((x) => x.id === id);
   if (!a) return null;
-  return { _type: 'nexus-agent', version: 1, name: a.name, icon: a.icon, model: a.model, autonomy: a.autonomy, system: a.system };
+  return { _type: 'mythera-agent', version: 1, name: a.name, icon: a.icon, model: a.model, autonomy: a.autonomy, system: a.system };
 }
 
 // Импорт агента из объекта (создаёт нового с новым id).
 function importAgent(obj) {
-  if (!obj || obj._type !== 'nexus-agent') return { ok: false, error: 'Это не файл агента Nexus' };
+  if (!obj || obj._type !== 'mythera-agent' && obj._type !== 'nexus-agent') return { ok: false, error: 'Это не файл агента Nexus' };
   const agent = {
     id: 'agent-' + randomUUID().slice(0, 8),
     name: (obj.name || 'Импортированный агент').slice(0, 60),
@@ -174,9 +189,11 @@ async function chat({ agentId, sessionId, message, history }, sendToUI) {
   activeSessions.set(sessionId, sess);
 
   const model = agent.model || store.get('settings.defaultModel', '') || 'qwen2.5:7b';
-  // Инжектируем долговременную память в системный промпт.
+  // Инжектируем долговременную память (факты) + RAG-знания под конкретный запрос.
   const memCtx = memory.buildContext(agent.id);
-  const messages = [{ role: 'system', content: agent.system + memCtx }];
+  let ragCtx = '';
+  try { ragCtx = await rag.buildContext(agent.id, message); } catch { /* RAG best effort */ }
+  const messages = [{ role: 'system', content: agent.system + memCtx + ragCtx }];
   // Сжимаем длинную историю, чтобы контекст жил долго, но не разрастался.
   let hist = history || [];
   if (hist.length > memory.COMPACT_AFTER) hist = await memory.compactHistory(hist, model);
@@ -184,9 +201,10 @@ async function chat({ agentId, sessionId, message, history }, sendToUI) {
   messages.push({ role: 'user', content: message });
 
   const useTools = agent.autonomy !== 'chat-only';
-  const baseSteps = agent.autonomy === 'autonomous' ? 14 : 6;
+  // Многошаговые задачи: до 40 шагов в автономном режиме (можно поднять в настройках до 100).
+  const baseSteps = agent.autonomy === 'autonomous' ? 40 : 8;
   const override = parseInt(store.get('settings.maxSteps', 0), 10);
-  const maxSteps = override > 0 ? override : baseSteps;
+  const maxSteps = Math.min(100, override > 0 ? override : baseSteps);
   const temperature = store.get('settings.temperature', 0.7);
   const options = { temperature: typeof temperature === 'number' ? temperature : 0.7 };
   let finalText = '';
@@ -209,6 +227,20 @@ async function chat({ agentId, sessionId, message, history }, sendToUI) {
           let args = tc.function && tc.function.arguments;
           if (typeof args === 'string') { try { args = JSON.parse(args); } catch { args = {}; } }
           sendToUI && sendToUI('agents:tool', { sessionId, name: fname, args });
+
+          // Компьютерное зрение: захват экрана и передача кадра модели.
+          if (fname === 'take_screenshot') {
+            try {
+              const shot = await screen.capture();
+              sendToUI && sendToUI('agents:toolResult', { sessionId, name: fname, result: 'Скриншот сделан' + (shot.file ? ': ' + shot.file : '') });
+              messages.push({ role: 'tool', content: 'Скриншот экрана получен и прикреплён ниже.' });
+              messages.push({ role: 'user', content: 'Вот текущий экран:', images: [shot.base64] });
+            } catch (e) {
+              messages.push({ role: 'tool', content: 'Не удалось сделать скриншот: ' + e.message });
+            }
+            continue;
+          }
+
           let result = await dispatchTool(fname, args);
           // Спец-обработка уведомлений.
           if (typeof result === 'string' && result.startsWith('__NOTIFY__')) {

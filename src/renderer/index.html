@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:;" />
+  <title>Mythera AI Hub</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Кастомный заголовок окна -->
+  <header class="titlebar">
+    <div class="titlebar-left">
+      <div class="logo-dot"></div>
+      <span class="title">Mythera AI Hub</span>
+      <span class="badge" id="ollama-badge">● проверка…</span>
+    </div>
+    <div class="titlebar-right">
+      <button class="cmdk-hint" id="cmdk-hint" title="Командная палитра">⌘K</button>
+      <div class="titlebar-controls">
+        <button class="win-btn" id="btn-min" title="Свернуть">&#x2013;</button>
+        <button class="win-btn" id="btn-max" title="Развернуть">&#x25A1;</button>
+        <button class="win-btn win-close" id="btn-close" title="Закрыть">&#x2715;</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="app">
+    <!-- Боковое меню -->
+    <nav class="sidebar">
+      <button class="nav-item active" data-view="dashboard"><span class="nav-ico">🏠</span><span data-i18n="nav.dashboard">Главная</span></button>
+      <button class="nav-item" data-view="agents"><span class="nav-ico">🤖</span><span data-i18n="nav.agents">Агенты</span></button>
+      <button class="nav-item" data-view="marketplace"><span class="nav-ico">⬇️</span><span data-i18n="nav.marketplace">Установка ИИ</span></button>
+      <button class="nav-item" data-view="scenarios"><span class="nav-ico">🎬</span><span data-i18n="nav.scenarios">Сценарии</span></button>
+      <button class="nav-item" data-view="scheduler"><span class="nav-ico">⏰</span><span data-i18n="nav.scheduler">Планировщик</span></button>
+      <button class="nav-item" data-view="minecraft"><span class="nav-ico">🧱</span><span data-i18n="nav.minecraft">Minecraft</span></button>
+      <button class="nav-item" data-view="servers"><span class="nav-ico">🖥️</span><span data-i18n="nav.servers">Серверы</span></button>
+      <button class="nav-item" data-view="translator"><span class="nav-ico">🌐</span><span data-i18n="nav.translator">Перевод</span></button>
+      <button class="nav-item" data-view="knowledge"><span class="nav-ico">📚</span><span data-i18n="nav.knowledge">База знаний</span></button>
+      <button class="nav-item" data-view="swarm"><span class="nav-ico">🐝</span><span data-i18n="nav.swarm">Команда (Swarm)</span></button>
+      <button class="nav-item" data-view="skills"><span class="nav-ico">🧩</span><span data-i18n="nav.skills">Скилы</span></button>
+      <button class="nav-item" data-view="dispatch"><span class="nav-ico">📡</span><span data-i18n="nav.dispatch">Удалённый доступ</span></button>
+      <button class="nav-item" data-view="prompts"><span class="nav-ico">💡</span><span data-i18n="nav.prompts">Промпты</span></button>
+      <button class="nav-item" data-view="voice"><span class="nav-ico">🎙️</span><span data-i18n="nav.voice">Голос</span></button>
+      <button class="nav-item" data-view="settings"><span class="nav-ico">⚙️</span><span data-i18n="nav.settings">Настройки</span></button>
+      <div class="sidebar-spacer"></div>
+      <div class="sys-mini" id="sys-mini">
+        <div class="sys-row"><span>CPU</span><div class="bar"><i id="cpu-bar"></i></div></div>
+        <div class="sys-row"><span>RAM</span><div class="bar"><i id="ram-bar"></i></div></div>
+      </div>
+      <div class="sponsor" title="Спонсор">Sponsored by <b>SWAGA1ABE7</b></div>
+    </nav>
+
+    <!-- Контент -->
+    <main class="content" id="content"></main>
+  </div>
+
+  <!-- Плавающая кнопка голосового ассистента -->
+  <button class="voice-fab" id="voice-fab" title="Голосовой ассистент (Ctrl+Shift+Space)">
+    <span class="mic-ico">🎤</span>
+    <span class="pulse"></span>
+  </button>
+
+  <!-- Контейнер уведомлений -->
+  <div class="toast-wrap" id="toast-wrap"></div>
+
+  <!-- Командная палитра (Ctrl+K) -->
+  <div class="cmdk-backdrop" id="cmdk" style="display:none">
+    <div class="cmdk-box">
+      <input id="cmdk-input" placeholder="Что сделать? Команда, агент, раздел…" autocomplete="off" />
+      <div class="cmdk-list" id="cmdk-list"></div>
+    </div>
+  </div>
+
+  <!-- Онбординг-мастер (первый запуск) -->
+  <div class="onb-backdrop" id="onb" style="display:none"></div>
+
+  <!-- Импорт агента / скила -->
+  <input type="file" id="agent-import-input" accept="application/json" style="display:none" />
+  <input type="file" id="skill-import-input" accept="application/json" style="display:none" />
+
+  <script src="i18n.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

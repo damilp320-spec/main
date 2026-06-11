@@ -1,0 +1,68 @@
+{
+  "name": "mythera-ai-hub",
+  "productName": "Mythera AI Hub",
+  "version": "1.0.0",
+  "description": "Автономные AI-агенты для Windows 11: установка локальных нейросетей, управление компьютером, планировщик задач и голосовой ассистент",
+  "main": "src/main/main.js",
+  "author": "Mythera AI Hub",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "icon": "node scripts/gen-icon.js",
+    "dist:win": "node scripts/gen-icon.js && electron-builder --win nsis portable",
+    "dist:linux": "node scripts/gen-icon.js && electron-builder --linux AppImage",
+    "pack": "electron-builder --dir"
+  },
+  "dependencies": {
+    "ssh2": "^1.17.0"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.mythera.aihub",
+    "productName": "Mythera AI Hub",
+    "copyright": "Copyright © 2026 Mythera AI Hub",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "runAfterFinish": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerLanguages": [
+        "ru_RU",
+        "en_US"
+      ]
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-portable.${ext}"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "icon": "build/icon.png",
+      "category": "Utility"
+    }
+  }
+}

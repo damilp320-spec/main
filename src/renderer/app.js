@@ -130,14 +130,14 @@ async function viewDashboard() {
       <div class="row wrap">
         <button class="btn primary" id="qs">${esc(t('dash.quickInstall'))}</button>
         <button class="btn ghost" id="goagents">${esc(t('dash.openAgents'))}</button>
-        <button class="btn ghost" id="dl-latest">⬇️ Скачать последнюю версию</button>
+        <button class="btn ghost" id="dl-latest">${esc(t('dash.download'))}</button>
       </div>
     </div>
     <div class="grid cols-4">
-      <div class="card stat"><span class="lbl">${esc(t('dash.statusOllama'))}</span><span class="big">${ollama.running ? 'OK' : '—'}</span><span class="muted">${ollama.running ? 'сервер активен' : 'не запущен'}</span></div>
-      <div class="card stat"><span class="lbl">${esc(t('dash.models'))}</span><span class="big">${models.length}</span><span class="muted">установлено</span></div>
-      <div class="card stat"><span class="lbl">${esc(t('dash.agents'))}</span><span class="big">${agents.length}</span><span class="muted">настроено</span></div>
-      <div class="card stat"><span class="lbl">${esc(t('dash.tasks'))}</span><span class="big">${tasks.filter((x) => x.enabled).length}</span><span class="muted">активно</span></div>
+      <div class="card stat"><span class="lbl">${esc(t('dash.statusOllama'))}</span><span class="big">${ollama.running ? 'OK' : '—'}</span><span class="muted">${ollama.running ? t('dash.srvOn') : t('dash.srvOff')}</span></div>
+      <div class="card stat"><span class="lbl">${esc(t('dash.models'))}</span><span class="big">${models.length}</span><span class="muted">${esc(t('dash.installedSub'))}</span></div>
+      <div class="card stat"><span class="lbl">${esc(t('dash.agents'))}</span><span class="big">${agents.length}</span><span class="muted">${esc(t('dash.configured'))}</span></div>
+      <div class="card stat"><span class="lbl">${esc(t('dash.tasks'))}</span><span class="big">${tasks.filter((x) => x.enabled).length}</span><span class="muted">${esc(t('dash.active'))}</span></div>
     </div>
     <div class="grid cols-2" style="margin-top:16px">
       <div class="card">
@@ -1641,10 +1641,8 @@ $('#skill-import-input').addEventListener('change', async (e) => {
 
 /* ---------- Onboarding wizard ---------- */
 const ONB_USECASES = [
-  { id: 'assistant', ico: '🧠', name: 'Личный ассистент', sub: 'Ответы, поиск, помощь по задачам' },
-  { id: 'automation', ico: '⚙️', name: 'Автоматизация ПК', sub: 'Команды, файлы, рутина' },
-  { id: 'coding', ico: '💻', name: 'Разработка', sub: 'Код, Minecraft, серверы' },
-  { id: 'voice', ico: '🎙️', name: 'Голосовой помощник', sub: 'Управление голосом' }
+  { id: 'assistant', ico: '🧠' }, { id: 'automation', ico: '⚙️' },
+  { id: 'coding', ico: '💻' }, { id: 'voice', ico: '🎙️' }
 ];
 async function startOnboarding() {
   const onb = $('#onb'); onb.style.display = 'flex';
@@ -1652,39 +1650,43 @@ async function startOnboarding() {
   const rec = await N.installer.recommend();
 
   function steps() {
+    const langOpts = LANGS.map((l) => `<option value="${l.code}" ${l.code === getLangCode() ? 'selected' : ''}>${esc(l.name)}</option>`).join('');
     return [
-      // 0 — Welcome
+      // 0 — Welcome (+ выбор языка сразу)
       `<div class="onb-logo">🧠</div>
-       <h1>Добро пожаловать в Mythera AI Hub</h1>
-       <p class="lead">За пару минут настроим автономных AI-агентов, которые работают прямо на вашем ПК — приватно, без подписок и без облака. Они умеют управлять компьютером, искать в интернете и выполнять задачи по расписанию.</p>
-       <div class="onb-actions"><span></span><button class="btn primary" id="onb-next">Начать →</button></div>`,
+       <h1>${esc(t('onb.welcomeTitle'))}</h1>
+       <p class="lead">${esc(t('onb.welcomeLead'))}</p>
+       <label class="field" style="max-width:280px"><span>${esc(t('onb.language'))}</span><select id="onb-lang">${langOpts}</select></label>
+       <div class="onb-actions"><span></span><button class="btn primary" id="onb-next">${esc(t('onb.start'))}</button></div>`,
       // 1 — Use cases
-      `<h1>Для чего будете использовать?</h1>
-       <p class="lead">Выберите одно или несколько — подберём подходящих агентов и модели.</p>
-       <div class="usecase-grid">${ONB_USECASES.map((u) => `<div class="usecase ${picks.has(u.id) ? 'sel' : ''}" data-uc="${u.id}"><span class="ico">${u.ico}</span><div><b>${u.name}</b><br><small>${u.sub}</small></div></div>`).join('')}</div>
-       <div class="onb-actions"><button class="btn ghost" id="onb-back">← Назад</button><button class="btn primary" id="onb-next">Далее →</button></div>`,
+      `<h1>${esc(t('onb.usecaseTitle'))}</h1>
+       <p class="lead">${esc(t('onb.usecaseLead'))}</p>
+       <div class="usecase-grid">${ONB_USECASES.map((u) => `<div class="usecase ${picks.has(u.id) ? 'sel' : ''}" data-uc="${u.id}"><span class="ico">${u.ico}</span><div><b>${esc(t('onb.uc.' + u.id))}</b><br><small>${esc(t('onb.uc.' + u.id + 'Sub'))}</small></div></div>`).join('')}</div>
+       <div class="onb-actions"><button class="btn ghost" id="onb-back">${esc(t('onb.back'))}</button><button class="btn primary" id="onb-next">${esc(t('onb.next'))}</button></div>`,
       // 2 — Hardware + models
-      `<h1>Ваш компьютер готов</h1>
-       <p class="lead">Обнаружено ОЗУ: <b>${rec.totalGb} ГБ</b>. Под него подобраны оптимальные локальные модели:</p>
+      `<h1>${esc(t('onb.hwTitle'))}</h1>
+       <p class="lead">${esc(t('onb.hwLead').replace('{gb}', rec.totalGb))}</p>
        <div class="onb-pick">${rec.models.map((m) => `<div class="onb-model-row"><div><b>${esc(m.name)}</b> <span class="model-size">${esc(m.size)}</span><br><small class="muted">${esc(m.desc)}</small></div></div>`).join('')}</div>
-       <div class="onb-actions"><button class="btn ghost" id="onb-back">← Назад</button><div class="row"><button class="btn ghost" id="onb-skip">Пропустить</button><button class="btn primary" id="onb-install">⚡ Установить и настроить</button></div></div>`,
+       <div class="onb-actions"><button class="btn ghost" id="onb-back">${esc(t('onb.back'))}</button><div class="row"><button class="btn ghost" id="onb-skip">${esc(t('onb.skip'))}</button><button class="btn primary" id="onb-install">${esc(t('onb.install'))}</button></div></div>`,
       // 3 — Installing
       `<div class="onb-logo">⚙️</div>
-       <h1>Устанавливаем…</h1>
-       <p class="lead">Скачиваем движок и модели. Можно свернуть окно — мы продолжим в фоне.</p>
+       <h1>${esc(t('onb.installTitle'))}</h1>
+       <p class="lead">${esc(t('onb.installLead'))}</p>
        <div class="progress" style="height:10px"><i id="onb-bar"></i></div>
-       <p class="muted" id="onb-msg" style="margin-top:10px">Подготовка…</p>
-       <div class="onb-actions"><span></span><button class="btn ghost" id="onb-bg" disabled>Готово</button></div>`,
+       <p class="muted" id="onb-msg" style="margin-top:10px">${esc(t('onb.preparing'))}</p>
+       <div class="onb-actions"><span></span><button class="btn ghost" id="onb-bg" disabled>${esc(t('onb.ready'))}</button></div>`,
       // 4 — Done
       `<div class="onb-logo">🎉</div>
-       <h1>Всё готово!</h1>
-       <p class="lead">Агенты настроены. Откройте раздел «Агенты» и начните диалог, или нажмите <b>Ctrl+K</b> для быстрого доступа к любой функции. Голос — по кнопке 🎤 или <b>Ctrl+Shift+Space</b>.</p>
-       <div class="onb-actions"><span></span><button class="btn primary" id="onb-finish">Начать работу →</button></div>`
+       <h1>${esc(t('onb.doneTitle'))}</h1>
+       <p class="lead">${esc(t('onb.doneLead'))}</p>
+       <div class="onb-actions"><span></span><button class="btn primary" id="onb-finish">${esc(t('onb.startWork'))}</button></div>`
     ];
   }
   function draw() {
     const total = 5;
     onb.innerHTML = `<div class="onb-card"><div class="onb-steps">${Array.from({ length: total }, (_, i) => `<i class="${i <= step ? 'on' : ''}"></i>`).join('')}</div>${steps()[step]}</div>`;
+    const langSel = $('#onb-lang', onb);
+    if (langSel) langSel.onchange = async (e) => { setLangCode(e.target.value); await N.store.set('settings.lang', e.target.value); applyStaticI18n(); draw(); };
     const next = $('#onb-next', onb); if (next) next.onclick = () => { step++; draw(); };
     const back = $('#onb-back', onb); if (back) back.onclick = () => { step--; draw(); };
     const finish = $('#onb-finish', onb); if (finish) finish.onclick = async () => { await N.store.set('onboarded', true); onb.style.display = 'none'; navigate('agents'); };
@@ -1699,7 +1701,7 @@ async function startOnboarding() {
       const bar = $('#onb-bar', onb); if (bar) bar.style.width = '100%';
       const bg = $('#onb-bg', onb); if (bg) bg.disabled = false;
       step = 4; draw();
-      if (!r.ok) toast('Установка', r.error || 'Возникла ошибка, можно повторить в разделе «Установка ИИ»', 'err');
+      if (!r.ok) toast('Mythera', r.error || 'Возникла ошибка, можно повторить в разделе «Установка ИИ»', 'err');
     };
   }
   draw();
@@ -1805,8 +1807,8 @@ async function pollOllama() {
   try {
     const st = await N.installer.ollamaStatus();
     const b = $('#ollama-badge');
-    if (st.running) { b.textContent = '● Ollama активна'; b.className = 'badge ok'; }
-    else { b.textContent = '● Ollama не запущена'; b.className = 'badge off'; }
+    if (st.running) { b.textContent = t('badge.on'); b.className = 'badge ok'; }
+    else { b.textContent = t('badge.off'); b.className = 'badge off'; }
   } catch {}
 }
 

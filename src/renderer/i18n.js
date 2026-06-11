@@ -1,4 +1,8 @@
 /* Локализация интерфейса. t(key) с откатом en -> ru -> ключ. */
+/* Обёрнуто в IIFE: в глобальную область утекает только window.I18N_API,
+   иначе t/LANGS/… столкнулись бы с такими же именами в app.js (классические
+   <script> делят общий global scope → "Identifier already declared"). */
+(function () {
 const I18N = {
   ru: {
     'nav.dashboard': 'Главная', 'nav.agents': 'Агенты', 'nav.marketplace': 'Установка ИИ', 'nav.scheduler': 'Планировщик',
@@ -6,6 +10,19 @@ const I18N = {
     'nav.scenarios': 'Сценарии', 'nav.voice': 'Голос', 'nav.settings': 'Настройки',
     'nav.knowledge': 'База знаний', 'nav.swarm': 'Команда (Swarm)', 'nav.skills': 'Скилы', 'nav.dispatch': 'Удалённый доступ',
     'nav.smarthome': 'Умный дом', 'nav.developer': 'Разработчику',
+    'onb.welcomeTitle': 'Добро пожаловать в Mythera AI Hub',
+    'onb.welcomeLead': 'За пару минут настроим автономных AI-агентов, которые работают прямо на вашем ПК — приватно, без подписок и без облака. Они умеют управлять компьютером, искать в интернете и выполнять задачи по расписанию.',
+    'onb.language': 'Язык интерфейса', 'onb.start': 'Начать →', 'onb.back': '← Назад', 'onb.next': 'Далее →', 'onb.skip': 'Пропустить',
+    'onb.usecaseTitle': 'Для чего будете использовать?', 'onb.usecaseLead': 'Выберите одно или несколько — подберём подходящих агентов и модели.',
+    'onb.uc.assistant': 'Личный ассистент', 'onb.uc.assistantSub': 'Ответы, поиск, помощь по задачам',
+    'onb.uc.automation': 'Автоматизация ПК', 'onb.uc.automationSub': 'Команды, файлы, рутина',
+    'onb.uc.coding': 'Разработка', 'onb.uc.codingSub': 'Код, Minecraft, серверы',
+    'onb.uc.voice': 'Голосовой помощник', 'onb.uc.voiceSub': 'Управление голосом',
+    'onb.hwTitle': 'Ваш компьютер готов', 'onb.hwLead': 'Обнаружено ОЗУ: {gb} ГБ. Под него подобраны оптимальные локальные модели:',
+    'onb.install': '⚡ Установить и настроить', 'onb.installTitle': 'Устанавливаем…',
+    'onb.installLead': 'Скачиваем движок и модели. Можно свернуть окно — мы продолжим в фоне.', 'onb.preparing': 'Подготовка…', 'onb.ready': 'Готово',
+    'onb.doneTitle': 'Всё готово!', 'onb.doneLead': 'Агенты настроены. Откройте раздел «Агенты» и начните диалог, или нажмите Ctrl+K для быстрого доступа к любой функции. Голос — по кнопке 🎤 или Ctrl+Shift+Space.',
+    'onb.startWork': 'Начать работу →',
     'set.voiceEngine': 'Движок речи', 'set.ttsEngine': 'Синтез (TTS)', 'set.sttEngine': 'Распознавание (STT)',
     'set.wakeEnabled': 'Активация по имени', 'set.wakeWord': 'Имя ассистента', 'set.rag': 'RAG-память (эмбеддинги)', 'set.embedModel': 'Модель эмбеддингов',
     'btn.save': 'Сохранить', 'btn.cancel': 'Отмена', 'btn.delete': 'Удалить', 'btn.close': 'Закрыть', 'btn.add': 'Добавить',
@@ -16,6 +33,8 @@ const I18N = {
     'dash.quickInstall': '⚡ Быстрая установка', 'dash.openAgents': '🤖 Открыть агентов',
     'dash.statusOllama': 'Статус Ollama', 'dash.models': 'Моделей', 'dash.agents': 'Агентов', 'dash.tasks': 'Задач',
     'dash.system': 'Система', 'dash.installed': 'Установленные модели', 'dash.noModels': 'Пока нет. Нажмите «Быстрая установка».',
+    'dash.srvOn': 'сервер активен', 'dash.srvOff': 'не запущен', 'dash.installedSub': 'установлено', 'dash.configured': 'настроено', 'dash.active': 'активно', 'dash.download': '⬇️ Скачать последнюю версию',
+    'badge.checking': '● проверка…', 'badge.on': '● Ollama активна', 'badge.off': '● Ollama не запущена',
     'set.title': 'Настройки', 'set.sub': 'Поведение приложения, оформление и безопасность агентов',
     'set.appearance': 'Оформление', 'set.lightTheme': 'Светлая тема', 'set.accent': 'Акцентный цвет', 'set.language': 'Язык интерфейса',
     'set.launch': 'Запуск', 'set.autostart': 'Запускать вместе с Windows', 'set.tray': 'Сворачивать в трей при закрытии', 'set.startMin': 'Запускать свёрнутым в трей',
@@ -37,6 +56,19 @@ const I18N = {
     'nav.scenarios': 'Scenarios', 'nav.voice': 'Voice', 'nav.settings': 'Settings',
     'nav.knowledge': 'Knowledge', 'nav.swarm': 'Team (Swarm)', 'nav.skills': 'Skills', 'nav.dispatch': 'Remote access',
     'nav.smarthome': 'Smart home', 'nav.developer': 'Developer',
+    'onb.welcomeTitle': 'Welcome to Mythera AI Hub',
+    'onb.welcomeLead': 'In a couple of minutes we will set up autonomous AI agents that run right on your PC — private, no subscriptions, no cloud. They can control the computer, search the web and run scheduled tasks.',
+    'onb.language': 'Interface language', 'onb.start': 'Start →', 'onb.back': '← Back', 'onb.next': 'Next →', 'onb.skip': 'Skip',
+    'onb.usecaseTitle': 'What will you use it for?', 'onb.usecaseLead': 'Pick one or more — we will suggest matching agents and models.',
+    'onb.uc.assistant': 'Personal assistant', 'onb.uc.assistantSub': 'Answers, search, task help',
+    'onb.uc.automation': 'PC automation', 'onb.uc.automationSub': 'Commands, files, routine',
+    'onb.uc.coding': 'Development', 'onb.uc.codingSub': 'Code, Minecraft, servers',
+    'onb.uc.voice': 'Voice assistant', 'onb.uc.voiceSub': 'Hands-free control',
+    'onb.hwTitle': 'Your computer is ready', 'onb.hwLead': 'Detected RAM: {gb} GB. Optimal local models were picked for it:',
+    'onb.install': '⚡ Install and set up', 'onb.installTitle': 'Installing…',
+    'onb.installLead': 'Downloading the engine and models. You can minimize the window — we will continue in the background.', 'onb.preparing': 'Preparing…', 'onb.ready': 'Done',
+    'onb.doneTitle': 'All set!', 'onb.doneLead': 'Agents are configured. Open the Agents section and start chatting, or press Ctrl+K for quick access to any feature. Voice — via the 🎤 button or Ctrl+Shift+Space.',
+    'onb.startWork': 'Get started →',
     'set.voiceEngine': 'Speech engine', 'set.ttsEngine': 'Synthesis (TTS)', 'set.sttEngine': 'Recognition (STT)',
     'set.wakeEnabled': 'Wake-word activation', 'set.wakeWord': 'Assistant name', 'set.rag': 'RAG memory (embeddings)', 'set.embedModel': 'Embedding model',
     'btn.save': 'Save', 'btn.cancel': 'Cancel', 'btn.delete': 'Delete', 'btn.close': 'Close', 'btn.add': 'Add',
@@ -47,6 +79,8 @@ const I18N = {
     'dash.quickInstall': '⚡ Quick install', 'dash.openAgents': '🤖 Open agents',
     'dash.statusOllama': 'Ollama status', 'dash.models': 'Models', 'dash.agents': 'Agents', 'dash.tasks': 'Tasks',
     'dash.system': 'System', 'dash.installed': 'Installed models', 'dash.noModels': 'None yet. Click “Quick install”.',
+    'dash.srvOn': 'server running', 'dash.srvOff': 'not running', 'dash.installedSub': 'installed', 'dash.configured': 'configured', 'dash.active': 'active', 'dash.download': '⬇️ Download latest',
+    'badge.checking': '● checking…', 'badge.on': '● Ollama running', 'badge.off': '● Ollama not running',
     'set.title': 'Settings', 'set.sub': 'App behaviour, appearance and agent security',
     'set.appearance': 'Appearance', 'set.lightTheme': 'Light theme', 'set.accent': 'Accent color', 'set.language': 'Interface language',
     'set.launch': 'Startup', 'set.autostart': 'Launch with Windows', 'set.tray': 'Minimize to tray on close', 'set.startMin': 'Start minimized to tray',
@@ -188,3 +222,4 @@ function applyStaticI18n(root = document) {
 }
 
 window.I18N_API = { t, setLangCode, getLangCode, applyStaticI18n, LANGS };
+})();

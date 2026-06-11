@@ -106,11 +106,22 @@ async function ensureLimit() { return true; }
 
 /* ================= VIEWS ================= */
 const content = $('#content');
-function render() {
+async function render() {
   content.scrollTop = 0;
   content.className = 'content fade-in';
   const map = { dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scenarios: viewScenarios, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, smarthome: viewSmartHome, knowledge: viewKnowledge, swarm: viewSwarm, skills: viewSkills, dispatch: viewDispatch, prompts: viewPrompts, voice: viewVoice, developer: viewDeveloper, settings: viewSettings };
-  (map[state.view] || viewDashboard)();
+  const fn = map[state.view] || viewDashboard;
+  // Граница ошибок: сбой одной вкладки не «вешает» весь интерфейс.
+  try {
+    await fn();
+  } catch (e) {
+    console.error('Render error:', e);
+    content.innerHTML = `<div class="card" style="padding:32px">
+      <h2 style="color:var(--danger)">⚠️ ${esc(t('err.viewTitle'))}</h2>
+      <p class="muted" style="margin:8px 0">${esc((e && e.message) || e)}</p>
+      <button class="btn" id="err-retry">${esc(t('err.retry'))}</button></div>`;
+    const r = $('#err-retry'); if (r) r.onclick = () => render();
+  }
 }
 
 /* ---------- Dashboard ---------- */
@@ -294,24 +305,6 @@ async function viewAgents() {
 
   // Промпт из библиотеки — подставляем в поле ввода.
   if (state.pendingPrompt) { $('#chat-text').value = state.pendingPrompt; state.pendingPrompt = null; $('#chat-text').focus(); }
-}
-
-// В начале render()
-async function render() {
-  content.scrollTop = 0;
-  content.className = 'content fade-in';
-  try {
-    const map = { ... };
-    const fn = map[state.view] || viewDashboard;
-    await fn();                    // ← await + try
-  } catch (e) {
-    console.error('Render error:', e);
-    content.innerHTML = `<div class="card" style="color:var(--danger);padding:40px">
-      <h2>Ошибка загрузки вкладки</h2>
-      <p>${esc(e.message || e)}</p>
-      <button onclick="location.reload()">Перезагрузить</button>
-    </div>`;
-  }
 }
 
 async function exportActiveAgent() {

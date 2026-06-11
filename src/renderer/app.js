@@ -1,5 +1,6 @@
 /* Nexus AI Hub — логика интерфейса (рендерер) */
 const N = window.nexus;
+const { t, setLangCode, getLangCode, applyStaticI18n, LANGS } = window.I18N_API;
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
@@ -48,70 +49,37 @@ function modal(html, onMount) {
 }
 
 /* ---------------- Themes ---------------- */
+// Все темы доступны (Pro-режим временно отключён).
 const ACCENTS = {
-  violet: { a: '#7c5cff', b: '#29d3c2', name: 'Аметист', pro: false },
-  ocean:  { a: '#3b82f6', b: '#22d3ee', name: 'Океан', pro: false },
-  sunset: { a: '#ff7c5c', b: '#ffb547', name: 'Закат', pro: true },
-  forest: { a: '#3ddc84', b: '#a3e635', name: 'Лес', pro: true },
-  rose:   { a: '#ff5c9d', b: '#c77dff', name: 'Роза', pro: true }
+  violet: { a: '#7c5cff', b: '#29d3c2', name: 'Аметист' },
+  ocean:  { a: '#3b82f6', b: '#22d3ee', name: 'Океан' },
+  sunset: { a: '#ff7c5c', b: '#ffb547', name: 'Закат' },
+  forest: { a: '#3ddc84', b: '#a3e635', name: 'Лес' },
+  rose:   { a: '#ff5c9d', b: '#c77dff', name: 'Роза' },
+  gold:   { a: '#f7b733', b: '#fc4a1a', name: 'Золото' },
+  ice:    { a: '#7ee8fa', b: '#80a4ff', name: 'Лёд' },
+  mono:   { a: '#9aa3b8', b: '#5b6478', name: 'Графит' }
 };
 async function applyTheme() {
-  const t = await N.store.get('settings.theme', { mode: 'dark', accent: 'violet' });
-  document.body.classList.toggle('light', t.mode === 'light');
-  const ac = ACCENTS[t.accent] || ACCENTS.violet;
+  const th = await N.store.get('settings.theme', { mode: 'dark', accent: 'violet' });
+  document.body.classList.toggle('light', th.mode === 'light');
+  const ac = ACCENTS[th.accent] || ACCENTS.violet;
   const r = document.documentElement.style;
   r.setProperty('--accent', ac.a);
   r.setProperty('--accent-2', ac.b);
   r.setProperty('--accent-grad', `linear-gradient(135deg, ${ac.a} 0%, ${ac.b} 100%)`);
 }
 
-/* ---------------- Licensing helpers ---------------- */
-let LIC = { plan: 'free', isPro: false };
-async function refreshLicense() {
-  LIC = await N.license.status();
-  const badge = $('#plan-badge');
-  if (badge) {
-    badge.textContent = LIC.plan === 'pro' ? 'PRO' : LIC.plan === 'trial' ? `PRO · ${LIC.daysLeft}д` : 'Free';
-    badge.classList.toggle('pro', LIC.isPro);
-  }
-  return LIC;
-}
-// Гейт Pro-функции: если нет доступа — показать апгрейд и вернуть false.
-async function ensurePro(featureLabel) {
-  await refreshLicense();
-  if (LIC.isPro) return true;
-  upgradeModal(featureLabel);
-  return false;
-}
-// Гейт лимита (agents/tasks/servers/translateChars).
-async function ensureLimit(kind, currentCount, label) {
-  const r = await N.license.can(kind, currentCount);
-  if (r.allowed) return true;
-  upgradeModal(label, r.reason === 'limit' ? `Бесплатный тариф: до ${r.limit}. Перейдите на Pro, чтобы снять лимит.` : '');
-  return false;
-}
-function upgradeModal(feature, note) {
-  modal(`
-    <div style="text-align:center">
-      <div class="onb-logo" style="margin:0 auto 14px">⭐</div>
-      <h2>Это возможность Nexus Pro</h2>
-      <p class="muted" style="margin:8px 0">${esc(feature ? feature + '. ' : '')}${esc(note || 'Откройте все функции без ограничений.')}</p>
-    </div>
-    <div class="modal-actions" style="justify-content:center">
-      <button class="btn ghost" id="up-later">Позже</button>
-      <button class="btn primary" id="up-go">⭐ Открыть Nexus Pro</button>
-    </div>`, (m, close) => {
-    $('#up-later', m).onclick = close;
-    $('#up-go', m).onclick = () => { close(); navigate('pro'); };
-  });
-}
+/* ---------------- Gating (Pro отключён — всё доступно) ---------------- */
+async function ensurePro() { return true; }
+async function ensureLimit() { return true; }
 
 /* ================= VIEWS ================= */
 const content = $('#content');
 function render() {
   content.scrollTop = 0;
   content.className = 'content fade-in';
-  const map = { dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, prompts: viewPrompts, voice: viewVoice, settings: viewSettings, pro: viewPro };
+  const map = { dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scenarios: viewScenarios, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, prompts: viewPrompts, voice: viewVoice, settings: viewSettings };
   (map[state.view] || viewDashboard)();
 }
 
@@ -125,32 +93,32 @@ async function viewDashboard() {
   const agents = await N.agents.list();
 
   content.innerHTML = `
-    <div class="view-head"><h1>Главная</h1><p>Центр управления автономными AI-агентами</p></div>
+    <div class="view-head"><h1>${esc(t('dash.title'))}</h1><p>${esc(t('dash.sub'))}</p></div>
     <div class="hero">
-      <h2>👋 Добро пожаловать в Nexus AI Hub</h2>
-      <p>Локальные нейросети, которые работают автономно на вашем ПК, управляют компьютером, имеют доступ к интернету и выполняют задачи по расписанию. Всё приватно — данные не покидают устройство.</p>
+      <h2>👋 ${esc(t('dash.welcome'))}</h2>
+      <p>${esc(t('dash.welcomeSub'))}</p>
       <div class="row wrap">
-        <button class="btn primary" id="qs">⚡ Быстрая установка (рекомендуется)</button>
-        <button class="btn ghost" id="goagents">🤖 Открыть агентов</button>
+        <button class="btn primary" id="qs">${esc(t('dash.quickInstall'))}</button>
+        <button class="btn ghost" id="goagents">${esc(t('dash.openAgents'))}</button>
       </div>
     </div>
     <div class="grid cols-4">
-      <div class="card stat"><span class="lbl">Статус Ollama</span><span class="big">${ollama.running ? 'OK' : '—'}</span><span class="muted">${ollama.running ? 'сервер активен' : 'не запущен'}</span></div>
-      <div class="card stat"><span class="lbl">Моделей</span><span class="big">${models.length}</span><span class="muted">установлено</span></div>
-      <div class="card stat"><span class="lbl">Агентов</span><span class="big">${agents.length}</span><span class="muted">настроено</span></div>
-      <div class="card stat"><span class="lbl">Задач</span><span class="big">${tasks.filter(t => t.enabled).length}</span><span class="muted">активно</span></div>
+      <div class="card stat"><span class="lbl">${esc(t('dash.statusOllama'))}</span><span class="big">${ollama.running ? 'OK' : '—'}</span><span class="muted">${ollama.running ? 'сервер активен' : 'не запущен'}</span></div>
+      <div class="card stat"><span class="lbl">${esc(t('dash.models'))}</span><span class="big">${models.length}</span><span class="muted">установлено</span></div>
+      <div class="card stat"><span class="lbl">${esc(t('dash.agents'))}</span><span class="big">${agents.length}</span><span class="muted">настроено</span></div>
+      <div class="card stat"><span class="lbl">${esc(t('dash.tasks'))}</span><span class="big">${tasks.filter((x) => x.enabled).length}</span><span class="muted">активно</span></div>
     </div>
     <div class="grid cols-2" style="margin-top:16px">
       <div class="card">
-        <h3>💻 Система</h3>
+        <h3>💻 ${esc(t('dash.system'))}</h3>
         <p class="muted">${esc(info.cpuModel)}</p>
         <div style="margin-top:10px;font-size:13px;color:var(--muted)">
-          ОЗУ: ${stats.memUsedGb} / ${stats.memTotalGb} ГБ &nbsp;·&nbsp; Ядер: ${info.cpus} &nbsp;·&nbsp; ${esc(info.platform)} ${esc(info.release)}
+          RAM: ${stats.memUsedGb} / ${stats.memTotalGb} GB &nbsp;·&nbsp; ${info.cpus} cores &nbsp;·&nbsp; ${esc(info.platform)} ${esc(info.release)}
         </div>
       </div>
       <div class="card">
-        <h3>📦 Установленные модели</h3>
-        ${models.length ? models.map(m => `<span class="tag accent">${esc(m.name)}</span>`).join('') : '<p class="muted" style="margin-top:8px">Пока нет. Нажмите «Быстрая установка».</p>'}
+        <h3>📦 ${esc(t('dash.installed'))}</h3>
+        ${models.length ? models.map(m => `<span class="tag accent">${esc(m.name)}</span>`).join('') : `<p class="muted" style="margin-top:8px">${esc(t('dash.noModels'))}</p>`}
       </div>
     </div>`;
 
@@ -252,8 +220,8 @@ async function viewAgents() {
   if (!state.activeAgentId && state.agents[0]) state.activeAgentId = state.agents[0].id;
 
   content.innerHTML = `
-    <div class="view-head row between"><div><h1>Агенты</h1><p>Автономные помощники с доступом к компьютеру и интернету</p></div>
-      <div class="row"><button class="btn ghost" id="import-agent">📥 Импорт</button><button class="btn primary" id="new-agent">＋ Новый агент</button></div></div>
+    <div class="view-head row between"><div><h1>${esc(t('nav.agents'))}</h1><p>Автономные помощники с доступом к компьютеру и интернету</p></div>
+      <div class="row"><button class="btn ghost" id="gallery-agent">🧩 Галерея</button><button class="btn ghost" id="import-agent">📥 ${esc(t('btn.import'))}</button><button class="btn primary" id="new-agent">＋ ${esc(t('btn.newAgent'))}</button></div></div>
     <div class="agents-layout">
       <div class="agent-list" id="agent-list"></div>
       <div class="chat" id="chat">
@@ -270,6 +238,7 @@ async function viewAgents() {
     const count = state.agents.length;
     if (await ensureLimit('agents', count, 'Лимит агентов на бесплатном тарифе')) editAgent(null);
   };
+  $('#gallery-agent').onclick = () => templateGallery();
   $('#import-agent').onclick = () => $('#agent-import-input').click();
   $('#export-agent').onclick = () => exportActiveAgent();
   $('#edit-agent').onclick = () => editAgent(state.agents.find(a => a.id === state.activeAgentId));
@@ -303,6 +272,31 @@ async function exportActiveAgent() {
   const a = el('a'); a.href = URL.createObjectURL(blob); a.download = (data.name || 'agent').replace(/[^\wа-яА-Я-]+/g, '_') + '.nexus.json';
   a.click(); URL.revokeObjectURL(a.href);
   toast('Экспортировано', data.name, 'ok');
+}
+
+// Галерея шаблонов агентов (намного больше готовых вариантов).
+async function templateGallery() {
+  const tpls = await N.agents.templates();
+  const cats = [...new Set(tpls.map((x) => x.cat))];
+  const body = cats.map((cat) => `
+    <div class="tpl-cat">${esc(cat)}</div>
+    <div class="grid cols-2">${tpls.filter((x) => x.cat === cat).map((x) => `
+      <div class="card tpl-card" data-tpl="${esc(x.id)}">
+        <div class="row" style="gap:10px"><span style="font-size:22px">${x.icon}</span>
+        <div><b>${esc(x.name)}</b><br><small class="muted">${esc(x.desc || '')}</small></div></div>
+        <button class="btn primary sm" data-add="${esc(x.id)}" style="margin-top:8px">＋ ${esc(t('btn.add'))}</button>
+      </div>`).join('')}</div>`).join('');
+  modal(`<h2>🧩 Галерея агентов <span class="tag">${tpls.length}</span></h2>
+    <p class="muted">Готовые специалисты на любой случай. Добавьте в один клик.</p>
+    <div style="max-height:60vh;overflow:auto;margin-top:10px">${body}</div>
+    <div class="modal-actions"><button class="btn ghost" id="g-close">${esc(t('btn.close'))}</button></div>`, (m, close) => {
+    $('#g-close', m).onclick = close;
+    $$('[data-add]', m).forEach((b) => b.onclick = async () => {
+      const r = await N.agents.addTemplate(b.dataset.add);
+      if (r.ok) { toast('Добавлено', r.agent.name, 'ok'); state.activeAgentId = r.agent.id; close(); viewAgents(); }
+      else toast('Ошибка', r.error, 'err');
+    });
+  });
 }
 
 function autonomyLabel(a) { return ({ 'chat-only': 'только чат', balanced: 'сбалансированный', autonomous: 'автономный' })[a] || 'сбалансированный'; }
@@ -680,8 +674,6 @@ async function viewTranslator() {
   $('#tr-go').onclick = async () => {
     const text = $('#tr-input').value.trim();
     if (!text) return toast('Пусто', 'Введите текст', 'err');
-    const lim = await N.license.can('translateChars', text.length);
-    if (!lim.allowed) return upgradeModal('Перевод больших объёмов', `Бесплатно — до ${lim.limit} символов за раз. В тексте ${text.length}. Откройте Pro для безлимита.`);
     $('#tr-prog').style.display = 'block'; $('#tr-go').disabled = true; $('#tr-go').innerHTML = '<span class="spin"></span> Перевод…';
     const r = await N.translate.text({ model: $('#tr-model').value, text, targetLang: $('#tr-dst').value, sourceLang: $('#tr-src').value });
     $('#tr-output').value = r; $('#tr-go').disabled = false; $('#tr-go').textContent = '🌐 Перевести';
@@ -731,64 +723,135 @@ async function viewVoice() {
 
 /* ---------- Settings ---------- */
 async function viewSettings() {
+  const g = (k, d) => N.store.get('settings.' + k, d);
   const s = {
-    autostart: await N.store.get('settings.autostart', false),
-    minimizeToTray: await N.store.get('settings.minimizeToTray', true),
-    allowShell: await N.store.get('settings.allowShell', true),
-    voiceReplies: await N.store.get('settings.voiceReplies', true),
-    longMemory: await N.store.get('settings.longMemory', true),
-    workspace: await N.store.get('settings.workspace', '')
+    autostart: await g('autostart', false),
+    minimizeToTray: await g('minimizeToTray', true),
+    startMinimized: await g('startMinimized', false),
+    allowShell: await g('allowShell', true),
+    fullDiskAccess: await g('fullDiskAccess', false),
+    notifications: await g('notifications', true),
+    voiceReplies: await g('voiceReplies', true),
+    voiceRate: await g('voiceRate', 1),
+    autoListen: await g('autoListen', false),
+    longMemory: await g('longMemory', true),
+    temperature: await g('temperature', 0.7),
+    maxSteps: await g('maxSteps', 0),
+    defaultModel: await g('defaultModel', '')
   };
   const info = await N.system.info();
   const theme = await N.store.get('settings.theme', { mode: 'dark', accent: 'violet' });
-  await refreshLicense();
+  const lang = getLangCode();
+  const modelsDir = await N.installer.getModelsDir();
+  const models = await N.installer.listModels();
   const swatches = Object.entries(ACCENTS).map(([k, a]) =>
-    `<span class="theme-swatch ${theme.accent === k ? 'sel' : ''}" data-accent="${k}" title="${a.name}${a.pro ? ' (Pro)' : ''}" style="background:linear-gradient(135deg,${a.a},${a.b})">${a.pro && !LIC.isPro ? '🔒' : ''}</span>`).join('');
+    `<span class="theme-swatch ${theme.accent === k ? 'sel' : ''}" data-accent="${k}" title="${a.name}" style="background:linear-gradient(135deg,${a.a},${a.b})"></span>`).join('');
+  const langOpts = LANGS.map((l) => `<option value="${l.code}" ${l.code === lang ? 'selected' : ''}>${esc(l.name)}</option>`).join('');
+  const modelOpts = `<option value="">${esc(t('set.defaultModel'))}</option>` + (models.length ? models.map((m) => `<option value="${esc(m.name)}" ${m.name === s.defaultModel ? 'selected' : ''}>${esc(m.name)}</option>`).join('') : '');
+
   content.innerHTML = `
-    <div class="view-head"><h1>Настройки</h1><p>Поведение приложения, оформление и безопасность агентов</p></div>
+    <div class="view-head"><h1>${esc(t('set.title'))}</h1><p>${esc(t('set.sub'))}</p></div>
     <div class="grid cols-2">
       <div class="card">
-        <h3>🎨 Оформление</h3>
-        ${toggleRow('set-light', 'Светлая тема', theme.mode === 'light')}
-        <p class="muted" style="margin:10px 0 6px">Акцентный цвет</p>
+        <h3>🎨 ${esc(t('set.appearance'))}</h3>
+        ${toggleRow('set-light', t('set.lightTheme'), theme.mode === 'light')}
+        <p class="muted" style="margin:10px 0 6px">${esc(t('set.accent'))}</p>
         <div id="accent-row">${swatches}</div>
+        <label class="field" style="margin-top:14px"><span>${esc(t('set.language'))}</span><select id="set-lang">${langOpts}</select></label>
       </div>
       <div class="card">
-        <h3>🚀 Запуск</h3>
-        ${toggleRow('set-autostart', 'Запускать вместе с Windows', s.autostart)}
-        ${toggleRow('set-tray', 'Сворачивать в трей при закрытии', s.minimizeToTray)}
+        <h3>🚀 ${esc(t('set.launch'))}</h3>
+        ${toggleRow('set-autostart', t('set.autostart'), s.autostart)}
+        ${toggleRow('set-tray', t('set.tray'), s.minimizeToTray)}
+        ${toggleRow('set-startmin', t('set.startMin'), s.startMinimized)}
+        ${toggleRow('set-notif', t('set.notifications'), s.notifications)}
       </div>
       <div class="card">
-        <h3>🔐 Безопасность агентов</h3>
-        ${toggleRow('set-shell', 'Разрешить выполнение команд (PowerShell)', s.allowShell)}
-        <p class="muted" style="margin-top:8px">Опасные команды (format, shutdown, rm -rf и др.) всегда блокируются. Агенты работают в каталоге-песочнице.</p>
+        <h3>🔐 ${esc(t('set.security'))}</h3>
+        ${toggleRow('set-shell', t('set.allowShell'), s.allowShell)}
+        ${toggleRow('set-fulldisk', t('set.fullDisk'), s.fullDiskAccess)}
+        <p class="muted" style="margin-top:8px">${esc(t('set.dangerNote'))}</p>
       </div>
       <div class="card">
-        <h3>🎙️ Голос</h3>
-        ${toggleRow('set-vreplies', 'Озвучивать ответы агента', s.voiceReplies)}
+        <h3>💽 ${esc(t('set.models'))}</h3>
+        <label class="field"><span>${esc(t('set.modelsDir'))}</span>
+          <div class="row"><input id="set-modelsdir" value="${esc(modelsDir || '')}" placeholder="${esc(t('set.defaultDisk'))}" readonly>
+          <button class="btn" id="set-pickdisk">${esc(t('set.chooseDisk'))}</button></div></label>
+        <div id="drives-list" class="drives-list"></div>
+        <label class="field"><span>${esc(t('set.defaultModel'))}</span><select id="set-defmodel">${modelOpts}</select></label>
       </div>
       <div class="card">
-        <h3>🧠 Память</h3>
-        ${toggleRow('set-mem', 'Долговременная память (агент запоминает важное)', s.longMemory)}
-        <p class="muted" style="margin-top:8px">Включено: после диалогов агент сохраняет ключевые факты, старая история сжимается в резюме. Контекст живёт долго, но не разрастается мусором.</p>
+        <h3>🎙️ ${esc(t('set.voice'))}</h3>
+        ${toggleRow('set-vreplies', t('set.voiceReplies'), s.voiceReplies)}
+        ${toggleRow('set-autolisten', t('set.autoListen'), s.autoListen)}
+        <label class="field" style="margin-top:10px"><span>${esc(t('set.voiceRate'))}: <b id="rate-val">${s.voiceRate}×</b></span>
+          <input type="range" id="set-rate" min="0.5" max="2" step="0.1" value="${s.voiceRate}"></label>
       </div>
       <div class="card">
-        <h3>ℹ️ О приложении</h3>
-        <p class="muted">Nexus AI Hub v${esc(info.appVersion)}<br>${esc(info.platform)} ${esc(info.release)} · ${info.cpus} ядер</p>
-        <p class="muted" style="margin-top:8px">Все нейросети работают локально. Доступ в интернет — только для инструментов поиска по вашему запросу.</p>
+        <h3>🧠 ${esc(t('set.memory'))}</h3>
+        ${toggleRow('set-mem', t('set.longMemory'), s.longMemory)}
+        <p class="muted" style="margin:8px 0">${esc(t('set.memNote'))}</p>
+        <label class="field"><span>${esc(t('set.temp'))}: <b id="temp-val">${s.temperature}</b></span>
+          <input type="range" id="set-temp" min="0" max="1.5" step="0.05" value="${s.temperature}"></label>
+        <label class="field"><span>${esc(t('set.maxSteps'))}</span><input type="number" id="set-steps" min="0" max="30" value="${s.maxSteps}" placeholder="авто"></label>
+      </div>
+      <div class="card" style="grid-column:1/-1">
+        <h3>ℹ️ ${esc(t('set.about'))}</h3>
+        <p class="muted">Nexus AI Hub v${esc(info.appVersion)} · ${esc(info.platform)} ${esc(info.release)} · ${info.cpus} ${'ядер/cores'}</p>
+        <p class="muted" style="margin-top:8px">${esc(t('set.aboutLocal'))}</p>
+        <p style="margin-top:12px;font-weight:700;background:var(--accent-grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;display:inline-block">${esc(t('set.madeBy'))} ❤️</p>
+        <p class="muted" style="margin-top:6px">Sponsored by <b style="color:var(--accent)">SWAGA1ABE7</b></p>
+        <div style="margin-top:14px"><button class="btn ghost" id="set-reset">${esc(t('set.reset'))}</button></div>
       </div>
     </div>`;
-  bindToggle('set-autostart', async (v) => { await N.system.setAutostart(v); toast('Автозапуск', v ? 'включён' : 'выключен', 'ok'); });
+
+  bindToggle('set-autostart', async (v) => { await N.system.setAutostart(v); toast('OK', t('set.autostart'), 'ok'); });
   bindToggle('set-tray', (v) => N.store.set('settings.minimizeToTray', v));
+  bindToggle('set-startmin', (v) => N.store.set('settings.startMinimized', v));
+  bindToggle('set-notif', (v) => N.store.set('settings.notifications', v));
   bindToggle('set-shell', (v) => N.store.set('settings.allowShell', v));
+  bindToggle('set-fulldisk', async (v) => {
+    if (v) { const ok = await confirmModal('⚠️ Полный доступ к диску', 'Агенты смогут читать и писать файлы вне песочницы (системные каталоги всё равно защищены). Включить?'); if (!ok) return viewSettings(); }
+    N.store.set('settings.fullDiskAccess', v);
+  });
   bindToggle('set-vreplies', (v) => N.store.set('settings.voiceReplies', v));
+  bindToggle('set-autolisten', (v) => N.store.set('settings.autoListen', v));
   bindToggle('set-mem', (v) => N.store.set('settings.longMemory', v));
-  bindToggle('set-light', async (v) => { const t = await N.store.get('settings.theme', { mode: 'dark', accent: 'violet' }); t.mode = v ? 'light' : 'dark'; await N.store.set('settings.theme', t); applyTheme(); });
+  bindToggle('set-light', async (v) => { const th = await N.store.get('settings.theme', { mode: 'dark', accent: 'violet' }); th.mode = v ? 'light' : 'dark'; await N.store.set('settings.theme', th); applyTheme(); });
+  $('#set-rate').oninput = (e) => { $('#rate-val').textContent = (+e.target.value).toFixed(1) + '×'; N.store.set('settings.voiceRate', +e.target.value); };
+  $('#set-temp').oninput = (e) => { $('#temp-val').textContent = (+e.target.value).toFixed(2); N.store.set('settings.temperature', +e.target.value); };
+  $('#set-steps').onchange = (e) => N.store.set('settings.maxSteps', +e.target.value || 0);
+  $('#set-defmodel').onchange = (e) => N.store.set('settings.defaultModel', e.target.value);
+  $('#set-lang').onchange = async (e) => { setLangCode(e.target.value); await N.store.set('settings.lang', e.target.value); applyStaticI18n(); viewSettings(); };
   $$('#accent-row .theme-swatch').forEach((sw) => sw.onclick = async () => {
-    const key = sw.dataset.accent;
-    if (ACCENTS[key].pro && !LIC.isPro) return upgradeModal('Премиум-темы оформления');
-    const t = await N.store.get('settings.theme', { mode: 'dark', accent: 'violet' });
-    t.accent = key; await N.store.set('settings.theme', t); applyTheme(); viewSettings();
+    const th = await N.store.get('settings.theme', { mode: 'dark', accent: 'violet' });
+    th.accent = sw.dataset.accent; await N.store.set('settings.theme', th); applyTheme(); viewSettings();
+  });
+  $('#set-pickdisk').onclick = async () => {
+    const dir = await N.system.pickFolder({ title: t('set.chooseDisk') });
+    if (!dir) return;
+    const r = await N.installer.setModelsDir(dir);
+    toast(r.ok ? 'OK' : 'Ошибка', r.note || dir, r.ok ? 'ok' : 'err');
+    viewSettings();
+  };
+  $('#set-reset').onclick = async () => {
+    if (await confirmModal(t('set.reset'), t('set.resetConfirm'))) {
+      const keep = await N.agents.list();
+      await N.store.set('settings', {}); await N.store.set('onboarded', true);
+      toast('OK', t('set.reset'), 'ok'); applyTheme(); viewSettings();
+    }
+  };
+  // Список дисков для быстрого выбора.
+  N.system.listDrives().then((drives) => {
+    const dl = $('#drives-list'); if (!dl || !drives.length) return;
+    dl.innerHTML = drives.map((d) => `<button class="drive-chip" data-path="${esc(d.path)}" title="${esc(d.path)}">💽 ${esc(d.label || d.path)}${d.freeGb != null ? ` · ${d.freeGb} ГБ своб.` : ''}</button>`).join('');
+    $$('.drive-chip', dl).forEach((b) => b.onclick = async () => {
+      const base = b.dataset.path.replace(/[\\/]+$/, '');
+      const dir = base + (b.dataset.path.includes('\\') ? '\\NexusAI-Models' : '/NexusAI-Models');
+      const r = await N.installer.setModelsDir(dir);
+      toast(r.ok ? 'OK' : 'Ошибка', r.note || dir, r.ok ? 'ok' : 'err');
+      viewSettings();
+    });
   });
 }
 
@@ -796,6 +859,20 @@ function toggleRow(id, label, on) {
   return `<label class="row between" style="margin:12px 0"><span>${esc(label)}</span><label class="switch"><input type="checkbox" id="${id}" ${on ? 'checked' : ''}><span class="slider"></span></label></label>`;
 }
 function bindToggle(id, fn) { const e = $('#' + id); if (e) e.onchange = (ev) => fn(ev.target.checked); }
+
+// Простое подтверждение (да/нет).
+function confirmModal(title, text) {
+  return new Promise((resolve) => {
+    let done = false;
+    const back = modal(`<h2>${esc(title)}</h2><p class="muted" style="margin:8px 0">${esc(text)}</p>
+      <div class="modal-actions"><button class="btn ghost" id="cf-no">${esc(t('btn.cancel'))}</button><button class="btn primary" id="cf-yes">OK</button></div>`,
+      (m, close) => {
+        $('#cf-no', m).onclick = () => { done = true; close(); resolve(false); };
+        $('#cf-yes', m).onclick = () => { done = true; close(); resolve(true); };
+      });
+    back.addEventListener('click', (e) => { if (e.target === back && !done) resolve(false); });
+  });
+}
 
 /* ================= VOICE (Web Speech API) ================= */
 let recognition = null;
@@ -851,12 +928,16 @@ async function handleVoiceCommand(text) {
   toast('Команда', text);
 }
 
-function speakOut(text) {
+async function speakOut(text) {
   if (!('speechSynthesis' in window)) return;
   const u = new SpeechSynthesisUtterance(text);
-  u.lang = 'ru-RU';
-  const ru = speechSynthesis.getVoices().find(v => v.lang && v.lang.startsWith('ru'));
-  if (ru) u.voice = ru;
+  const langMap = { ru: 'ru-RU', en: 'en-US', uk: 'uk-UA', es: 'es-ES', de: 'de-DE', zh: 'zh-CN' };
+  u.lang = langMap[getLangCode()] || 'ru-RU';
+  u.rate = await N.store.get('settings.voiceRate', 1);
+  const v = speechSynthesis.getVoices().find((x) => x.lang && x.lang.startsWith(u.lang.slice(0, 2)));
+  if (v) u.voice = v;
+  // Авто-прослушивание после ответа.
+  u.onend = async () => { if (state.voiceListening && await N.store.get('settings.autoListen', false)) { try { recognition && recognition.start(); } catch {} } };
   speechSynthesis.cancel();
   speechSynthesis.speak(u);
 }
@@ -864,105 +945,120 @@ function speakOut(text) {
 /* Плавающая кнопка голоса */
 $('#voice-fab').onclick = () => { if (state.view !== 'voice') navigate('voice'); toggleVoice(); };
 
-/* ---------- Pro / Upgrade view ---------- */
-async function viewPro() {
-  const lic = await refreshLicense();
-  const free = lic.limits;
-  content.innerHTML = `
-    <div class="view-head"><h1>Nexus Pro</h1><p>Снимите все ограничения и откройте продвинутые возможности</p></div>
-    ${lic.isPro ? `<div class="hero"><h2>✨ У вас активен ${lic.plan === 'trial' ? 'пробный период Pro' : 'тариф Pro'}</h2>
-      <p>${lic.plan === 'trial' ? 'Осталось дней: ' + lic.daysLeft + '. ' : ''}Спасибо за поддержку! Все функции разблокированы.</p>
-      <button class="btn ghost" id="deact">Отвязать ключ</button></div>` : ''}
-    <div class="pricing">
-      <div class="price-card">
-        <div class="plan-name">Free</div>
-        <div class="price">0 ₽<small>/ навсегда</small></div>
-        <ul>
-          <li>Локальные нейросети без ограничений</li>
-          <li>До ${free.agents} агентов</li>
-          <li>До ${free.tasks} задач планировщика</li>
-          <li>1 удалённый сервер</li>
-          <li>Перевод до ${(free.translateChars/1000)}k символов за раз</li>
-          <li class="off">Премиум-темы</li>
-          <li class="off">RAG-память и мультиагентные сценарии</li>
-          <li class="off">Облачный мост и приоритетная поддержка</li>
-        </ul>
-        <button class="btn ghost" disabled>${lic.isPro ? 'Базовый' : 'Текущий план'}</button>
-      </div>
-      <div class="price-card featured">
-        <div class="ribbon">Популярный</div>
-        <div class="plan-name">Pro</div>
-        <div class="price">499 ₽<small>/ мес · или 3990 ₽/год</small></div>
-        <ul>
-          <li>Всё из Free, без лимитов</li>
-          <li>Неограниченно агентов, задач и серверов</li>
-          <li>Премиум-темы оформления</li>
-          <li>RAG-память (эмбеддинги) и мультиагентные сценарии</li>
-          <li>Облачный мост: резерв на мощные модели</li>
-          <li>Приоритетная поддержка и ранний доступ</li>
-        </ul>
-        <div class="row" style="gap:8px">
-          ${lic.isPro ? '<button class="btn primary" disabled>Активно</button>' :
-            `<button class="btn primary" id="buy">Оформить Pro</button>
-             ${lic.trialUsed ? '' : '<button class="btn ghost" id="trial">14 дней бесплатно</button>'}`}
-        </div>
-      </div>
-    </div>
-    <div class="card" style="margin-top:18px">
-      <h3>🔑 Активация по ключу</h3>
-      <p class="muted">Уже есть лицензионный ключ? Введите его (формат NEXUS-PRO-XXXXXXXX-XXXX).</p>
-      <div class="row" style="margin-top:10px"><input id="lic-key" placeholder="NEXUS-PRO-........-...."><button class="btn primary" id="lic-act">Активировать</button></div>
-    </div>`;
-
-  if ($('#deact')) $('#deact').onclick = async () => { await N.license.deactivate(); toast('Готово', 'Ключ отвязан'); refreshLicense(); viewPro(); };
-  if ($('#buy')) $('#buy').onclick = () => N.system.openExternal('https://nexus-ai-hub.app/pro');
-  if ($('#trial')) $('#trial').onclick = async () => {
-    const r = await N.license.startTrial();
-    if (r.ok) { toast('Пробный Pro активирован', r.daysLeft + ' дней', 'ok'); refreshLicense(); viewPro(); }
-    else toast('Не вышло', r.error, 'err');
-  };
-  $('#lic-act').onclick = async () => {
-    const r = await N.license.activate($('#lic-key').value);
-    if (r.ok) { toast('Pro активирован', 'Спасибо!', 'ok'); await applyTheme(); refreshLicense(); viewPro(); }
-    else toast('Ошибка ключа', r.error, 'err');
-  };
+/* ---------- Scenarios (готовые сценарии в один клик) ---------- */
+const SCENARIOS = [
+  { id: 'morning', icon: '🌅', name: 'Утренний помощник', desc: 'При включении ПК агент озвучивает план дня и сводку новостей.',
+    agentTpl: 'tpl-assistant', task: { name: 'Утренний брифинг', trigger: 'onStartup', action: 'agent', prompt: 'Составь короткий утренний брифинг: дата, погода (найди в интернете), и 3 главные задачи на день. Будь краток.' } },
+  { id: 'autoclean', icon: '🧹', name: 'Авто-уборка диска', desc: 'Каждый день проверяет мусор и предлагает очистку.',
+    agentTpl: 'tpl-cleaner', task: { name: 'Проверка диска', trigger: 'daily', time: '20:00', action: 'agent', prompt: 'Проверь, что занимает место на диске, и предложи, что безопасно удалить.' } },
+  { id: 'devbox', icon: '💻', name: 'Рабочее место разработчика', desc: 'Добавляет агентов: программист, ревьюер, отладчик.',
+    agents: ['tpl-coder', 'tpl-reviewer', 'tpl-debug'] },
+  { id: 'content', icon: '✍️', name: 'Контент-студия', desc: 'Копирайтер, SEO-специалист и переводчик для контента.',
+    agents: ['tpl-copywriter', 'tpl-seo', 'tpl-translator'] },
+  { id: 'study', icon: '🎓', name: 'Учебный набор', desc: 'Репетитор, языковой партнёр и экзаменатор.',
+    agents: ['tpl-tutor', 'tpl-lang', 'tpl-exam'] },
+  { id: 'mcserver', icon: '🧱', name: 'Minecraft-хостинг', desc: 'Разработчик плагинов и админ сервера.',
+    agents: ['tpl-minecraft', 'tpl-devops'] },
+  { id: 'home', icon: '🏠', name: 'Дом и быт', desc: 'Шеф-повар, фитнес-тренер и тревел-планировщик.',
+    agents: ['tpl-chef', 'tpl-fitness', 'tpl-travel'] },
+  { id: 'nightnews', icon: '🌙', name: 'Вечерняя сводка', desc: 'Каждый вечер собирает новости по вашим темам в файл.',
+    agentTpl: 'tpl-researcher', task: { name: 'Вечерняя сводка', trigger: 'daily', time: '21:00', action: 'agent', prompt: 'Найди главные новости за день по теме технологий и ИИ, составь краткую сводку и сохрани в файл news.md.' } }
+];
+async function viewScenarios() {
+  content.innerHTML = `<div class="view-head"><h1>Сценарии использования</h1><p>Готовые наборы агентов и автоматизаций — настройка в один клик</p></div><div class="grid cols-3" id="scn"></div>`;
+  const wrap = $('#scn');
+  SCENARIOS.forEach((s) => {
+    const c = el('div', 'card scenario-card', `<div class="scn-ico">${s.icon}</div><h3>${esc(s.name)}</h3><p class="muted">${esc(s.desc)}</p><button class="btn primary sm" style="margin-top:10px">Применить</button>`);
+    c.querySelector('button').onclick = () => applyScenario(s);
+    wrap.appendChild(c);
+  });
+}
+async function applyScenario(s) {
+  let added = 0;
+  const ids = s.agents || (s.agentTpl ? [s.agentTpl] : []);
+  let lastAgent = null;
+  for (const tpl of ids) { const r = await N.agents.addTemplate(tpl); if (r.ok) { added++; lastAgent = r.agent; } }
+  if (s.task) {
+    const taskData = { ...s.task, agentId: lastAgent ? lastAgent.id : undefined, enabled: true };
+    await N.tasks.save(taskData);
+  }
+  toast('Сценарий применён', s.name + (added ? ` · +${added} агент(ов)` : '') + (s.task ? ' · +задача' : ''), 'ok');
 }
 
 /* ---------- Prompts library ---------- */
 const PROMPT_LIB = {
   'Продуктивность': [
-    { t: 'Утренний брифинг', p: 'Составь краткий план на сегодня: погода, важные задачи и одна мотивирующая мысль.' },
-    { t: 'Разбор папки Загрузки', p: 'Посмотри файлы в папке загрузок и предложи, как их разложить по категориям.' },
-    { t: 'Резюме документа', p: 'Прочитай указанный файл и сделай краткое резюме в 5 пунктах.' }
+    { t: 'Утренний брифинг', p: 'Составь краткий план на сегодня: погода (найди в сети), важные задачи и одна мотивирующая мысль.' },
+    { t: 'Разбор «Загрузок»', p: 'Посмотри файлы в папке загрузок и предложи, как их разложить по категориям.' },
+    { t: 'Резюме документа', p: 'Прочитай указанный файл и сделай краткое резюме в 5 пунктах.' },
+    { t: 'План недели', p: 'Помоги составить план на неделю с приоритетами по матрице Эйзенхауэра.' },
+    { t: 'Список дел', p: 'Преврати мой свободный текст в структурированный список задач с приоритетами.' },
+    { t: 'Помодоро-план', p: 'Разбей мою большую задачу на 25-минутные блоки с короткими перерывами.' }
   ],
   'Система и автоматизация': [
     { t: 'Очистка диска', p: 'Найди, что занимает место на диске, и предложи безопасные способы освободить место.' },
-    { t: 'Информация о ПК', p: 'Покажи характеристики системы и текущую нагрузку.' },
-    { t: 'Бэкап проекта', p: 'Создай архив указанной папки с датой в имени.' }
+    { t: 'Информация о ПК', p: 'Покажи характеристики системы и текущую нагрузку понятным языком.' },
+    { t: 'Бэкап папки', p: 'Создай архив указанной папки с датой в имени.' },
+    { t: 'Навести порядок', p: 'Разложи файлы в рабочем пространстве по папкам согласно их типам.' },
+    { t: 'Массовое переименование', p: 'Переименуй все изображения в папке по шаблону photo_001, photo_002 и т.д.' },
+    { t: 'Поиск дубликатов', p: 'Найди возможные дубликаты файлов в рабочем пространстве и покажи список.' },
+    { t: 'Что в автозагрузке', p: 'Покажи, какие программы запускаются вместе с Windows.' }
   ],
   'Разработка': [
-    { t: 'Плагин Minecraft', p: 'Создай плагин Minecraft с командой /heal, которая лечит игрока, и скомпилируй его.' },
-    { t: 'Настройка сервера', p: 'Подключись к серверу, открой конфиг nginx и покажи его содержимое.' },
-    { t: 'Скрипт автоматизации', p: 'Напиши и запусти PowerShell-скрипт, который переименует все .txt в папке по шаблону.' }
+    { t: 'Плагин Minecraft /heal', p: 'Создай плагин Minecraft с командой /heal, которая лечит игрока, и скомпилируй его.' },
+    { t: 'Плагин приветствия', p: 'Сделай плагин Minecraft, который приветствует игрока при входе на сервер, и собери jar.' },
+    { t: 'Конфиг nginx', p: 'Подключись к серверу, открой конфиг nginx и покажи его содержимое.' },
+    { t: 'PowerShell-скрипт', p: 'Напиши и запусти PowerShell-скрипт, который переименует все .txt в папке по шаблону.' },
+    { t: 'Каркас проекта', p: 'Создай структуру нового Node.js проекта с package.json и базовым index.js.' },
+    { t: 'Объясни код', p: 'Прочитай указанный файл с кодом и объясни, что он делает, простыми словами.' },
+    { t: 'Найди баги', p: 'Просмотри указанный файл и найди потенциальные баги и уязвимости.' },
+    { t: 'Git-статус', p: 'Покажи статус git-репозитория и последние 5 коммитов.' }
   ],
   'Данные и контент': [
     { t: 'Перевод файла', p: 'Переведи файл локализации messages.json на английский, сохранив плейсхолдеры.' },
-    { t: 'Поиск и сводка', p: 'Найди в интернете последние новости по теме ИИ и сделай сводку с источниками.' }
+    { t: 'Поиск и сводка', p: 'Найди в интернете последние новости по теме ИИ и сделай сводку с источниками.' },
+    { t: 'Пост для соцсетей', p: 'Напиши 3 варианта поста для соцсетей на заданную тему с эмодзи и хэштегами.' },
+    { t: 'Анализ CSV', p: 'Прочитай указанный CSV-файл и посчитай базовую статистику по колонкам.' },
+    { t: 'Заголовки', p: 'Предложи 10 цепляющих заголовков для статьи на заданную тему.' },
+    { t: 'Резюме видео', p: 'По ссылке найди описание и сделай краткий пересказ темы.' }
+  ],
+  'Обучение и творчество': [
+    { t: 'Объясни тему', p: 'Объясни мне выбранную тему простыми словами с примером, как для новичка.' },
+    { t: 'Проверь знания', p: 'Задай мне 5 вопросов по теме, затем оцени мои ответы.' },
+    { t: 'Практика языка', p: 'Давай поговорим по-английски на уровне B1, мягко исправляй мои ошибки.' },
+    { t: 'Идеи проекта', p: 'Предложи 10 идей пет-проектов для портфолио начинающего разработчика.' },
+    { t: 'Короткий рассказ', p: 'Напиши короткий фантастический рассказ из 200 слов по моей завязке.' },
+    { t: 'Текстовая RPG', p: 'Запусти текстовое фэнтези-приключение, я играю главного героя.' }
+  ],
+  'Дом и жизнь': [
+    { t: 'Рецепт из продуктов', p: 'Предложи рецепт ужина из продуктов, которые я перечислю.' },
+    { t: 'План тренировок', p: 'Составь программу тренировок дома на неделю для начинающего.' },
+    { t: 'Маршрут поездки', p: 'Составь план поездки на выходные в заданный город с учётом бюджета.' },
+    { t: 'Список покупок', p: 'Сделай список покупок для рецептов, которые я планирую на неделю.' }
   ]
 };
 async function viewPrompts() {
-  content.innerHTML = `<div class="view-head"><h1>Библиотека промптов</h1><p>Готовые задачи в один клик — отправятся выбранному агенту</p></div><div id="pl"></div>`;
-  const wrap = $('#pl');
-  for (const [cat, items] of Object.entries(PROMPT_LIB)) {
-    wrap.appendChild(el('div', 'prompt-cat', cat));
-    const grid = el('div', 'grid cols-3');
-    items.forEach((it) => {
-      const c = el('div', 'card prompt-card', `<h3>${esc(it.t)}</h3><p class="muted">${esc(it.p)}</p>`);
-      c.onclick = () => { state.pendingPrompt = it.p; navigate('agents'); };
-      grid.appendChild(c);
-    });
-    wrap.appendChild(grid);
-  }
+  const count = Object.values(PROMPT_LIB).reduce((n, a) => n + a.length, 0);
+  content.innerHTML = `<div class="view-head"><h1>${esc(t('nav.prompts'))} <span class="tag">${count}</span></h1><p>Готовые задачи в один клик — отправятся выбранному агенту</p></div>
+    <input id="pl-search" placeholder="🔎 Поиск по промптам…" style="margin-bottom:16px"><div id="pl"></div>`;
+  const draw = (q) => {
+    const wrap = $('#pl'); wrap.innerHTML = '';
+    q = (q || '').toLowerCase();
+    for (const [cat, items] of Object.entries(PROMPT_LIB)) {
+      const filtered = items.filter((it) => !q || (it.t + ' ' + it.p).toLowerCase().includes(q));
+      if (!filtered.length) continue;
+      wrap.appendChild(el('div', 'prompt-cat', cat));
+      const grid = el('div', 'grid cols-3');
+      filtered.forEach((it) => {
+        const c = el('div', 'card prompt-card', `<h3>${esc(it.t)}</h3><p class="muted">${esc(it.p)}</p>`);
+        c.onclick = () => { state.pendingPrompt = it.p; navigate('agents'); };
+        grid.appendChild(c);
+      });
+      wrap.appendChild(grid);
+    }
+  };
+  draw('');
+  $('#pl-search').addEventListener('input', (e) => draw(e.target.value));
 }
 
 /* ---------- Command Palette (Ctrl+K) ---------- */
@@ -970,22 +1066,23 @@ let cmdkSel = 0, cmdkItems = [];
 function buildCommands() {
   const nav = (v, ico, label, sub) => ({ ico, label, sub: sub || 'Раздел', run: () => navigate(v) });
   const cmds = [
-    nav('dashboard', '🏠', 'Главная'),
-    nav('agents', '🤖', 'Агенты'),
-    nav('marketplace', '⬇️', 'Установка ИИ'),
-    nav('scheduler', '⏰', 'Планировщик'),
-    nav('minecraft', '🧱', 'Minecraft студия'),
-    nav('servers', '🖥️', 'Удалённые серверы'),
-    nav('translator', '🌐', 'Перевод данных'),
-    nav('prompts', '💡', 'Библиотека промптов'),
-    nav('voice', '🎙️', 'Голосовой ассистент'),
-    nav('settings', '⚙️', 'Настройки'),
-    nav('pro', '⭐', 'Nexus Pro'),
-    { ico: '➕', label: 'Новый агент', sub: 'Действие', run: () => { navigate('agents'); setTimeout(() => editAgent(null), 50); } },
+    nav('dashboard', '🏠', t('nav.dashboard')),
+    nav('agents', '🤖', t('nav.agents')),
+    nav('marketplace', '⬇️', t('nav.marketplace')),
+    nav('scenarios', '🎬', t('nav.scenarios')),
+    nav('scheduler', '⏰', t('nav.scheduler')),
+    nav('minecraft', '🧱', t('nav.minecraft')),
+    nav('servers', '🖥️', t('nav.servers')),
+    nav('translator', '🌐', t('nav.translator')),
+    nav('prompts', '💡', t('nav.prompts')),
+    nav('voice', '🎙️', t('nav.voice')),
+    nav('settings', '⚙️', t('nav.settings')),
+    { ico: '➕', label: t('btn.newAgent'), sub: 'Действие', run: () => { navigate('agents'); setTimeout(() => editAgent(null), 50); } },
+    { ico: '🧩', label: 'Галерея шаблонов', sub: 'Действие', run: () => { navigate('agents'); setTimeout(templateGallery, 50); } },
     { ico: '⚡', label: 'Быстрая установка моделей', sub: 'Действие', run: () => { navigate('dashboard'); setTimeout(quickSetup, 50); } },
     { ico: '🎤', label: 'Включить/выключить голос', sub: 'Действие', run: () => { navigate('voice'); toggleVoice(); } },
     { ico: '🌗', label: 'Переключить тему', sub: 'Действие', run: toggleThemeMode },
-    { ico: '📥', label: 'Импортировать агента', sub: 'Действие', run: () => $('#agent-import-input').click() }
+    { ico: '📥', label: t('btn.import'), sub: 'Действие', run: () => $('#agent-import-input').click() }
   ];
   return cmds;
 }
@@ -1007,9 +1104,9 @@ function renderCmdk(q) {
 function runCmdk(i) { const c = cmdkItems[i]; if (c) { closeCmdk(); c.run(); } }
 
 async function toggleThemeMode() {
-  const t = await N.store.get('settings.theme', { mode: 'dark', accent: 'violet' });
-  t.mode = t.mode === 'light' ? 'dark' : 'light';
-  await N.store.set('settings.theme', t);
+  const th = await N.store.get('settings.theme', { mode: 'dark', accent: 'violet' });
+  th.mode = th.mode === 'light' ? 'dark' : 'light';
+  await N.store.set('settings.theme', th);
   applyTheme();
 }
 
@@ -1025,7 +1122,6 @@ document.addEventListener('keydown', (e) => {
 $('#cmdk-input').addEventListener('input', (e) => { cmdkSel = 0; renderCmdk(e.target.value); });
 $('#cmdk').addEventListener('click', (e) => { if (e.target.id === 'cmdk') closeCmdk(); });
 $('#cmdk-hint').onclick = openCmdk;
-$('#plan-badge').onclick = () => navigate('pro');
 
 /* Импорт агента из файла */
 $('#agent-import-input').addEventListener('change', async (e) => {
@@ -1129,7 +1225,7 @@ N.on('agents:toolResult', ({ name, result }) => {
   state.chat.push(bot);
   renderChat();
 });
-N.on('agents:notify', ({ title, message }) => toast(title || 'Агент', message));
+N.on('agents:notify', async ({ title, message }) => { if (await N.store.get('settings.notifications', true)) toast(title || 'Агент', message); });
 N.on('agents:done', ({ text }) => { state.busy = false; });
 
 function fmtBytes(n) { if (!n) return '0'; const u = ['Б', 'КБ', 'МБ', 'ГБ']; let i = 0; while (n >= 1024 && i < 3) { n /= 1024; i++; } return n.toFixed(i ? 1 : 0) + ' ' + u[i]; }
@@ -1169,7 +1265,7 @@ N.on('voice:state', ({ listening }) => {
   else if (!listening) stopVoice();
 });
 
-N.on('scheduler:fired', ({ name }) => toast('Задача выполнена', name, 'ok'));
+N.on('scheduler:fired', async ({ name }) => { if (await N.store.get('settings.notifications', true)) toast('Задача выполнена', name, 'ok'); });
 
 N.on('mc:log', ({ log }) => { if (window.__mcLog) { window.__mcLog.textContent += log; window.__mcLog.scrollTop = window.__mcLog.scrollHeight; } });
 N.on('translate:progress', (p) => {
@@ -1200,13 +1296,15 @@ async function pollOllama() {
 (async function boot() {
   // Загружаем голоса синтеза заранее.
   if ('speechSynthesis' in window) speechSynthesis.getVoices();
+  // Язык интерфейса.
+  const lang = await N.store.get('settings.lang', null);
+  if (lang) setLangCode(lang);
+  applyStaticI18n();
   await applyTheme();
-  await refreshLicense();
   render();
   pollStats(); pollOllama();
   setInterval(pollStats, 3000);
   setInterval(pollOllama, 5000);
-  setInterval(refreshLicense, 60000);
   // Первый запуск — мастер настройки.
   const onboarded = await N.store.get('onboarded', false);
   if (!onboarded) startOnboarding();

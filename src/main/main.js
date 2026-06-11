@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, shell, globalShortcut } = require('electron');
+const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, shell, globalShortcut, dialog } = require('electron');
 const path = require('path');
 
 const store = require('./store');
@@ -35,7 +35,21 @@ function createWindow() {
   });
 
   win.loadFile(path.join(__dirname, '../renderer/index.html'));
-  win.once('ready-to-show', () => win.show());
+  win.once('ready-to-show', () => {
+    const startMin = store.get('settings.startMinimized', false) && process.argv.includes('--autostart');
+    if (!startMin) win.show();
+  });
+
+  // Безопасность окна: запрещаем навигацию вовне и всплывающие окна,
+  // внешние ссылки открываем только в системном браузере и только http(s).
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  win.webContents.on('will-navigate', (e, url) => {
+    if (!url.startsWith('file://')) e.preventDefault();
+  });
+  win.webContents.on('will-attach-webview', (e) => e.preventDefault());
 
   win.on('close', (e) => {
     if (!isQuitting && store.get('settings.minimizeToTray', true)) {
@@ -123,7 +137,12 @@ ipcMain.handle('store:set', (_e, key, value) => { store.set(key, value); return 
 ipcMain.handle('system:info', () => system.getInfo());
 ipcMain.handle('system:stats', () => system.getStats());
 ipcMain.handle('system:setAutostart', (_e, enabled) => system.setAutostart(enabled));
-ipcMain.handle('system:openExternal', (_e, url) => shell.openExternal(url));
+ipcMain.handle('system:openExternal', (_e, url) => { if (system.isSafeUrl(url)) shell.openExternal(url); return true; });
+ipcMain.handle('system:listDrives', () => system.listDrives());
+ipcMain.handle('system:pickFolder', async (_e, opts) => {
+  const r = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'], title: (opts && opts.title) || 'Выберите папку' });
+  return r.canceled ? null : r.filePaths[0];
+});
 
 /* ---------------- IPC: ollama / installer ---------------- */
 ipcMain.handle('ollama:status', () => ollama.status());
@@ -134,7 +153,9 @@ ipcMain.handle('installer:pullModel', (_e, name) => installer.pullModel(name, (p
 ipcMain.handle('installer:deleteModel', (_e, name) => ollama.deleteModel(name));
 ipcMain.handle('installer:catalog', () => installer.getCatalog());
 ipcMain.handle('installer:recommend', () => installer.recommend());
-ipcMain.handle('installer:quickSetup', () => installer.quickSetup((p) => sendToUI('installer:progress', p)));
+ipcMain.handle('installer:quickSetup', (_e, models) => installer.quickSetup((p) => sendToUI('installer:progress', p), models));
+ipcMain.handle('installer:setModelsDir', (_e, dir) => installer.setModelsDir(dir));
+ipcMain.handle('installer:getModelsDir', () => installer.getModelsDir());
 
 /* ---------------- IPC: agents ---------------- */
 ipcMain.handle('agents:list', () => agent.listAgents());
@@ -147,6 +168,7 @@ ipcMain.handle('agents:history', () => agent.getHistory());
 ipcMain.handle('agents:clearHistory', () => agent.clearHistory());
 ipcMain.handle('agents:export', (_e, id) => agent.exportAgent(id));
 ipcMain.handle('agents:import', (_e, obj) => agent.importAgent(obj));
+ipcMain.handle('agents:addTemplate', (_e, tplId) => agent.addFromTemplate(tplId));
 
 /* ---------------- IPC: licensing / monetization ---------------- */
 ipcMain.handle('license:status', () => licensing.status());

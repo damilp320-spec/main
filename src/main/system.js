@@ -59,38 +59,81 @@ function safeRoot() {
   return root;
 }
 
-function resolveInWorkspace(p) {
+// Критические системные каталоги — запись запрещена всегда.
+const PROTECTED = process.platform === 'win32'
+  ? [/^[a-z]:\\windows/i, /^[a-z]:\\program files/i, /\\system32/i, /\\\$recycle/i]
+  : [/^\/(etc|bin|sbin|boot|sys|proc|dev|usr|lib|var\/lib)(\/|$)/, /^\/$/];
+
+// Безопасное разрешение пути с защитой от выхода из песочницы.
+// confine=true (по умолчанию для записи) — строго внутри рабочего пространства.
+function resolveSafe(p, { write = false } = {}) {
   const root = safeRoot();
-  const full = path.isAbsolute(p) ? p : path.join(root, p);
+  const fullDisk = store.get('settings.fullDiskAccess', false);
+  let full = path.isAbsolute(p) ? path.normalize(p) : path.normalize(path.join(root, p));
+  const rootNorm = path.normalize(root + path.sep);
+  const insideRoot = (full + path.sep).startsWith(rootNorm);
+
+  if (!fullDisk && !insideRoot) {
+    throw new Error('Доступ только к рабочему пространству. Полный доступ к диску можно включить в настройках.');
+  }
+  if (write && PROTECTED.some((re) => re.test(full))) {
+    throw new Error('Запись в системный каталог запрещена политикой безопасности.');
+  }
   return full;
+}
+
+// Усиленная проверка опасных команд (regex + пользовательский список).
+const DANGER_PATTERNS = [
+  /\bformat\b\s+[a-z]:/i, /\bdiskpart\b/i, /\bmkfs\b/i, /\bdd\s+if=/i,
+  /\bdel\b\s+\/[sqf]/i, /\brmdir\b\s+\/s/i, /\brd\b\s+\/s/i,
+  /rm\s+-rf?\s+[~/]/i, /rm\s+-rf?\s+\*/i, /:\(\)\s*\{.*\};:/, /\bshutdown\b/i, /\breboot\b/i,
+  /\bvssadmin\b/i, /\bbcdedit\b/i, /\bcipher\b\s+\/w/i, /\bfsutil\b/i,
+  /reg\s+delete/i, /\bschtasks\b/i, /\bnet\s+user\b/i, /\bnetsh\b/i,
+  /Remove-Item.*-Recurse.*-Force/i, /\bFormat-Volume\b/i, /\bClear-Disk\b/i,
+  /\bRemove-Item\b.*\\Windows/i, /chmod\s+-R\s+777\s+\//, />\s*\/dev\/sd[a-z]/i,
+  /\bkillall\b/i, /Stop-Computer/i, /Restart-Computer/i
+];
+function screenCommand(command) {
+  const extra = store.get('settings.blockedCommands', []);
+  if (extra.some((b) => b && command.toLowerCase().includes(String(b).toLowerCase()))) return 'пользовательский фильтр';
+  if (DANGER_PATTERNS.some((re) => re.test(command))) return 'разрушительная операция';
+  return null;
+}
+
+function isSafeUrl(url) {
+  try { const u = new URL(String(url)); return ['http:', 'https:', 'mailto:'].includes(u.protocol); }
+  catch { return false; }
 }
 
 const tools = {
   async run_command({ command }) {
     if (!store.get('settings.allowShell', true)) return 'Выполнение команд отключено в настройках безопасности.';
-    const blocked = store.get('settings.blockedCommands', ['format', 'del /', 'rm -rf /', 'shutdown', 'mkfs', 'diskpart']);
-    if (blocked.some((b) => command.toLowerCase().includes(b))) return `Команда заблокирована политикой безопасности: "${command}".`;
+    command = String(command || '');
+    const reason = screenCommand(command);
+    if (reason) return `Команда заблокирована политикой безопасности (${reason}): "${command.slice(0, 120)}".`;
     return new Promise((resolve) => {
       const shell = process.platform === 'win32' ? 'powershell.exe' : '/bin/sh';
-      const args = process.platform === 'win32' ? ['-NoProfile', '-Command', command] : ['-c', command];
+      const args = process.platform === 'win32' ? ['-NoProfile', '-NonInteractive', '-Command', command] : ['-c', command];
       let out = '';
-      const proc = spawn(shell, args, { cwd: safeRoot() });
-      proc.stdout.on('data', (d) => (out += d));
-      proc.stderr.on('data', (d) => (out += d));
+      let proc;
+      try { proc = spawn(shell, args, { cwd: safeRoot(), windowsHide: true }); }
+      catch (e) { return resolve('Ошибка запуска: ' + e.message); }
+      proc.stdout.on('data', (d) => { out += d; if (out.length > 100000) { proc.kill(); } });
+      proc.stderr.on('data', (d) => { out += d; });
       const timer = setTimeout(() => { proc.kill(); resolve(out + '\n[прервано: таймаут 60с]'); }, 60000);
-      proc.on('close', (code) => { clearTimeout(timer); resolve((out || '(нет вывода)') + `\n[код выхода: ${code}]`); });
+      proc.on('close', (code) => { clearTimeout(timer); resolve((out || '(нет вывода)').slice(0, 100000) + `\n[код выхода: ${code}]`); });
       proc.on('error', (e) => { clearTimeout(timer); resolve('Ошибка запуска: ' + e.message); });
     });
   },
 
   async read_file({ path: p }) {
-    try { return fs.readFileSync(resolveInWorkspace(p), 'utf8').slice(0, 20000); }
+    try { return fs.readFileSync(resolveSafe(p), 'utf8').slice(0, 20000); }
     catch (e) { return 'Не удалось прочитать файл: ' + e.message; }
   },
 
   async write_file({ path: p, content }) {
     try {
-      const full = resolveInWorkspace(p);
+      const full = resolveSafe(p, { write: true });
       fs.mkdirSync(path.dirname(full), { recursive: true });
       fs.writeFileSync(full, content ?? '', 'utf8');
       return 'Файл сохранён: ' + full;
@@ -99,20 +142,27 @@ const tools = {
 
   async list_dir({ path: p }) {
     try {
-      const full = p ? resolveInWorkspace(p) : safeRoot();
+      const full = p ? resolveSafe(p) : safeRoot();
       return fs.readdirSync(full, { withFileTypes: true })
         .map((d) => (d.isDirectory() ? '[DIR] ' : '      ') + d.name).join('\n') || '(пусто)';
     } catch (e) { return 'Ошибка: ' + e.message; }
   },
 
   async open_app({ name }) {
+    name = String(name || '');
+    if (screenCommand(name)) return 'Запуск заблокирован политикой безопасности.';
     return new Promise((resolve) => {
-      const cmd = process.platform === 'win32' ? `start "" "${name}"` : `open "${name}" || xdg-open "${name}"`;
-      exec(cmd, { shell: true }, (err) => resolve(err ? 'Не удалось открыть: ' + err.message : 'Открыто: ' + name));
+      // Без sh:true и интерполяции в общий шелл — открываем безопасно.
+      let proc;
+      if (process.platform === 'win32') proc = spawn('cmd.exe', ['/c', 'start', '', name], { windowsHide: true });
+      else proc = spawn('xdg-open', [name]);
+      proc.on('error', (e) => resolve('Не удалось открыть: ' + e.message));
+      proc.on('close', () => resolve('Открыто: ' + name));
     });
   },
 
   async open_url({ url }) {
+    if (!isSafeUrl(url)) return 'Недопустимый URL (разрешены только http/https/mailto).';
     try { await shell.openExternal(url); return 'Открыт URL: ' + url; }
     catch (e) { return 'Ошибка: ' + e.message; }
   },
@@ -138,13 +188,17 @@ const tools = {
   },
 
   async http_get({ url }) {
+    if (!isSafeUrl(url)) return 'Недопустимый URL (разрешены только http/https).';
     return new Promise((resolve) => {
       const lib = url.startsWith('https') ? https : http;
-      lib.get(url, (res) => {
+      let received = 0;
+      const req = lib.get(url, { timeout: 15000 }, (res) => {
         let buf = '';
-        res.on('data', (c) => (buf += c));
+        res.on('data', (c) => { received += c.length; buf += c; if (received > 50000) { req.destroy(); resolve(buf.slice(0, 8000)); } });
         res.on('end', () => resolve(buf.slice(0, 8000)));
-      }).on('error', (e) => resolve('Ошибка запроса: ' + e.message));
+      });
+      req.on('timeout', () => { req.destroy(); resolve('Таймаут запроса.'); });
+      req.on('error', (e) => resolve('Ошибка запроса: ' + e.message));
     });
   },
 
@@ -180,4 +234,28 @@ async function callTool(name, args) {
   catch (e) { return `Ошибка инструмента ${name}: ${e.message}`; }
 }
 
-module.exports = { getInfo, getStats, setAutostart, tools, toolSchemas, callTool, safeRoot };
+// Список дисков для выбора места установки моделей.
+function listDrives() {
+  return new Promise((resolve) => {
+    if (process.platform === 'win32') {
+      const ps = 'Get-CimInstance Win32_LogicalDisk | Where-Object {$_.DriveType -eq 3} | ForEach-Object { "$($_.DeviceID)|$($_.FreeSpace)|$($_.Size)|$($_.VolumeName)" }';
+      exec(`powershell -NoProfile -Command "${ps}"`, { windowsHide: true }, (err, stdout) => {
+        if (err || !stdout) return resolve([{ path: 'C:\\', label: 'Системный диск', freeGb: null, totalGb: null }]);
+        const drives = stdout.trim().split('\n').map((line) => {
+          const [dev, free, size, name] = line.trim().split('|');
+          return { path: dev + '\\', label: name || dev, freeGb: free ? +(free / 1024 ** 3).toFixed(1) : null, totalGb: size ? +(size / 1024 ** 3).toFixed(1) : null };
+        });
+        resolve(drives);
+      });
+    } else {
+      // Unix: показываем домашний и корневой разделы.
+      const home = os.homedir();
+      resolve([
+        { path: home, label: 'Домашний каталог', freeGb: null, totalGb: null },
+        { path: '/', label: 'Корневой раздел', freeGb: null, totalGb: null }
+      ]);
+    }
+  });
+}
+
+module.exports = { getInfo, getStats, setAutostart, tools, toolSchemas, callTool, safeRoot, listDrives, isSafeUrl, resolveSafe };

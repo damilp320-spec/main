@@ -13,7 +13,6 @@
       <div class="logo-dot"></div>
       <span class="title">Nexus AI Hub</span>
       <span class="badge" id="ollama-badge">● проверка…</span>
-      <span class="badge plan-badge" id="plan-badge">Free</span>
     </div>
     <div class="titlebar-right">
       <button class="cmdk-hint" id="cmdk-hint" title="Командная палитра">⌘K</button>
@@ -28,22 +27,23 @@
   <div class="app">
     <!-- Боковое меню -->
     <nav class="sidebar">
-      <button class="nav-item active" data-view="dashboard"><span class="nav-ico">🏠</span><span>Главная</span></button>
-      <button class="nav-item" data-view="agents"><span class="nav-ico">🤖</span><span>Агенты</span></button>
-      <button class="nav-item" data-view="marketplace"><span class="nav-ico">⬇️</span><span>Установка ИИ</span></button>
-      <button class="nav-item" data-view="scheduler"><span class="nav-ico">⏰</span><span>Планировщик</span></button>
-      <button class="nav-item" data-view="minecraft"><span class="nav-ico">🧱</span><span>Minecraft</span></button>
-      <button class="nav-item" data-view="servers"><span class="nav-ico">🖥️</span><span>Серверы</span></button>
-      <button class="nav-item" data-view="translator"><span class="nav-ico">🌐</span><span>Перевод</span></button>
-      <button class="nav-item" data-view="prompts"><span class="nav-ico">💡</span><span>Промпты</span></button>
-      <button class="nav-item" data-view="voice"><span class="nav-ico">🎙️</span><span>Голос</span></button>
-      <button class="nav-item" data-view="settings"><span class="nav-ico">⚙️</span><span>Настройки</span></button>
+      <button class="nav-item active" data-view="dashboard"><span class="nav-ico">🏠</span><span data-i18n="nav.dashboard">Главная</span></button>
+      <button class="nav-item" data-view="agents"><span class="nav-ico">🤖</span><span data-i18n="nav.agents">Агенты</span></button>
+      <button class="nav-item" data-view="marketplace"><span class="nav-ico">⬇️</span><span data-i18n="nav.marketplace">Установка ИИ</span></button>
+      <button class="nav-item" data-view="scenarios"><span class="nav-ico">🎬</span><span data-i18n="nav.scenarios">Сценарии</span></button>
+      <button class="nav-item" data-view="scheduler"><span class="nav-ico">⏰</span><span data-i18n="nav.scheduler">Планировщик</span></button>
+      <button class="nav-item" data-view="minecraft"><span class="nav-ico">🧱</span><span data-i18n="nav.minecraft">Minecraft</span></button>
+      <button class="nav-item" data-view="servers"><span class="nav-ico">🖥️</span><span data-i18n="nav.servers">Серверы</span></button>
+      <button class="nav-item" data-view="translator"><span class="nav-ico">🌐</span><span data-i18n="nav.translator">Перевод</span></button>
+      <button class="nav-item" data-view="prompts"><span class="nav-ico">💡</span><span data-i18n="nav.prompts">Промпты</span></button>
+      <button class="nav-item" data-view="voice"><span class="nav-ico">🎙️</span><span data-i18n="nav.voice">Голос</span></button>
+      <button class="nav-item" data-view="settings"><span class="nav-ico">⚙️</span><span data-i18n="nav.settings">Настройки</span></button>
       <div class="sidebar-spacer"></div>
-      <button class="nav-item pro-cta" data-view="pro"><span class="nav-ico">⭐</span><span>Nexus Pro</span></button>
       <div class="sys-mini" id="sys-mini">
         <div class="sys-row"><span>CPU</span><div class="bar"><i id="cpu-bar"></i></div></div>
         <div class="sys-row"><span>RAM</span><div class="bar"><i id="ram-bar"></i></div></div>
       </div>
+      <div class="sponsor" title="Спонсор">Sponsored by <b>SWAGA1ABE7</b></div>
     </nav>
 
     <!-- Контент -->
@@ -73,6 +73,7 @@
   <!-- Импорт агента -->
   <input type="file" id="agent-import-input" accept="application/json" style="display:none" />
 
+  <script src="i18n.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

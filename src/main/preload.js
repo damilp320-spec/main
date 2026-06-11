@@ -25,7 +25,9 @@ contextBridge.exposeInMainWorld('nexus', {
     info: () => invoke('system:info'),
     stats: () => invoke('system:stats'),
     setAutostart: (e) => invoke('system:setAutostart', e),
-    openExternal: (u) => invoke('system:openExternal', u)
+    openExternal: (u) => invoke('system:openExternal', u),
+    listDrives: () => invoke('system:listDrives'),
+    pickFolder: (o) => invoke('system:pickFolder', o)
   },
   // Ollama / установка
   installer: {
@@ -37,7 +39,9 @@ contextBridge.exposeInMainWorld('nexus', {
     deleteModel: (n) => invoke('installer:deleteModel', n),
     catalog: () => invoke('installer:catalog'),
     recommend: () => invoke('installer:recommend'),
-    quickSetup: () => invoke('installer:quickSetup')
+    quickSetup: (models) => invoke('installer:quickSetup', models),
+    setModelsDir: (dir) => invoke('installer:setModelsDir', dir),
+    getModelsDir: () => invoke('installer:getModelsDir')
   },
   // Агенты
   agents: {
@@ -45,6 +49,7 @@ contextBridge.exposeInMainWorld('nexus', {
     save: (a) => invoke('agents:save', a),
     delete: (id) => invoke('agents:delete', id),
     templates: () => invoke('agents:templates'),
+    addTemplate: (id) => invoke('agents:addTemplate', id),
     chat: (p) => invoke('agents:chat', p),
     stop: (s) => invoke('agents:stop', s),
     history: () => invoke('agents:history'),

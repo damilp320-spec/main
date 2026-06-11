@@ -7,6 +7,27 @@ const os = require('os');
 const fs = require('fs');
 
 const system = require('./system');
+const store = require('./store');
+
+// Выбор диска/папки для хранения моделей (OLLAMA_MODELS).
+function setModelsDir(dir) {
+  return new Promise((resolve) => {
+    try {
+      if (dir) fs.mkdirSync(dir, { recursive: true });
+    } catch (e) { return resolve({ ok: false, error: 'Нет доступа к папке: ' + e.message }); }
+    store.set('settings.modelsDir', dir || null);
+    // На Windows закрепляем переменную для уже запущенной службы Ollama.
+    if (process.platform === 'win32' && dir) {
+      exec(`setx OLLAMA_MODELS "${dir}"`, { windowsHide: true }, () => {
+        resolve({ ok: true, dir, note: 'Папка сохранена. Перезапустите Ollama (или ПК), чтобы изменения вступили в силу.' });
+      });
+    } else {
+      resolve({ ok: true, dir });
+    }
+  });
+}
+
+function getModelsDir() { return store.get('settings.modelsDir', null); }
 
 // Каталог рекомендованных локальных моделей. Подобраны под обычный ПК
 // и под полноценную работу автономных агентов (хороший tool-calling).
@@ -213,22 +234,23 @@ function pullModel(name, onProgress) {
 }
 
 // Полный быстрый сценарий: установить Ollama + подходящие модели.
-async function quickSetup(onProgress) {
+async function quickSetup(onProgress, models) {
   const r = await installOllama(onProgress);
   if (!r.ok) return { ok: false, step: 'ollama', error: r.error };
-  // Ждём поднятия сервера.
+  // Ждём поднятия сервера (стартуем с выбранным каталогом моделей).
   const ollama = require('./ollama');
+  await ollama.startServer();
   for (let i = 0; i < 20; i++) {
     const s = await ollama.status();
     if (s.running) break;
     await new Promise((res) => setTimeout(res, 1500));
   }
-  const rec = recommend();
-  for (const m of rec.models) {
-    await pullModel(m.id, onProgress);
+  const ids = (models && models.length) ? models : recommend().models.map((m) => m.id);
+  for (const id of ids) {
+    await pullModel(id, onProgress);
   }
   onProgress && onProgress({ stage: 'done', percent: 100, message: 'Готово! Агенты настроены.' });
-  return { ok: true, installed: rec.models.map((m) => m.id) };
+  return { ok: true, installed: ids };
 }
 
-module.exports = { getCatalog, recommend, installOllama, pullModel, quickSetup, checkOllamaInstalled };
+module.exports = { getCatalog, recommend, installOllama, pullModel, quickSetup, checkOllamaInstalled, setModelsDir, getModelsDir };

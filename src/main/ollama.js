@@ -53,9 +53,9 @@ async function deleteModel(name) {
 }
 
 // Стриминговый чат с поддержкой инструментов (tool calling).
-function chatStream({ model, messages, tools }, onChunk) {
+function chatStream({ model, messages, tools, options }, onChunk) {
   return new Promise((resolve, reject) => {
-    const payload = JSON.stringify({ model, messages, tools: tools || undefined, stream: true });
+    const payload = JSON.stringify({ model, messages, tools: tools || undefined, options: options || undefined, stream: true });
     const req = http.request(
       { host: HOST, port: PORT, path: '/api/chat', method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } },
       (res) => {
@@ -90,8 +90,16 @@ function chatStream({ model, messages, tools }, onChunk) {
 function startServer() {
   return new Promise((resolve) => {
     try {
+      const store = require('./store');
       const cmd = process.platform === 'win32' ? 'ollama.exe' : 'ollama';
-      const proc = spawn(cmd, ['serve'], { detached: true, stdio: 'ignore' });
+      // Каталог хранения моделей (выбор диска пользователем) через OLLAMA_MODELS.
+      const env = { ...process.env };
+      const modelsDir = store.get('settings.modelsDir', null);
+      if (modelsDir) {
+        try { require('fs').mkdirSync(modelsDir, { recursive: true }); } catch { /* noop */ }
+        env.OLLAMA_MODELS = modelsDir;
+      }
+      const proc = spawn(cmd, ['serve'], { detached: true, stdio: 'ignore', env });
       proc.unref();
       setTimeout(async () => resolve(await status()), 1500);
     } catch (e) {

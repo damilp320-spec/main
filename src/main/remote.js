@@ -2,6 +2,7 @@
 // выполнение команд. Подключения хранятся в конфиге (пароль/ключ — на свой риск).
 const path = require('path');
 const store = require('./store');
+const secrets = require('./secrets');
 
 let Client = null;
 try { Client = require('ssh2').Client; } catch { /* зависимость может отсутствовать в dev */ }
@@ -17,10 +18,17 @@ function saveConnection(conn) {
   const idx = list.findIndex((c) => c.id === conn.id);
   // Сохраняем существующий секрет, если в форме его не меняли.
   if (idx >= 0) {
-    if (!conn.password) conn.password = list[idx].password;
-    if (!conn.privateKey) conn.privateKey = list[idx].privateKey;
+    if (!conn.password) conn.password = list[idx].password; else conn.password = secrets.encrypt(conn.password);
+    if (!conn.privateKey) conn.privateKey = list[idx].privateKey; else conn.privateKey = secrets.encrypt(conn.privateKey);
+    if (conn.passphrase) conn.passphrase = secrets.encrypt(conn.passphrase);
     list[idx] = conn;
-  } else list.push(conn);
+  } else {
+    // Шифруем секреты перед сохранением.
+    if (conn.password) conn.password = secrets.encrypt(conn.password);
+    if (conn.privateKey) conn.privateKey = secrets.encrypt(conn.privateKey);
+    if (conn.passphrase) conn.passphrase = secrets.encrypt(conn.passphrase);
+    list.push(conn);
+  }
   store.set('remotes', list);
   return { id: conn.id };
 }
@@ -30,7 +38,17 @@ function deleteConnection(id) {
   return { ok: true };
 }
 
-function getConn(id) { return store.get('remotes', []).find((c) => c.id === id); }
+// Возвращает подключение с расшифрованными секретами (только для использования внутри main).
+function getConn(id) {
+  const c = store.get('remotes', []).find((x) => x.id === id);
+  if (!c) return null;
+  return {
+    ...c,
+    password: c.password ? secrets.decrypt(c.password) : undefined,
+    privateKey: c.privateKey ? secrets.decrypt(c.privateKey) : undefined,
+    passphrase: c.passphrase ? secrets.decrypt(c.passphrase) : undefined
+  };
+}
 
 function connect(conn) {
   return new Promise((resolve, reject) => {

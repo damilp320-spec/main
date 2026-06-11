@@ -18,8 +18,35 @@ contextBridge.exposeInMainWorld('mythera', {
   // Хранилище
   store: {
     get: (k, d) => invoke('store:get', k, d),
-    set: (k, v) => invoke('store:set', k, v)
+    set: (k, v) => invoke('store:set', k, v),
+    all: () => invoke('store:all'),
+    replaceAll: (o) => invoke('store:replaceAll', o)
   },
+  // Браузер / музыка
+  browser: {
+    play: (q, s) => invoke('browser:play', q, s),
+    open: (n) => invoke('browser:open', n),
+    search: (q, e) => invoke('browser:search', q, e),
+    musicServices: () => invoke('browser:musicServices')
+  },
+  // Громкость системы
+  audio: {
+    get: () => invoke('audio:get'),
+    set: (p) => invoke('audio:set', p),
+    adjust: (d) => invoke('audio:adjust', d),
+    mute: (m) => invoke('audio:mute', m)
+  },
+  // Умный дом
+  smart: {
+    protocols: () => invoke('smart:protocols'),
+    list: () => invoke('smart:list'),
+    save: (d) => invoke('smart:save', d),
+    delete: (id) => invoke('smart:delete', id),
+    execute: (id, a, v) => invoke('smart:execute', id, a, v),
+    test: (id) => invoke('smart:test', id)
+  },
+  // Сырой вызов модели (полный контроль)
+  ollamaRaw: (payload) => invoke('ollama:raw', payload),
   // Система
   system: {
     info: () => invoke('system:info'),

@@ -6,7 +6,24 @@
 
 ![tech](https://img.shields.io/badge/Electron-33-7c5cff) ![platform](https://img.shields.io/badge/Windows-11-29d3c2) ![local](https://img.shields.io/badge/100%25-локально-3ddc84)
 
+## ⬇️ Скачать в один клик
+
+### **[⬇️ Скачать для Windows (последний релиз)](https://github.com/damilp320-spec/main/releases/latest)**
+
+[![Download](https://img.shields.io/badge/Download-Windows%20installer-7c5cff?style=for-the-badge&logo=windows)](https://github.com/damilp320-spec/main/releases/latest)
+
+Одна кнопка — установщик `.exe` (NSIS) или portable-версия с [последнего релиза](https://github.com/damilp320-spec/main/releases/latest). Также есть [страница загрузки (GitHub Pages)](https://damilp320-spec.github.io/main/) с большой кнопкой (включается в Settings → Pages → ветка, папка `/docs`). Релизы собираются автоматически при пуше тега `v*`.
+
 ---
+
+## 🆕 Новое: браузер, звук, умный дом и режим профи
+
+- 🎵 **Музыка в браузере** — «включи …» открывает трек/поиск в Spotify, Apple Music, YouTube Music, **Яндекс Музыке, VK, Звук**, SoundCloud, Deezer (без встроенного плеера; сервис по умолчанию настраивается). Плюс «открой YouTube/Ozon/…» и веб-поиск.
+- 🔊 **Громкость системы** — точная установка/изменение/mute (Windows Core Audio API; на Linux/mac — pactl/osascript). Слайдер в настройках и голосом: «сделай громче на 10».
+- 🏠 **Умный дом — все протоколы** — Home Assistant (REST), **MQTT/Zigbee2MQTT** (нативная публикация), **Яндекс Умный дом (Алиса)**, **SberDevices (Салют)**, Tuya, Xiaomi/Aqara, Google Home, HomeKit, Matter, Tasmota, ESPHome, Sonoff/eWeLink, IFTTT, универсальный вебхук. Секреты шифруются (`safeStorage`).
+- 🧲 **Сортировка вкладок** — перетаскивайте пункты бокового меню, порядок сохраняется.
+- 🛠️ **Режим «полного контроля» (для профи)** — раздел «Разработчику»: сырые параметры Ollama (top_p, top_k, num_ctx, repeat_penalty, seed, num_predict, mirostat, stop), включение/отключение отдельных инструментов агента, сырой вызов модели и **редактор всего конфига в JSON** (экспорт/импорт).
+- ✨ **UX-мелочи** — фокус-режим `Ctrl+B` (скрыть меню), быстрый запуск музыки и mute из командной палитры `Ctrl+K`, кнопка «Скачать последнюю версию» прямо в приложении.
 
 ## ✨ Возможности
 

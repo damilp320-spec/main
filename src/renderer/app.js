@@ -29,6 +29,36 @@ function navigate(view) {
   render();
 }
 
+/* ---------------- Tab sorting (drag to reorder + persist) ---------------- */
+async function applyNavOrder() {
+  const order = await N.store.get('settings.navOrder', null);
+  const sidebar = $('.sidebar');
+  const spacer = $('.sidebar-spacer');
+  if (order && sidebar && spacer) {
+    order.forEach((view) => { const item = $(`.nav-item[data-view="${view}"]`); if (item) sidebar.insertBefore(item, spacer); });
+  }
+  enableNavDrag();
+}
+function enableNavDrag() {
+  let dragged = null;
+  $$('.nav-item').forEach((item) => {
+    item.draggable = true;
+    item.ondragstart = (e) => { dragged = item; item.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; };
+    item.ondragend = () => { item.classList.remove('dragging'); persistNavOrder(); };
+    item.ondragover = (e) => {
+      e.preventDefault();
+      if (!dragged || dragged === item) return;
+      const rect = item.getBoundingClientRect();
+      const after = (e.clientY - rect.top) > rect.height / 2;
+      item.parentNode.insertBefore(dragged, after ? item.nextSibling : item);
+    };
+  });
+}
+function persistNavOrder() {
+  const order = $$('.sidebar .nav-item').map((b) => b.dataset.view);
+  N.store.set('settings.navOrder', order);
+}
+
 /* ---------------- Toasts ---------------- */
 function toast(title, msg, kind) {
   const t = el('div', 'toast ' + (kind || ''));
@@ -79,7 +109,7 @@ const content = $('#content');
 function render() {
   content.scrollTop = 0;
   content.className = 'content fade-in';
-  const map = { dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scenarios: viewScenarios, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, knowledge: viewKnowledge, swarm: viewSwarm, skills: viewSkills, dispatch: viewDispatch, prompts: viewPrompts, voice: viewVoice, settings: viewSettings };
+  const map = { dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scenarios: viewScenarios, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, smarthome: viewSmartHome, knowledge: viewKnowledge, swarm: viewSwarm, skills: viewSkills, dispatch: viewDispatch, prompts: viewPrompts, voice: viewVoice, developer: viewDeveloper, settings: viewSettings };
   (map[state.view] || viewDashboard)();
 }
 
@@ -100,6 +130,7 @@ async function viewDashboard() {
       <div class="row wrap">
         <button class="btn primary" id="qs">${esc(t('dash.quickInstall'))}</button>
         <button class="btn ghost" id="goagents">${esc(t('dash.openAgents'))}</button>
+        <button class="btn ghost" id="dl-latest">⬇️ Скачать последнюю версию</button>
       </div>
     </div>
     <div class="grid cols-4">
@@ -124,6 +155,7 @@ async function viewDashboard() {
 
   $('#qs').onclick = quickSetup;
   $('#goagents').onclick = () => navigate('agents');
+  $('#dl-latest').onclick = () => N.system.openExternal('https://github.com/damilp320-spec/main/releases/latest');
 }
 
 async function quickSetup() {
@@ -879,6 +911,144 @@ function downloadJson(data, filename) {
   const a = el('a'); a.href = URL.createObjectURL(blob); a.download = filename; a.click(); URL.revokeObjectURL(a.href);
 }
 
+/* ---------- Smart Home ---------- */
+async function viewSmartHome() {
+  const protocols = await N.smart.protocols();
+  const devices = await N.smart.list();
+  content.innerHTML = `
+    <div class="view-head row between"><div><h1>🏠 ${esc(t('nav.smarthome'))}</h1><p>Управление устройствами умного дома голосом и агентами — поддержка всех популярных протоколов, включая РФ/СНГ</p></div>
+      <button class="btn primary" id="sh-new">＋ Устройство</button></div>
+    <div class="card" style="margin-bottom:16px">
+      <h3>🔌 Поддерживаемые протоколы (${protocols.length})</h3>
+      <div style="margin-top:8px">${protocols.map((p) => `<span class="tag accent" title="${esc(p.note)}">${p.region === 'ru' ? '🇷🇺 ' : ''}${esc(p.name)}</span>`).join('')}</div>
+      <p class="muted" style="margin-top:8px">Большинство экосистем (Xiaomi, HomeKit, Matter, Tuya, Sonoff…) подключаются через хаб Home Assistant или вебхук — это покрывает «всё».</p>
+    </div>
+    <div class="grid cols-2" id="sh-list"></div>`;
+  $('#sh-new').onclick = () => editDevice(null, protocols);
+  const wrap = $('#sh-list');
+  if (!devices.length) { wrap.innerHTML = `<div class="empty"><div class="big-ico">🏠</div><p>Устройств нет. Добавьте первое — затем скажите голосом: «включи свет на кухне».</p></div>`; return; }
+  devices.forEach((d) => {
+    const c = el('div', 'card', `<div class="row between"><div><b>${esc(d.name)}</b> <span class="tag">${esc(d.protocol)}</span><br><small class="muted">${esc(d.entity || d.host || '')}</small></div></div>
+      <div class="row wrap" style="margin-top:8px">
+        <button class="btn sm" data-act="on">Вкл</button><button class="btn sm" data-act="off">Выкл</button>
+        <button class="btn ghost sm" data-act="toggle">Переключить</button><button class="btn ghost sm" data-edit="1">✎</button><button class="btn danger sm" data-del="1">${esc(t('btn.delete'))}</button>
+      </div>`);
+    wrap.appendChild(c);
+    c.querySelectorAll('[data-act]').forEach((b) => b.onclick = async () => {
+      b.disabled = true; const r = await N.smart.execute(d.id, b.dataset.act);
+      toast(r.ok ? '✅ ' + d.name : 'Ошибка', r.ok ? (r.info || '') : r.error, r.ok ? 'ok' : 'err'); b.disabled = false;
+    });
+    c.querySelector('[data-edit]').onclick = () => editDevice(d, protocols);
+    c.querySelector('[data-del]').onclick = async () => { await N.smart.delete(d.id); viewSmartHome(); };
+  });
+}
+function editDevice(dev, protocols) {
+  const isNew = !dev;
+  dev = dev || { name: '', protocol: 'homeassistant', host: '', entity: '', method: 'POST' };
+  const opts = protocols.map((p) => `<option value="${p.id}" ${p.id === dev.protocol ? 'selected' : ''}>${p.region === 'ru' ? '🇷🇺 ' : ''}${esc(p.name)}</option>`).join('');
+  const hint = {
+    homeassistant: { host: 'http://homeassistant.local:8123', entity: 'light.kitchen', sec: 'Долгоживущий токен HA' },
+    mqtt: { host: 'IP брокера (1883)', entity: 'zigbee2mqtt/lamp/set', sec: 'Пароль MQTT (опц.)' },
+    yandex: { host: '(не нужен)', entity: 'device-id из Яндекса', sec: 'OAuth-токен Яндекса' },
+    webhook: { host: 'https://…/{action}', entity: '', sec: 'Bearer-ключ (опц.)' }
+  };
+  modal(`<h2>${isNew ? 'Новое устройство' : 'Устройство'} умного дома</h2>
+    <label class="field"><span>Название</span><input id="sh-name" value="${esc(dev.name)}" placeholder="Свет на кухне"></label>
+    <label class="field"><span>Протокол</span><select id="sh-proto">${opts}</select></label>
+    <label class="field"><span>Хост / URL</span><input id="sh-host" value="${esc(dev.host || '')}" placeholder="адрес хаба/брокера/вебхука"></label>
+    <label class="field"><span>Сущность / топик / id</span><input id="sh-entity" value="${esc(dev.entity || '')}" placeholder="light.kitchen / topic / device-id"></label>
+    <label class="field"><span>Токен / ключ / пароль ${dev.id ? '(оставьте пустым — не менять)' : ''}</span><input id="sh-token" type="password" placeholder="секрет (шифруется)"></label>
+    <p class="muted" id="sh-hint"></p>
+    <div class="modal-actions">${!isNew ? '<button class="btn ghost" id="sh-testbtn">🔌 Тест</button>' : ''}<button class="btn ghost" id="sh-cancel">${esc(t('btn.cancel'))}</button><button class="btn primary" id="sh-save">${esc(t('btn.save'))}</button></div>`, (m, close) => {
+    const updHint = () => { const h = hint[$('#sh-proto', m).value] || hint.webhook; $('#sh-hint', m).innerHTML = `Хост: <code>${esc(h.host)}</code> · Сущность: <code>${esc(h.entity)}</code> · Секрет: ${esc(h.sec)}`; };
+    $('#sh-proto', m).onchange = updHint; updHint();
+    $('#sh-cancel', m).onclick = close;
+    $('#sh-save', m).onclick = async () => {
+      const d = { ...dev, name: $('#sh-name', m).value.trim() || 'Устройство', protocol: $('#sh-proto', m).value, host: $('#sh-host', m).value.trim(), entity: $('#sh-entity', m).value.trim() };
+      const tok = $('#sh-token', m).value.trim(); if (tok) d.token = tok;
+      await N.smart.save(d); close(); toast('OK', 'Сохранено', 'ok'); viewSmartHome();
+    };
+    if ($('#sh-testbtn', m)) $('#sh-testbtn', m).onclick = async () => { const r = await N.smart.test(dev.id); toast(r.ok ? 'OK' : 'Ошибка', r.ok ? (r.info || 'отправлено') : r.error, r.ok ? 'ok' : 'err'); };
+  });
+}
+
+/* ---------- Developer / Full control ---------- */
+async function viewDeveloper() {
+  const full = await N.store.get('settings.fullControl', false);
+  const adv = await N.store.get('settings.advanced', {});
+  const models = await N.installer.listModels();
+  const allTools = ['run_command', 'read_file', 'write_file', 'list_dir', 'open_app', 'open_url', 'web_search', 'http_get', 'play_music', 'open_website', 'web_search_open', 'set_volume', 'change_volume', 'mute_audio', 'smart_home', 'take_screenshot', 'remote_exec'];
+  const disabled = await N.store.get('settings.disabledTools', []);
+  content.innerHTML = `
+    <div class="view-head"><h1>🛠️ ${esc(t('nav.developer'))}</h1><p>Режим полного контроля для профессионалов: сырые параметры модели, конфиг и инструменты</p></div>
+    <div class="card" style="margin-bottom:16px">
+      <div class="row between"><div><b>Режим полного контроля</b><br><small class="muted">Включает применение сырых параметров ниже и расширенные настройки</small></div>
+      <label class="switch"><input type="checkbox" id="fc-on" ${full ? 'checked' : ''}><span class="slider"></span></label></div>
+    </div>
+    <div class="grid cols-2">
+      <div class="card">
+        <h3>⚙️ Параметры генерации (Ollama)</h3>
+        ${advRow('top_p', 'top_p', adv.top_p, '0.9')}
+        ${advRow('top_k', 'top_k', adv.top_k, '40')}
+        ${advRow('num_ctx', 'Контекст (num_ctx)', adv.num_ctx, '4096')}
+        ${advRow('repeat_penalty', 'repeat_penalty', adv.repeat_penalty, '1.1')}
+        ${advRow('num_predict', 'Лимит токенов (num_predict)', adv.num_predict, '-1')}
+        ${advRow('seed', 'seed', adv.seed, '0')}
+        ${advRow('mirostat', 'mirostat (0/1/2)', adv.mirostat, '0')}
+        <label class="field"><span>stop (через запятую)</span><input id="adv-stop" value="${esc(adv.stop || '')}" placeholder="\\n\\n, ###"></label>
+      </div>
+      <div class="card">
+        <h3>🧰 Инструменты агентов</h3>
+        <p class="muted">Отключите инструменты, которые агент НЕ должен использовать.</p>
+        <div style="max-height:230px;overflow:auto;margin-top:8px">
+          ${allTools.map((tn) => `<label class="row between" style="padding:5px 0"><code>${esc(tn)}</code><label class="switch"><input type="checkbox" data-tool="${tn}" ${disabled.includes(tn) ? '' : 'checked'}><span class="slider"></span></label></label>`).join('')}
+        </div>
+      </div>
+      <div class="card">
+        <h3>🖥️ Сырой вызов модели</h3>
+        <label class="field"><span>Модель</span><select id="raw-model">${(models.length ? models.map((m) => m.name) : ['qwen2.5:7b']).map((n) => `<option>${esc(n)}</option>`).join('')}</select></label>
+        <label class="field"><span>Промпт</span><textarea id="raw-prompt" style="min-height:80px">Привет! Кратко расскажи, кто ты.</textarea></label>
+        <button class="btn primary" id="raw-run">▶ Выполнить</button>
+        <pre id="raw-out" style="display:none;margin-top:10px;background:var(--bg-2);border:1px solid var(--border);border-radius:8px;padding:10px;max-height:200px;overflow:auto;font-size:12px;white-space:pre-wrap"></pre>
+      </div>
+      <div class="card">
+        <h3>🗄️ Редактор конфигурации</h3>
+        <p class="muted">Весь config приложения в JSON. Осторожно — неверный формат сбросит изменения.</p>
+        <textarea id="cfg-json" style="min-height:200px;font-family:monospace;font-size:11px"></textarea>
+        <div class="row" style="margin-top:8px"><button class="btn primary" id="cfg-save">Сохранить конфиг</button><button class="btn ghost" id="cfg-export">📤 Экспорт</button><button class="btn ghost" id="cfg-reload">Обновить</button></div>
+      </div>
+    </div>`;
+  $('#fc-on').onchange = (e) => { N.store.set('settings.fullControl', e.target.checked); toast('Полный контроль', e.target.checked ? 'включён' : 'выключен', 'ok'); };
+  const saveAdv = () => {
+    const a = {};
+    ['top_p', 'top_k', 'num_ctx', 'repeat_penalty', 'num_predict', 'seed', 'mirostat'].forEach((k) => { const v = $('#adv-' + k).value.trim(); if (v !== '') a[k] = v; });
+    const stop = $('#adv-stop').value.trim(); if (stop) a.stop = stop;
+    N.store.set('settings.advanced', a);
+  };
+  $$('[id^="adv-"]').forEach((i) => i.onchange = saveAdv);
+  $$('[data-tool]').forEach((cb) => cb.onchange = async () => {
+    const off = $$('[data-tool]').filter((x) => !x.checked).map((x) => x.dataset.tool);
+    await N.store.set('settings.disabledTools', off);
+  });
+  $('#raw-run').onclick = async () => {
+    const out = $('#raw-out'); out.style.display = 'block'; out.textContent = 'Выполнение…';
+    const adv2 = await N.store.get('settings.advanced', {});
+    const r = await N.ollamaRaw({ model: $('#raw-model').value, messages: [{ role: 'user', content: $('#raw-prompt').value }], options: adv2 });
+    out.textContent = (r && r.content) || JSON.stringify(r);
+  };
+  const loadCfg = async () => { $('#cfg-json').value = JSON.stringify(await N.store.all(), null, 2); };
+  loadCfg();
+  $('#cfg-reload').onclick = loadCfg;
+  $('#cfg-save').onclick = async () => {
+    try { const obj = JSON.parse($('#cfg-json').value); const r = await N.store.replaceAll(obj); toast(r.ok ? 'OK' : 'Ошибка', r.ok ? 'Конфиг сохранён' : r.error, r.ok ? 'ok' : 'err'); }
+    catch { toast('Ошибка', 'Неверный JSON', 'err'); }
+  };
+  $('#cfg-export').onclick = async () => downloadJson(await N.store.all(), 'mythera-config.json');
+}
+function advRow(id, label, val, ph) {
+  return `<label class="field"><span>${esc(label)}</span><input id="adv-${id}" value="${esc(val == null ? '' : val)}" placeholder="${esc(ph)}"></label>`;
+}
+
 /* ---------- Voice ---------- */
 async function viewVoice() {
   const replies = await N.store.get('settings.voiceReplies', true);
@@ -924,7 +1094,7 @@ async function viewVoice() {
     <div class="card" style="margin-top:16px">
       <h3>💡 Примеры команд</h3>
       <div style="margin-top:8px">
-        ${['Какая сейчас загрузка системы?', 'Найди в интернете погоду', 'Сделай скриншот и опиши экран', 'Создай заметку на рабочем столе', 'Составь план на день'].map(c => `<span class="tag accent">«${esc(c)}»</span>`).join('')}
+        ${['Включи Imagine Dragons на YouTube Music', 'Сделай громкость 30%', 'Выключи свет на кухне', 'Открой YouTube', 'Сделай скриншот и опиши экран', 'Какая загрузка системы?'].map(c => `<span class="tag accent">«${esc(c)}»</span>`).join('')}
       </div>
     </div>`;
   $('#voice-toggle').onclick = toggleVoice;
@@ -1004,6 +1174,13 @@ async function viewSettings() {
           <input type="range" id="set-rate" min="0.5" max="2" step="0.1" value="${s.voiceRate}"></label>
       </div>
       <div class="card">
+        <h3>🔊 Звук и музыка</h3>
+        <label class="field"><span>Громкость системы: <b id="vol-val">…</b></span><input type="range" id="set-vol" min="0" max="100" step="1" value="50"></label>
+        <label class="field"><span>Музыкальный сервис по умолчанию</span><select id="set-music"></select></label>
+        <div class="row"><input id="set-playtest" placeholder="например: Imagine Dragons" style="flex:1"><button class="btn" id="set-playbtn">▶ Включить</button></div>
+        <p class="muted" style="margin-top:6px">Музыка открывается в браузере по умолчанию (без встроенного плеера).</p>
+      </div>
+      <div class="card">
         <h3>🧠 ${esc(t('set.memory'))}</h3>
         ${toggleRow('set-mem', t('set.longMemory'), s.longMemory)}
         <p class="muted" style="margin:8px 0">${esc(t('set.memNote'))}</p>
@@ -1036,6 +1213,16 @@ async function viewSettings() {
   bindToggle('set-mem', (v) => N.store.set('settings.longMemory', v));
   bindToggle('set-light', async (v) => { const th = await N.store.get('settings.theme', { mode: 'dark', accent: 'violet' }); th.mode = v ? 'light' : 'dark'; await N.store.set('settings.theme', th); applyTheme(); });
   $('#set-rate').oninput = (e) => { $('#rate-val').textContent = (+e.target.value).toFixed(1) + '×'; N.store.set('settings.voiceRate', +e.target.value); };
+  // Звук и музыка.
+  N.audio.get().then((r) => { if (r.percent != null) { $('#set-vol').value = r.percent; $('#vol-val').textContent = r.percent + '%'; } else $('#vol-val').textContent = 'н/д'; });
+  $('#set-vol').oninput = (e) => { $('#vol-val').textContent = e.target.value + '%'; };
+  $('#set-vol').onchange = (e) => N.audio.set(+e.target.value);
+  N.browser.musicServices().then(async (svcs) => {
+    const cur = await N.store.get('settings.musicService', 'ytmusic');
+    $('#set-music').innerHTML = svcs.map((s) => `<option value="${s.id}" ${s.id === cur ? 'selected' : ''}>${esc(s.name)}</option>`).join('');
+  });
+  $('#set-music').onchange = (e) => N.store.set('settings.musicService', e.target.value);
+  $('#set-playbtn').onclick = async () => { const q = $('#set-playtest').value.trim(); if (!q) return; const r = await N.browser.play(q); toast(r.ok ? '▶ ' + r.service : 'Ошибка', q, r.ok ? 'ok' : 'err'); };
   $('#set-temp').oninput = (e) => { $('#temp-val').textContent = (+e.target.value).toFixed(2); N.store.set('settings.temperature', +e.target.value); };
   $('#set-steps').onchange = (e) => N.store.set('settings.maxSteps', +e.target.value || 0);
   $('#set-defmodel').onchange = (e) => N.store.set('settings.defaultModel', e.target.value);
@@ -1343,12 +1530,18 @@ function buildCommands() {
     nav('translator', '🌐', t('nav.translator')),
     nav('prompts', '💡', t('nav.prompts')),
     nav('voice', '🎙️', t('nav.voice')),
+    nav('smarthome', '🏠', t('nav.smarthome')),
+    nav('developer', '🛠️', t('nav.developer')),
     nav('settings', '⚙️', t('nav.settings')),
     { ico: '➕', label: t('btn.newAgent'), sub: 'Действие', run: () => { navigate('agents'); setTimeout(() => editAgent(null), 50); } },
     { ico: '🧩', label: 'Галерея шаблонов', sub: 'Действие', run: () => { navigate('agents'); setTimeout(templateGallery, 50); } },
     { ico: '⚡', label: 'Быстрая установка моделей', sub: 'Действие', run: () => { navigate('dashboard'); setTimeout(quickSetup, 50); } },
     { ico: '🎤', label: 'Включить/выключить голос', sub: 'Действие', run: () => { navigate('voice'); toggleVoice(); } },
+    { ico: '🎵', label: 'Включить музыку…', sub: 'Действие', run: () => promptPlayMusic() },
+    { ico: '🔇', label: 'Выключить звук', sub: 'Действие', run: async () => { await N.audio.mute(true); toast('Звук', 'выключен', 'ok'); } },
+    { ico: '🔊', label: 'Включить звук', sub: 'Действие', run: async () => { await N.audio.mute(false); toast('Звук', 'включён', 'ok'); } },
     { ico: '🌗', label: 'Переключить тему', sub: 'Действие', run: toggleThemeMode },
+    { ico: '🧘', label: 'Фокус-режим (скрыть меню)', sub: 'Действие', run: toggleFocusMode },
     { ico: '📥', label: t('btn.import'), sub: 'Действие', run: () => $('#agent-import-input').click() }
   ];
   return cmds;
@@ -1377,7 +1570,23 @@ async function toggleThemeMode() {
   applyTheme();
 }
 
+// UX: фокус-режим — скрыть боковое меню (Ctrl+B).
+function toggleFocusMode() { document.body.classList.toggle('focus-mode'); }
+
+// UX: быстрый запуск музыки через мини-диалог.
+function promptPlayMusic() {
+  modal(`<h2>🎵 Что включить?</h2>
+    <label class="field"><input id="pm-q" placeholder="исполнитель, трек или плейлист" autofocus></label>
+    <div class="modal-actions"><button class="btn ghost" id="pm-cancel">${esc(t('btn.cancel'))}</button><button class="btn primary" id="pm-go">▶ Включить</button></div>`, (m, close) => {
+    const go = async () => { const q = $('#pm-q', m).value.trim(); if (!q) return; const r = await N.browser.play(q); toast(r.ok ? '▶ ' + r.service : 'Ошибка', q, r.ok ? 'ok' : 'err'); close(); };
+    $('#pm-cancel', m).onclick = close; $('#pm-go', m).onclick = go;
+    $('#pm-q', m).addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+    setTimeout(() => $('#pm-q', m).focus(), 30);
+  });
+}
+
 document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') { e.preventDefault(); toggleFocusMode(); return; }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); $('#cmdk').style.display === 'flex' ? closeCmdk() : openCmdk(); return; }
   if ($('#cmdk').style.display === 'flex') {
     if (e.key === 'Escape') closeCmdk();
@@ -1592,6 +1801,7 @@ async function pollOllama() {
   if (lang) setLangCode(lang);
   applyStaticI18n();
   await applyTheme();
+  await applyNavOrder();
   render();
   pollStats(); pollOllama();
   setInterval(pollStats, 3000);

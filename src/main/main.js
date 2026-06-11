@@ -19,6 +19,9 @@ const skills = require('./skills');
 const screen = require('./screen');
 const speech = require('./speech');
 const dispatch = require('./dispatch');
+const browser = require('./browser');
+const audio = require('./audio');
+const smarthome = require('./smarthome');
 
 let win = null;
 let tray = null;
@@ -261,6 +264,31 @@ ipcMain.handle('skills:import', (_e, obj) => skills.importSkill(obj));
 
 /* ---------------- IPC: computer vision ---------------- */
 ipcMain.handle('screen:capture', () => screen.capture());
+
+/* ---------------- IPC: browser / music ---------------- */
+ipcMain.handle('browser:play', (_e, query, service) => browser.playMusic(query, service));
+ipcMain.handle('browser:open', (_e, name) => browser.openService(name));
+ipcMain.handle('browser:search', (_e, q, engine) => browser.webSearch(q, engine));
+ipcMain.handle('browser:musicServices', () => browser.musicServices());
+
+/* ---------------- IPC: system audio (volume) ---------------- */
+ipcMain.handle('audio:get', () => audio.getVolume());
+ipcMain.handle('audio:set', (_e, p) => audio.setVolume(p));
+ipcMain.handle('audio:adjust', (_e, d) => audio.adjust(d));
+ipcMain.handle('audio:mute', (_e, m) => audio.mute(m));
+
+/* ---------------- IPC: smart home ---------------- */
+ipcMain.handle('smart:protocols', () => smarthome.PROTOCOLS);
+ipcMain.handle('smart:list', () => smarthome.listDevices());
+ipcMain.handle('smart:save', (_e, d) => smarthome.saveDevice(d));
+ipcMain.handle('smart:delete', (_e, id) => smarthome.deleteDevice(id));
+ipcMain.handle('smart:execute', (_e, id, action, value) => smarthome.execute(id, action, value));
+ipcMain.handle('smart:test', (_e, id) => smarthome.test(id));
+
+/* ---------------- IPC: full control (pro) ---------------- */
+ipcMain.handle('store:all', () => store.all());
+ipcMain.handle('store:replaceAll', (_e, obj) => store.replaceAll(obj));
+ipcMain.handle('ollama:raw', (_e, payload) => ollama.chatStream(payload, null));
 
 /* ---------------- IPC: dispatch (remote access) ---------------- */
 ipcMain.handle('dispatch:status', () => dispatch.status());

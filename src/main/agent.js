@@ -10,6 +10,9 @@ const translator = require('./translator');
 const skills = require('./skills');
 const rag = require('./rag');
 const screen = require('./screen');
+const browser = require('./browser');
+const audio = require('./audio');
+const smarthome = require('./smarthome');
 
 const activeSessions = new Map(); // sessionId -> { stop: bool }
 
@@ -21,17 +24,23 @@ const visionToolSchema = {
 
 // Полный набор инструментов = базовые + расширения + скилы + зрение.
 function allToolSchemas() {
-  return [
+  const disabled = store.get('settings.disabledTools', []);
+  const all = [
     ...system.toolSchemas,
     ...minecraft.toolSchemas,
     ...remote.toolSchemas,
     ...translator.toolSchemas,
+    ...browser.toolSchemas,
+    ...audio.toolSchemas,
+    ...smarthome.toolSchemas,
     ...skills.toolSchemas(),
     visionToolSchema
   ];
+  // «Полный контроль»: можно отключать отдельные инструменты.
+  return disabled.length ? all.filter((t) => !disabled.includes(t.function.name)) : all;
 }
 
-const extraHandlers = { ...minecraft.toolHandlers, ...remote.toolHandlers, ...translator.toolHandlers };
+const extraHandlers = { ...minecraft.toolHandlers, ...remote.toolHandlers, ...translator.toolHandlers, ...browser.toolHandlers, ...audio.toolHandlers, ...smarthome.toolHandlers };
 
 async function dispatchTool(name, args) {
   if (skills.isSkillTool(name)) {
@@ -207,6 +216,14 @@ async function chat({ agentId, sessionId, message, history }, sendToUI) {
   const maxSteps = Math.min(100, override > 0 ? override : baseSteps);
   const temperature = store.get('settings.temperature', 0.7);
   const options = { temperature: typeof temperature === 'number' ? temperature : 0.7 };
+  // Режим «полного контроля»: профи задают сырые параметры Ollama.
+  const adv = store.get('settings.advanced', {}) || {};
+  if (store.get('settings.fullControl', false)) {
+    for (const k of ['top_p', 'top_k', 'num_ctx', 'repeat_penalty', 'seed', 'num_predict', 'min_p', 'tfs_z', 'mirostat']) {
+      if (adv[k] !== undefined && adv[k] !== null && adv[k] !== '') options[k] = +adv[k];
+    }
+    if (adv.stop) options.stop = String(adv.stop).split(',').map((s) => s.trim()).filter(Boolean);
+  }
   let finalText = '';
 
   try {

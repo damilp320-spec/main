@@ -66,6 +66,9 @@ body {
 .sidebar-spacer { flex: 1; }
 .nav-item.dragging { opacity: .45; cursor: grabbing; }
 body.focus-mode .sidebar { display: none; }
+.effort-sel { background: var(--bg-2); border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 5px 8px; font-size: 12px; cursor: pointer; }
+.attach-chip { display: inline-flex; align-items: center; gap: 8px; margin: 0 0 8px 14px; padding: 5px 10px; background: var(--bg-3); border: 1px solid var(--border); border-radius: 20px; font-size: 12px; }
+.attach-chip span { cursor: pointer; color: var(--danger); font-weight: 700; }
 .nav-item { cursor: pointer; }
 .sponsor { text-align: center; font-size: 10px; color: var(--muted); opacity: .65; margin-top: 8px; letter-spacing: .3px; }
 .sponsor b { color: var(--accent); }

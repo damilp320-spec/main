@@ -10,11 +10,28 @@ const state = {
   view: 'dashboard',
   agents: [],
   activeAgentId: null,
-  chat: [], // {role, text}
+  chats: {},           // agentId -> [{role, text}] — у каждого агента своя история
+  streamAgentId: null, // агент, чей ответ сейчас стримится
+  attachment: null,    // прикреплённый к следующему сообщению файл
   sessionId: null,
   busy: false,
   voiceListening: false
 };
+
+// История текущего (или указанного) агента — создаётся при первом обращении.
+function chatFor(agentId) {
+  const id = agentId || state.activeAgentId;
+  if (!state.chats[id]) state.chats[id] = [];
+  return state.chats[id];
+}
+async function loadChat(agentId) {
+  if (!state.chats[agentId]) state.chats[agentId] = (await N.store.get('chats.' + agentId, [])) || [];
+  return state.chats[agentId];
+}
+function persistChat(agentId) {
+  const id = agentId || state.activeAgentId;
+  if (id) N.store.set('chats.' + id, (state.chats[id] || []).slice(-120));
+}
 
 /* ---------------- Window controls ---------------- */
 $('#btn-min').onclick = () => N.win.minimize();
@@ -261,18 +278,29 @@ async function viewMarketplace() {
 async function viewAgents() {
   state.agents = await N.agents.list();
   if (!state.activeAgentId && state.agents[0]) state.activeAgentId = state.agents[0].id;
+  if (state.activeAgentId) await loadChat(state.activeAgentId);
+  const effort = await N.store.get('settings.effort', 'balanced');
 
   content.innerHTML = `
     <div class="view-head row between"><div><h1>${esc(t('nav.agents'))}</h1><p>${esc(t('agents.sub'))}</p></div>
-      <div class="row"><button class="btn ghost" id="gallery-agent">🧩 Галерея</button><button class="btn ghost" id="import-agent">📥 ${esc(t('btn.import'))}</button><button class="btn primary" id="new-agent">＋ ${esc(t('btn.newAgent'))}</button></div></div>
+      <div class="row"><button class="btn ghost" id="gallery-agent">🧩 ${esc(t('agents.gallery'))}</button><button class="btn ghost" id="import-agent">📥 ${esc(t('btn.import'))}</button><button class="btn primary" id="new-agent">＋ ${esc(t('btn.newAgent'))}</button></div></div>
     <div class="agents-layout">
       <div class="agent-list" id="agent-list"></div>
       <div class="chat" id="chat">
-        <div class="chat-head"><div id="chat-title"></div><div class="row"><button class="btn ghost sm" id="mem-agent">🧠 Память</button><button class="btn ghost sm" id="export-agent">📤</button><button class="btn ghost sm" id="edit-agent">✎ Настроить</button><button class="btn ghost sm" id="clear-chat">Очистить</button></div></div>
+        <div class="chat-head"><div id="chat-title"></div><div class="row">
+          <select id="effort-sel" class="effort-sel" title="${esc(t('eff.title'))}">
+            <option value="fast" ${effort === 'fast' ? 'selected' : ''}>⚡ ${esc(t('eff.fast'))}</option>
+            <option value="balanced" ${effort === 'balanced' ? 'selected' : ''}>⚖️ ${esc(t('eff.balanced'))}</option>
+            <option value="thorough" ${effort === 'thorough' ? 'selected' : ''}>🔬 ${esc(t('eff.thorough'))}</option>
+            <option value="max" ${effort === 'max' ? 'selected' : ''}>🧠 ${esc(t('eff.max'))}</option>
+          </select>
+          <button class="btn ghost sm" id="mem-agent">🧠 ${esc(t('agents.memory'))}</button><button class="btn ghost sm" id="export-agent">📤</button><button class="btn ghost sm" id="edit-agent">✎</button><button class="btn ghost sm" id="clear-chat">${esc(t('agents.clear'))}</button></div></div>
         <div class="chat-body" id="chat-body"></div>
+        <div id="attach-bar"></div>
         <div class="chat-input">
-          <textarea id="chat-text" placeholder="Напишите задачу… (агент может управлять ПК и искать в сети)"></textarea>
-          <button class="btn primary" id="send-btn">Отпр.</button>
+          <button class="btn ghost" id="attach-btn" title="${esc(t('agents.attach'))}">📎</button>
+          <textarea id="chat-text" placeholder="${esc(t('agents.placeholder'))}"></textarea>
+          <button class="btn primary" id="send-btn">${esc(t('agents.send'))}</button>
         </div>
       </div>
     </div>`;
@@ -285,14 +313,18 @@ async function viewAgents() {
   $('#import-agent').onclick = () => $('#agent-import-input').click();
   $('#export-agent').onclick = () => exportActiveAgent();
   $('#edit-agent').onclick = () => editAgent(state.agents.find(a => a.id === state.activeAgentId));
-  $('#clear-chat').onclick = () => { state.chat = []; renderChat(); };
+  $('#clear-chat').onclick = () => { state.chats[state.activeAgentId] = []; persistChat(); renderChat(); };
   $('#mem-agent').onclick = () => showMemory(state.activeAgentId);
+  $('#effort-sel').onchange = (e) => { N.store.set('settings.effort', e.target.value); toast('Effort', e.target.value, 'ok'); };
+  $('#attach-btn').onclick = () => $('#chat-file-input').click();
+  renderAttachBar();
 
   const list = $('#agent-list');
   state.agents.forEach((a) => {
     const p = el('div', 'agent-pill' + (a.id === state.activeAgentId ? ' active' : ''));
-    p.innerHTML = `<span class="ico">${a.icon || '🤖'}</span><div class="meta"><b>${esc(a.name)}</b><br><small>${esc(a.model || '')}</small></div>`;
-    p.onclick = () => { state.activeAgentId = a.id; state.chat = []; viewAgents(); };
+    const cnt = (state.chats[a.id] || []).filter((m) => m.role === 'user').length;
+    p.innerHTML = `<span class="ico">${a.icon || '🤖'}</span><div class="meta"><b>${esc(a.name)}</b><br><small>${esc(a.model || '')}${cnt ? ' · ' + cnt + ' 💬' : ''}</small></div>`;
+    p.onclick = async () => { state.activeAgentId = a.id; await loadChat(a.id); viewAgents(); };
     list.appendChild(p);
   });
 
@@ -305,6 +337,13 @@ async function viewAgents() {
 
   // Промпт из библиотеки — подставляем в поле ввода.
   if (state.pendingPrompt) { $('#chat-text').value = state.pendingPrompt; state.pendingPrompt = null; $('#chat-text').focus(); }
+}
+
+function renderAttachBar() {
+  const bar = $('#attach-bar'); if (!bar) return;
+  if (!state.attachment) { bar.innerHTML = ''; return; }
+  bar.innerHTML = `<div class="attach-chip">📎 ${esc(state.attachment.name)} <span id="attach-x">✕</span></div>`;
+  const x = $('#attach-x'); if (x) x.onclick = () => { state.attachment = null; renderAttachBar(); };
 }
 
 async function exportActiveAgent() {
@@ -366,12 +405,13 @@ async function showMemory(agentId) {
 function renderChat() {
   const body = $('#chat-body');
   if (!body) return;
-  if (!state.chat.length) {
-    body.innerHTML = `<div class="empty"><div class="big-ico">🤖</div><p>Начните диалог. Агент может выполнять команды, читать/писать файлы, искать в интернете и открывать приложения.</p></div>`;
+  const chat = chatFor();
+  if (!chat.length) {
+    body.innerHTML = `<div class="empty"><div class="big-ico">🤖</div><p>${esc(t('agents.empty'))}</p></div>`;
     return;
   }
   body.innerHTML = '';
-  state.chat.forEach((m) => {
+  chat.forEach((m) => {
     const d = el('div', 'msg ' + m.role);
     d.textContent = m.text;
     body.appendChild(d);
@@ -381,23 +421,36 @@ function renderChat() {
 
 async function sendChat() {
   const ta = $('#chat-text');
-  const text = ta.value.trim();
-  if (!text || state.busy) return;
+  let text = ta.value.trim();
+  if ((!text && !state.attachment) || state.busy) return;
   ta.value = '';
-  state.chat.push({ role: 'user', text });
+  const chat = chatFor();
+  // Прикреплённый файл: добавляем его содержимое/путь в сообщение.
+  let userDisplay = text;
+  if (state.attachment) {
+    const att = state.attachment;
+    userDisplay = (text ? text + '\n\n' : '') + '📎 ' + att.name;
+    text = (text ? text + '\n\n' : '') +
+      (att.path ? `Прикреплён файл (сохранён в рабочем пространстве): ${att.path}\n` : '') +
+      (att.content ? `Содержимое файла «${att.name}»:\n\`\`\`\n${att.content.slice(0, 12000)}\n\`\`\`` : '');
+    state.attachment = null; renderAttachBar();
+  }
+  chat.push({ role: 'user', text: userDisplay });
   state.busy = true;
+  state.streamAgentId = state.activeAgentId;
   renderChat();
 
-  const history = state.chat.filter(m => m.role === 'user' || m.role === 'bot').slice(0, -1)
+  const history = chat.filter(m => m.role === 'user' || m.role === 'bot').slice(0, -1)
     .map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text }));
 
-  const botMsg = { role: 'bot', text: '' };
-  state.chat.push(botMsg);
+  chat.push({ role: 'bot', text: '' });
   renderChat();
 
+  const effort = await N.store.get('settings.effort', 'balanced');
   state.sessionId = 'sess-' + Date.now();
-  await N.agents.chat({ agentId: state.activeAgentId, sessionId: state.sessionId, message: text, history });
+  await N.agents.chat({ agentId: state.activeAgentId, sessionId: state.sessionId, message: text, history, effort });
   state.busy = false;
+  persistChat(state.streamAgentId);
 }
 
 function editAgent(agent) {
@@ -537,9 +590,11 @@ async function viewMinecraft() {
       <div class="card"><h3>📦 Maven</h3><p class="muted">${env.maven ? '✅ ' + esc(env.mavenVersion || 'установлен') : '❌ не найден · <code>' + esc(env.hints.maven) + '</code>'}</p></div>
       <div class="card"><h3>🐘 Gradle</h3><p class="muted">${env.gradle ? '✅ ' + esc(env.gradleVersion || 'установлен') : '❌ не найден · <code>' + esc(env.hints.gradle) + '</code>'}</p></div>
     </div>
+    ${(!env.java || !env.gradle || !env.maven) ? '<button class="btn primary" id="mc-install-tools" style="margin-bottom:16px">⬇️ Установить всё для сборки модов (JDK 21 + Gradle + Maven)</button>' : ''}
     <div class="grid" id="mc-projects"></div>`;
   $('#mc-new').onclick = () => newMcPlugin(templates);
   $('#mc-newmod').onclick = () => newMcMod(loaders);
+  if ($('#mc-install-tools')) $('#mc-install-tools').onclick = () => installLogModal('Установка инструментов сборки', () => N.tooling.installMcTools());
 
   const wrap = $('#mc-projects');
   if (!projects.length) { wrap.innerHTML = `<div class="empty"><div class="big-ico">🧱</div><p>Проектов пока нет. Создайте плагин или мод — или попросите агента: «создай мод Fabric».</p></div>`; return; }
@@ -836,7 +891,7 @@ async function viewSwarm() {
     const agentIds = $$('#sw-agents [data-ag]:checked').map((x) => x.dataset.ag);
     if (!goal || !agentIds.length) return toast('Заполните', 'Нужны цель и хотя бы один агент', 'err');
     swarmState.running = true;
-    $('#sw-out').innerHTML = '<div class="card"><b>План…</b><div id="sw-steps" style="margin-top:10px"></div><div id="sw-final" class="msg bot" style="margin-top:12px;display:none"></div></div>';
+    $('#sw-out').innerHTML = '<div class="card"><div id="sw-status" class="muted"></div><div id="sw-plan" style="margin:8px 0"></div><div id="sw-steps" style="margin-top:10px"></div><div id="sw-final" class="msg bot" style="margin-top:12px;display:none"></div></div>';
     $('#sw-run').disabled = true; $('#sw-run').innerHTML = '<span class="spin"></span> Работает…';
     await N.swarm.run({ goal, agentIds });
     $('#sw-run').disabled = false; $('#sw-run').textContent = '▶ Запустить команду';
@@ -1100,6 +1155,7 @@ async function viewVoice() {
           <option value="whisper" ${sttEngine === 'whisper' ? 'selected' : ''}>Faster-Whisper — точнее, оффлайн ${sp.whisper.available ? '✅' : '⚠️ не настроен'}</option>
         </select></label>
         <p class="muted">${sp.piper.available ? '' : 'Piper: ' + esc(sp.piper.hint) + '<br>'}${sp.whisper.available ? '' : 'Whisper: ' + esc(sp.whisper.hint)}</p>
+        <button class="btn" id="speech-install" style="margin-top:8px">⬇️ Установить локальную речь (Piper + Faster-Whisper)</button>
       </div>
     </div>
     <div class="card" style="margin-top:16px">
@@ -1115,6 +1171,7 @@ async function viewVoice() {
   $('#wake-word').onchange = (e) => N.store.set('settings.wakeWord', e.target.value.trim() || 'Mythera');
   $('#tts-engine').onchange = (e) => { N.store.set('settings.ttsEngine', e.target.value); toast('TTS', e.target.value, 'ok'); };
   $('#stt-engine').onchange = (e) => { N.store.set('settings.sttEngine', e.target.value); toast('STT', e.target.value, 'ok'); };
+  $('#speech-install').onclick = () => installLogModal('Установка локальной речи', () => N.tooling.installSpeech());
 }
 
 /* ---------- Settings ---------- */
@@ -1302,6 +1359,19 @@ async function showSecurityInfo() {
   });
 }
 
+// Модальное окно установки с живым логом.
+function installLogModal(title, runner) {
+  modal(`<h2>${esc(title)}</h2>
+    <pre id="install-log" style="margin:10px 0;background:var(--bg-2);border:1px solid var(--border);border-radius:8px;padding:10px;max-height:320px;overflow:auto;font-size:11px;font-family:Consolas,monospace;white-space:pre-wrap">Запуск…\n</pre>
+    <div class="modal-actions"><button class="btn primary" id="il-close">${esc(t('btn.close'))}</button></div>`, async (m, close) => {
+    $('#il-close', m).onclick = close;
+    window.__installLog = $('#install-log', m);
+    try { const r = await runner(); const log = window.__installLog; if (log) log.textContent += '\n' + (r && r.ok ? '✅ ' + (r.note || 'Готово') : '⚠️ ' + ((r && r.error) || 'Не удалось')); }
+    catch (e) { if (window.__installLog) window.__installLog.textContent += '\nОшибка: ' + e.message; }
+  });
+}
+N.on('tooling:log', ({ line }) => { const log = window.__installLog; if (log) { log.textContent += line; log.scrollTop = log.scrollHeight; } });
+
 // Простое подтверждение (да/нет).
 function confirmModal(title, text) {
   return new Promise((resolve) => {
@@ -1319,6 +1389,8 @@ function confirmModal(title, text) {
 /* ================= VOICE (Web Speech API + wake-word) ================= */
 const VOICE_LANG = () => ({ ru: 'ru-RU', en: 'en-US', uk: 'uk-UA', es: 'es-ES', de: 'de-DE', zh: 'zh-CN' }[getLangCode()] || 'en-US');
 let recognition = null;
+let recognitionRunning = false;   // реально ли сейчас запущено распознавание
+let voiceManualStop = false;      // пользователь остановил вручную → не авто-перезапускать
 function setupRecognition() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) return null;
@@ -1326,6 +1398,7 @@ function setupRecognition() {
   r.lang = VOICE_LANG();
   r.continuous = true; // непрерывно — нужно для wake-word
   r.interimResults = true;
+  r.onstart = () => { recognitionRunning = true; };
   r.onresult = (e) => {
     let interim = '', finalT = '';
     for (let i = e.resultIndex; i < e.results.length; i++) {
@@ -1335,8 +1408,14 @@ function setupRecognition() {
     const vt = $('#vt'); if (vt) vt.textContent = finalT || interim || '…';
     if (finalT.trim()) handleVoiceCommand(finalT.trim());
   };
-  r.onerror = () => {};
-  r.onend = () => { if (state.voiceListening) { try { r.start(); } catch {} } };
+  r.onerror = () => { /* 'no-speech'/'aborted' — пусть onend решит про перезапуск */ };
+  r.onend = () => {
+    recognitionRunning = false;
+    // Авто-перезапуск ТОЛЬКО если всё ещё слушаем и не остановили вручную.
+    if (state.voiceListening && !voiceManualStop) {
+      setTimeout(() => { if (state.voiceListening && !recognitionRunning) { try { r.start(); } catch {} } }, 350);
+    }
+  };
   return r;
 }
 
@@ -1344,17 +1423,21 @@ function toggleVoice() {
   state.voiceListening ? stopVoice() : startVoice();
 }
 function startVoice() {
+  if (state.voiceListening) { updateVoiceUI(); return; } // уже слушаем — не дёргаем повторно
   if (!recognition) recognition = setupRecognition();
   if (!recognition) { toast('Недоступно', 'Распознавание речи не поддерживается', 'err'); return; }
   state.voiceListening = true;
+  voiceManualStop = false;
   N.voice.start();
-  try { recognition.start(); } catch {}
+  if (!recognitionRunning) { try { recognition.start(); } catch {} }
   updateVoiceUI();
 }
 function stopVoice() {
+  if (!state.voiceListening) { updateVoiceUI(); return; }
   state.voiceListening = false;
+  voiceManualStop = true;
   N.voice.stop();
-  if (recognition) try { recognition.stop(); } catch {}
+  if (recognition && recognitionRunning) { try { recognition.stop(); } catch {} }
   updateVoiceUI();
 }
 function updateVoiceUI() {
@@ -1391,7 +1474,7 @@ async function speakOut(text) {
       if (r.ok && r.file) {
         const audio = new Audio('file://' + r.file);
         audio.playbackRate = await N.store.get('settings.voiceRate', 1);
-        audio.onended = async () => { if (state.voiceListening && await N.store.get('settings.autoListen', false)) { try { recognition && recognition.start(); } catch {} } };
+        audio.onended = async () => { if (state.voiceListening && !recognitionRunning && await N.store.get("settings.autoListen", false)) { try { recognition && recognition.start(); } catch {} } };
         audio.play(); return;
       }
     } catch {}
@@ -1402,7 +1485,7 @@ async function speakOut(text) {
   u.rate = await N.store.get('settings.voiceRate', 1);
   const v = speechSynthesis.getVoices().find((x) => x.lang && x.lang.startsWith(u.lang.slice(0, 2)));
   if (v) u.voice = v;
-  u.onend = async () => { if (state.voiceListening && await N.store.get('settings.autoListen', false)) { try { recognition && recognition.start(); } catch {} } };
+  u.onend = async () => { if (state.voiceListening && !recognitionRunning && await N.store.get("settings.autoListen", false)) { try { recognition && recognition.start(); } catch {} } };
   speechSynthesis.cancel();
   speechSynthesis.speak(u);
 }
@@ -1632,6 +1715,26 @@ $('#skill-import-input').addEventListener('change', async (e) => {
   e.target.value = '';
 });
 
+// Прикрепление файла к чату: сохраняем в рабочее пространство (агент сможет read_file),
+// а для текстовых — ещё и кладём содержимое прямо в сообщение.
+const TEXT_EXT = /\.(txt|md|json|csv|log|js|ts|py|java|html|css|xml|yml|yaml|ini|cfg|conf|sh|bat|ps1|sql|c|cpp|h|go|rs|rb|php|toml|env|gradle|properties)$/i;
+$('#chat-file-input').addEventListener('change', async (e) => {
+  const file = e.target.files[0]; if (!file) return;
+  e.target.value = '';
+  if (file.size > 10 * 1024 * 1024) return toast('Слишком большой', 'до 10 МБ', 'err');
+  try {
+    const buf = new Uint8Array(await file.arrayBuffer());
+    let bin = ''; for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i]);
+    const b64 = btoa(bin);
+    const saved = await N.system.saveUpload(file.name, b64);
+    let contentText = null;
+    if (TEXT_EXT.test(file.name) || file.type.startsWith('text')) { try { contentText = await file.text(); } catch {} }
+    state.attachment = { name: file.name, path: saved && saved.path, content: contentText };
+    renderAttachBar();
+    toast('Файл прикреплён', file.name, 'ok');
+  } catch (err) { toast('Ошибка', err.message, 'err'); }
+});
+
 /* ---------- Onboarding wizard ---------- */
 const ONB_USECASES = [
   { id: 'assistant', ico: '🧠' }, { id: 'automation', ico: '⚙️' },
@@ -1703,29 +1806,32 @@ async function startOnboarding() {
 /* ================= IPC events ================= */
 N.on('navigate', (view) => navigate(view));
 
+// События стрима направляются в чат АГЕНТА, чей ответ выполняется (streamAgentId),
+// а перерисовываем только если этот агент сейчас открыт.
+function streamChat() { return chatFor(state.streamAgentId || state.activeAgentId); }
+function renderIfActive() { if (!state.streamAgentId || state.streamAgentId === state.activeAgentId) renderChat(); }
 N.on('agents:stream', ({ sessionId, chunk }) => {
   if (sessionId !== state.sessionId) return;
-  const last = state.chat[state.chat.length - 1];
-  if (last && last.role === 'bot') { last.text += chunk; renderChat(); }
+  const c = streamChat();
+  const last = c[c.length - 1];
+  if (last && last.role === 'bot') { last.text += chunk; renderIfActive(); }
 });
 N.on('agents:tool', ({ name, args }) => {
-  if (state.view !== 'agents') return;
-  state.chat.push({ role: 'tool', text: `⚙️ ${name}(${JSON.stringify(args).slice(0, 120)})` });
-  // вставляем перед ботом, который ещё пишет
-  const bot = state.chat.pop(); // tool
-  const idx = state.chat.length - 1;
-  state.chat.splice(idx, 0, bot);
-  renderChat();
+  const c = streamChat();
+  const bot = c.pop(); // вытаскиваем «бота», вставляем строку инструмента перед ним
+  c.push({ role: 'tool', text: `⚙️ ${name}(${JSON.stringify(args).slice(0, 120)})` });
+  if (bot) c.push(bot);
+  renderIfActive();
 });
 N.on('agents:toolResult', ({ name, result }) => {
-  if (state.view !== 'agents') return;
-  const bot = state.chat.pop();
-  state.chat.push({ role: 'tool', text: `✅ ${name} → ${String(result).slice(0, 160)}` });
-  state.chat.push(bot);
-  renderChat();
+  const c = streamChat();
+  const bot = c.pop();
+  c.push({ role: 'tool', text: `✅ ${name} → ${String(result).slice(0, 160)}` });
+  if (bot) c.push(bot);
+  renderIfActive();
 });
 N.on('agents:notify', async ({ title, message }) => { if (await N.store.get('settings.notifications', true)) toast(title || 'Агент', message); });
-N.on('agents:done', ({ text }) => { state.busy = false; });
+N.on('agents:done', ({ text }) => { state.busy = false; persistChat(state.streamAgentId); });
 
 function fmtBytes(n) { if (!n) return '0'; const u = ['Б', 'КБ', 'МБ', 'ГБ']; let i = 0; while (n >= 1024 && i < 3) { n /= 1024; i++; } return n.toFixed(i ? 1 : 0) + ' ' + u[i]; }
 function fmtEta(s) { if (s == null) return ''; if (s < 60) return s + ' с'; const m = Math.floor(s / 60); return m + ' мин ' + (s % 60) + ' с'; }
@@ -1758,29 +1864,50 @@ N.on('voice:reply', (text) => {
   const vt = $('#vt'); if (vt) vt.textContent = '🤖 ' + text;
 });
 N.on('voice:speak-request', (text) => speakOut(text));
-N.on('voice:state', ({ listening }) => {
-  state.voiceListening = listening;
-  if (listening && !recognition?.['running']) { /* hotkey toggled */ if (state.view !== 'voice') navigate('voice'); startVoice(); }
-  else if (!listening) stopVoice();
-});
+// Глобальная горячая клавиша. Рендерер — единственный владелец состояния
+// распознавания, поэтому никакого эхо-цикла больше нет.
+N.on('voice:hotkey', () => { if (state.view !== 'voice') navigate('voice'); toggleVoice(); });
 
 N.on('scheduler:fired', async ({ name }) => { if (await N.store.get('settings.notifications', true)) toast('Задача выполнена', name, 'ok'); });
 
 N.on('mc:log', ({ log }) => { if (window.__mcLog) { window.__mcLog.textContent += log; window.__mcLog.scrollTop = window.__mcLog.scrollHeight; } });
 
-/* Swarm события */
-N.on('swarm:plan', ({ steps }) => {
-  const box = $('#sw-steps'); if (!box) return;
-  box.innerHTML = steps.map((s, i) => `<div class="card" id="sw-step-${i}" style="margin-bottom:8px"><b>${i + 1}. ${esc(s.agent)}</b> <span class="tag" id="sw-state-${i}">ожидание</span><br><small class="muted">${esc(s.task)}</small><div class="muted" id="sw-res-${i}" style="margin-top:6px"></div></div>`).join('');
+/* Swarm события (лидер делегирует, ревьюит, перепроверяет) */
+function swEnsureStep(index, agent, task) {
+  let card = document.getElementById('sw-step-' + index);
+  const box = $('#sw-steps');
+  if (!card && box) {
+    card = el('div', 'card'); card.id = 'sw-step-' + index; card.style.marginBottom = '8px';
+    card.innerHTML = `<b>Шаг ${index + 1} · <span id="sw-ag-${index}">${esc(agent || '')}</span></b> <span class="tag" id="sw-state-${index}">…</span>
+      <br><small class="muted" id="sw-task-${index}">${esc(task || '')}</small>
+      <div id="sw-note-${index}" style="margin-top:6px;font-size:12px;color:var(--accent-2)"></div>
+      <div id="sw-res-${index}" style="margin-top:6px;font-size:12px;white-space:pre-wrap"></div>`;
+    box.appendChild(card);
+  }
+  return card;
+}
+N.on('swarm:status', ({ message }) => { const s = $('#sw-status'); if (s) s.textContent = message || ''; });
+N.on('swarm:plan', ({ steps, append }) => {
+  const pl = $('#sw-plan'); if (!pl) return;
+  const html = '<b>План лидера:</b> ' + steps.map((s, i) => `<span class="tag accent">${i + 1}. ${esc(s.agent)}: ${esc(String(s.task).slice(0, 50))}</span>`).join(' ');
+  if (append) pl.innerHTML += '<br>' + html; else pl.innerHTML = html;
 });
-N.on('swarm:step', ({ index, agent, state: stt, result }) => {
-  const tag = $('#sw-state-' + index); if (tag) tag.textContent = stt === 'run' ? '⏳ работает' : '✅ готово';
-  if (result) { const r = $('#sw-res-' + index); if (r) r.textContent = String(result).slice(0, 400); }
+N.on('swarm:step', ({ index, agent, task, state: stt, result }) => {
+  swEnsureStep(index, agent, task);
+  const ag = $('#sw-ag-' + index); if (ag && agent) ag.textContent = agent;
+  const tk = $('#sw-task-' + index); if (tk && task) tk.textContent = task;
+  const tag = $('#sw-state-' + index);
+  if (tag) tag.textContent = stt === 'run' ? '⏳ работает' : stt === 'revise' ? '✏️ доработка' : '✅ готово';
+  if (result) { const r = $('#sw-res-' + index); if (r) r.textContent = String(result).slice(0, 500); }
+});
+N.on('swarm:review', ({ index, verdict, feedback }) => {
+  const n = $('#sw-note-' + index); if (!n) return;
+  n.textContent = verdict === 'accept' ? '👍 лидер принял работу' : '🔁 лидер вернул на доработку: ' + (feedback || '');
 });
 N.on('swarm:final-chunk', ({ chunk }) => {
   const f = $('#sw-final'); if (f) { f.style.display = 'block'; f.textContent += chunk; }
 });
-N.on('swarm:done', () => { toast('Команда завершила работу', '', 'ok'); });
+N.on('swarm:done', () => { const s = $('#sw-status'); if (s) s.textContent = '✅ Готово'; toast('Команда завершила работу', '', 'ok'); });
 N.on('translate:progress', (p) => {
   const bar = $('#tr-prog'); const msg = $('#tr-msg');
   if (bar) { bar.style.display = 'block'; bar.querySelector('i').style.width = (p.percent || 0) + '%'; }

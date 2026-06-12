@@ -190,19 +190,36 @@ function stopSession(sessionId) {
   return { ok: true };
 }
 
+// Глобальная директива поведения для ВСЕХ агентов: честность о результатах
+// инструментов (главная причина «вранья» про созданные файлы/папки) и проактивность.
+const HONESTY = `\n\n[Важные правила]\n` +
+  `1. ЧЕСТНОСТЬ: никогда не утверждай, что действие выполнено, если соответствующий инструмент не вернул подтверждение (OK/путь). Если инструмент вернул «ОШИБКА» — честно сообщи это пользователю и НЕ выдавай за успех.\n` +
+  `2. ФАЙЛЫ И ПАПКИ: чтобы создать файл — используй write_file, чтобы папку — create_directory. Реальные пути узнавай через user_paths. Для рабочего стола используй «Рабочий стол/имя». Если путь не указан — создавай в рабочем пространстве и ЯВНО назови итоговый путь.\n` +
+  `3. КОД: можешь создавать .py и другие файлы через write_file и запускать их через run_python.\n` +
+  `4. ИНИЦИАТИВА: если видишь лучший вариант или риск — предложи его пользователю до выполнения.`;
+
+// Директивы уровня усилий (как «effort» у Claude).
+const EFFORT = {
+  fast: { steps: 4, temp: 0.4, note: '\n[Режим: быстро] Отвечай кратко и по делу, минимум шагов.' },
+  balanced: { steps: null, temp: null, note: '' },
+  thorough: { steps: 60, temp: 0.7, note: '\n[Режим: тщательно] Думай пошагово, проверяй промежуточные результаты, не торопись.' },
+  max: { steps: 100, temp: 0.7, note: '\n[Режим: максимум] Доводи задачу до конца, перепроверяй каждый шаг несколько раз, не останавливайся, пока цель не достигнута и проверена.' }
+};
+
 // Основной агентный цикл с tool-calling.
-async function chat({ agentId, sessionId, message, history }, sendToUI) {
+async function chat({ agentId, sessionId, message, history, effort }, sendToUI) {
   const agent = listAgents().find((a) => a.id === agentId) || TEMPLATES[0];
   sessionId = sessionId || randomUUID();
   const sess = { stop: false };
   activeSessions.set(sessionId, sess);
 
   const model = agent.model || store.get('settings.defaultModel', '') || 'qwen2.5:7b';
+  const eff = EFFORT[effort] || EFFORT.balanced;
   // Инжектируем долговременную память (факты) + RAG-знания под конкретный запрос.
   const memCtx = memory.buildContext(agent.id);
   let ragCtx = '';
   try { ragCtx = await rag.buildContext(agent.id, message); } catch { /* RAG best effort */ }
-  const messages = [{ role: 'system', content: agent.system + memCtx + ragCtx }];
+  const messages = [{ role: 'system', content: agent.system + HONESTY + eff.note + memCtx + ragCtx }];
   // Сжимаем длинную историю, чтобы контекст жил долго, но не разрастался.
   let hist = history || [];
   if (hist.length > memory.COMPACT_AFTER) hist = await memory.compactHistory(hist, model);
@@ -210,11 +227,11 @@ async function chat({ agentId, sessionId, message, history }, sendToUI) {
   messages.push({ role: 'user', content: message });
 
   const useTools = agent.autonomy !== 'chat-only';
-  // Многошаговые задачи: до 40 шагов в автономном режиме (можно поднять в настройках до 100).
+  // Многошаговые задачи: база 40 шагов в автономном режиме; effort и настройки переопределяют.
   const baseSteps = agent.autonomy === 'autonomous' ? 40 : 8;
   const override = parseInt(store.get('settings.maxSteps', 0), 10);
-  const maxSteps = Math.min(100, override > 0 ? override : baseSteps);
-  const temperature = store.get('settings.temperature', 0.7);
+  const maxSteps = Math.min(100, override > 0 ? override : (eff.steps || baseSteps));
+  const temperature = eff.temp != null ? eff.temp : store.get('settings.temperature', 0.7);
   const options = { temperature: typeof temperature === 'number' ? temperature : 0.7 };
   // Режим «полного контроля»: профи задают сырые параметры Ollama.
   const adv = store.get('settings.advanced', {}) || {};

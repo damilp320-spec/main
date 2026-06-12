@@ -64,17 +64,43 @@ const PROTECTED = process.platform === 'win32'
   ? [/^[a-z]:\\windows/i, /^[a-z]:\\program files/i, /\\system32/i, /\\\$recycle/i]
   : [/^\/(etc|bin|sbin|boot|sys|proc|dev|usr|lib|var\/lib)(\/|$)/, /^\/$/];
 
+// Личные папки пользователя (Рабочий стол / Документы / Загрузки) — это его
+// собственные каталоги, поэтому разрешены даже без «полного доступа к диску».
+// Это убирает ситуацию «создай папку на рабочем столе» → тихий отказ/ложь.
+function userFolders() {
+  const home = os.homedir();
+  const names = process.platform === 'win32'
+    ? { Desktop: 'Desktop', 'Рабочий стол': 'Desktop', Documents: 'Documents', Документы: 'Documents', Downloads: 'Downloads', Загрузки: 'Downloads' }
+    : { Desktop: 'Desktop', Documents: 'Documents', Downloads: 'Downloads' };
+  const dirs = {};
+  for (const [, sub] of Object.entries(names)) dirs[sub] = path.join(home, sub);
+  return { home, dirs: Object.values(dirs) };
+}
+function expandUserPath(p) {
+  // ~ и упоминания Desktop/Документы превращаем в реальные пути.
+  const { home } = userFolders();
+  let s = String(p);
+  if (s.startsWith('~')) s = path.join(home, s.slice(1));
+  const map = { 'рабочий стол': 'Desktop', 'desktop': 'Desktop', 'документы': 'Documents', 'documents': 'Documents', 'загрузки': 'Downloads', 'downloads': 'Downloads' };
+  // Если путь начинается с одного из «человеческих» имён — подставим домашнюю папку.
+  const m = /^(рабочий стол|desktop|документы|documents|загрузки|downloads)[\\/]?(.*)$/i.exec(s);
+  if (m && !path.isAbsolute(s)) s = path.join(home, map[m[1].toLowerCase()], m[2] || '');
+  return s;
+}
+
 // Безопасное разрешение пути с защитой от выхода из песочницы.
-// confine=true (по умолчанию для записи) — строго внутри рабочего пространства.
 function resolveSafe(p, { write = false } = {}) {
   const root = safeRoot();
   const fullDisk = store.get('settings.fullDiskAccess', false);
-  let full = path.isAbsolute(p) ? path.normalize(p) : path.normalize(path.join(root, p));
+  const expanded = expandUserPath(p);
+  let full = path.isAbsolute(expanded) ? path.normalize(expanded) : path.normalize(path.join(root, expanded));
   const rootNorm = path.normalize(root + path.sep);
   const insideRoot = (full + path.sep).startsWith(rootNorm);
+  const { dirs } = userFolders();
+  const insideUser = dirs.some((d) => (full + path.sep).startsWith(path.normalize(d + path.sep)) || full === path.normalize(d));
 
-  if (!fullDisk && !insideRoot) {
-    throw new Error('Доступ только к рабочему пространству. Полный доступ к диску можно включить в настройках.');
+  if (!fullDisk && !insideRoot && !insideUser) {
+    throw new Error('Путь вне рабочего пространства и личных папок (Рабочий стол/Документы/Загрузки). Укажите путь внутри них или включите «Полный доступ к диску» в настройках.');
   }
   if (write && PROTECTED.some((re) => re.test(full))) {
     throw new Error('Запись в системный каталог запрещена политикой безопасности.');
@@ -117,6 +143,18 @@ function securityInfo() {
 // Демонстрация фильтра: проверяет команду так же, как при вызове агентом.
 function screenTest(cmd) { const reason = screenCommand(String(cmd || '')); return { command: cmd, blocked: !!reason, reason }; }
 
+// Сохранение прикреплённого файла в рабочее пространство (uploads/).
+function saveUpload(name, b64) {
+  try {
+    const safeName = String(name || 'file').replace(/[^\w.\-а-яА-Я ]+/g, '_').slice(0, 120);
+    const dir = path.join(safeRoot(), 'uploads');
+    fs.mkdirSync(dir, { recursive: true });
+    const full = path.join(dir, safeName);
+    fs.writeFileSync(full, Buffer.from(b64, 'base64'));
+    return { ok: true, path: full };
+  } catch (e) { return { ok: false, error: e.message }; }
+}
+
 function isSafeUrl(url) {
   try { const u = new URL(String(url)); return ['http:', 'https:', 'mailto:'].includes(u.protocol); }
   catch { return false; }
@@ -153,8 +191,49 @@ const tools = {
       const full = resolveSafe(p, { write: true });
       fs.mkdirSync(path.dirname(full), { recursive: true });
       fs.writeFileSync(full, content ?? '', 'utf8');
-      return 'Файл сохранён: ' + full;
-    } catch (e) { return 'Ошибка записи: ' + e.message; }
+      // Честный результат: подтверждаем фактом существования файла.
+      if (!fs.existsSync(full)) return 'ОШИБКА: файл не был создан (' + full + ').';
+      const bytes = fs.statSync(full).size;
+      return `OK: файл записан: ${full} (${bytes} байт).`;
+    } catch (e) { return 'ОШИБКА записи: ' + e.message + ' — файл НЕ создан. Сообщи это пользователю честно.'; }
+  },
+
+  // Создание каталога с честной проверкой результата.
+  async create_directory({ path: p }) {
+    try {
+      const full = resolveSafe(p, { write: true });
+      fs.mkdirSync(full, { recursive: true });
+      if (!fs.existsSync(full)) return 'ОШИБКА: каталог не был создан (' + full + ').';
+      return `OK: каталог создан: ${full}`;
+    } catch (e) { return 'ОШИБКА: каталог НЕ создан — ' + e.message + '. Сообщи это пользователю честно и предложи путь внутри рабочего пространства или личных папок.'; }
+  },
+
+  // Запуск Python-файла (или инлайн-кода) в рабочем пространстве.
+  async run_python({ path: p, code }) {
+    if (!store.get('settings.allowShell', true)) return 'Выполнение кода отключено в настройках безопасности.';
+    return new Promise((resolve) => {
+      let target = p, tmp = null;
+      try {
+        if (!p && code) { tmp = path.join(safeRoot(), '.mythera_tmp.py'); fs.writeFileSync(tmp, String(code), 'utf8'); target = tmp; }
+        else target = resolveSafe(p);
+      } catch (e) { return resolve('ОШИБКА: ' + e.message); }
+      const py = process.platform === 'win32' ? 'python' : 'python3';
+      let out = '';
+      let proc;
+      try { proc = spawn(py, [target], { cwd: safeRoot(), windowsHide: true }); }
+      catch (e) { return resolve('ОШИБКА запуска Python: ' + e.message + ' (установлен ли Python?)'); }
+      proc.stdout.on('data', (d) => { out += d; if (out.length > 100000) proc.kill(); });
+      proc.stderr.on('data', (d) => { out += d; });
+      const timer = setTimeout(() => { proc.kill(); resolve(out + '\n[прервано: таймаут 60с]'); }, 60000);
+      proc.on('close', (code2) => { clearTimeout(timer); if (tmp) try { fs.unlinkSync(tmp); } catch {} resolve((out || '(нет вывода)').slice(0, 100000) + `\n[код выхода: ${code2}]`); });
+      proc.on('error', (e) => { clearTimeout(timer); resolve('ОШИБКА запуска Python: ' + e.message + ' (установлен ли Python?)'); });
+    });
+  },
+
+  // Пути к личным папкам пользователя — чтобы агент знал реальный путь до Рабочего стола.
+  async user_paths() {
+    const home = os.homedir();
+    return `Домашняя папка: ${home}\nРабочий стол: ${path.join(home, 'Desktop')}\nДокументы: ${path.join(home, 'Documents')}\nЗагрузки: ${path.join(home, 'Downloads')}\nРабочее пространство: ${safeRoot()}`;
   },
 
   async list_dir({ path: p }) {
@@ -234,8 +313,11 @@ const tools = {
 const toolSchemas = [
   { type: 'function', function: { name: 'run_command', description: 'Выполнить команду PowerShell/shell на компьютере пользователя и вернуть вывод.', parameters: { type: 'object', properties: { command: { type: 'string', description: 'Команда для выполнения' } }, required: ['command'] } } },
   { type: 'function', function: { name: 'read_file', description: 'Прочитать содержимое текстового файла из рабочего пространства.', parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } } },
-  { type: 'function', function: { name: 'write_file', description: 'Создать или перезаписать файл в рабочем пространстве.', parameters: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] } } },
-  { type: 'function', function: { name: 'list_dir', description: 'Показать список файлов в каталоге рабочего пространства.', parameters: { type: 'object', properties: { path: { type: 'string' } } } } },
+  { type: 'function', function: { name: 'write_file', description: 'Создать или перезаписать файл (например .py, .txt, .json). Можно использовать пути «Рабочий стол/...», «Документы/...», «~/...».', parameters: { type: 'object', properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] } } },
+  { type: 'function', function: { name: 'create_directory', description: 'Создать папку. Поддерживает «Рабочий стол/имя», «Документы/имя», «~/...». Возвращает честный результат (создано/ошибка).', parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } } },
+  { type: 'function', function: { name: 'run_python', description: 'Запустить Python-файл (path) или инлайн-код (code). Возвращает вывод и код выхода.', parameters: { type: 'object', properties: { path: { type: 'string' }, code: { type: 'string' } } } } },
+  { type: 'function', function: { name: 'user_paths', description: 'Узнать реальные пути к Рабочему столу, Документам, Загрузкам и рабочему пространству.', parameters: { type: 'object', properties: {} } } },
+  { type: 'function', function: { name: 'list_dir', description: 'Показать список файлов в каталоге.', parameters: { type: 'object', properties: { path: { type: 'string' } } } } },
   { type: 'function', function: { name: 'open_app', description: 'Запустить приложение или открыть файл по имени/пути.', parameters: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] } } },
   { type: 'function', function: { name: 'open_url', description: 'Открыть URL в браузере по умолчанию.', parameters: { type: 'object', properties: { url: { type: 'string' } }, required: ['url'] } } },
   { type: 'function', function: { name: 'web_search', description: 'Найти информацию в интернете по запросу.', parameters: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] } } },
@@ -275,4 +357,4 @@ function listDrives() {
   });
 }
 
-module.exports = { getInfo, getStats, setAutostart, tools, toolSchemas, callTool, safeRoot, listDrives, isSafeUrl, resolveSafe, screenCommand, securityInfo, screenTest };
+module.exports = { getInfo, getStats, setAutostart, tools, toolSchemas, callTool, safeRoot, listDrives, isSafeUrl, resolveSafe, screenCommand, securityInfo, screenTest, saveUpload };

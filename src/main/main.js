@@ -22,6 +22,7 @@ const dispatch = require('./dispatch');
 const browser = require('./browser');
 const audio = require('./audio');
 const smarthome = require('./smarthome');
+const tooling = require('./tooling');
 
 let win = null;
 let tray = null;
@@ -119,12 +120,12 @@ app.whenReady().then(async () => {
     onState: (s) => sendToUI('voice:state', s)
   });
 
-  // Global hotkey: toggle voice listening
+  // Global hotkey: toggle voice listening.
+  // Используем выделенный канал voice:hotkey — рендерер сам владеет состоянием
+  // распознавания. Не дёргаем voice.toggle(), чтобы не было эха voice:state,
+  // которое раньше создавало бесконечный цикл вкл/выкл.
   try {
-    globalShortcut.register('CommandOrControl+Shift+Space', () => {
-      const listening = voice.toggle();
-      sendToUI('voice:state', { listening });
-    });
+    globalShortcut.register('CommandOrControl+Shift+Space', () => sendToUI('voice:hotkey'));
   } catch { /* hotkey may be taken */ }
 
   // Удалённый доступ (локальный сервер) — автозапуск, если включён.
@@ -155,6 +156,7 @@ ipcMain.handle('system:openExternal', (_e, url) => { if (system.isSafeUrl(url)) 
 ipcMain.handle('system:listDrives', () => system.listDrives());
 ipcMain.handle('system:security', () => system.securityInfo());
 ipcMain.handle('system:testCommand', (_e, cmd) => system.screenTest(cmd));
+ipcMain.handle('system:saveUpload', (_e, name, b64) => system.saveUpload(name, b64));
 ipcMain.handle('system:pickFolder', async (_e, opts) => {
   const r = await dialog.showOpenDialog(win, { properties: ['openDirectory', 'createDirectory'], title: (opts && opts.title) || 'Выберите папку' });
   return r.canceled ? null : r.filePaths[0];
@@ -239,6 +241,10 @@ ipcMain.handle('voice:state', () => voice.getState());
 // Рендерер сообщает распознанную фразу / финальную команду.
 ipcMain.handle('voice:transcript', (_e, text) => { voice.handleTranscript(text); return true; });
 ipcMain.handle('voice:command', (_e, text) => { voice.handleCommand(text); return true; });
+
+/* ---------------- IPC: tooling (quick installers) ---------------- */
+ipcMain.handle('tooling:installSpeech', () => tooling.installSpeech((line) => sendToUI('tooling:log', { kind: 'speech', line })));
+ipcMain.handle('tooling:installMcTools', () => tooling.installMcTools((line) => sendToUI('tooling:log', { kind: 'mc', line })));
 
 /* ---------------- IPC: speech (Piper / Faster-Whisper) ---------------- */
 ipcMain.handle('speech:detect', () => speech.detect());

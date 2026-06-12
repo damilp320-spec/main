@@ -56,7 +56,8 @@ contextBridge.exposeInMainWorld('mythera', {
     listDrives: () => invoke('system:listDrives'),
     pickFolder: (o) => invoke('system:pickFolder', o),
     security: () => invoke('system:security'),
-    testCommand: (cmd) => invoke('system:testCommand', cmd)
+    testCommand: (cmd) => invoke('system:testCommand', cmd),
+    saveUpload: (name, b64) => invoke('system:saveUpload', name, b64)
   },
   // Ollama / установка
   installer: {
@@ -145,6 +146,11 @@ contextBridge.exposeInMainWorld('mythera', {
     detect: () => invoke('speech:detect'),
     synthesize: (t) => invoke('speech:synthesize', t),
     transcribe: (b64, mime) => invoke('speech:transcribe', b64, mime)
+  },
+  // Быстрые установщики
+  tooling: {
+    installSpeech: () => invoke('tooling:installSpeech'),
+    installMcTools: () => invoke('tooling:installMcTools')
   },
   // Удалённый доступ (dispatch)
   dispatch: {

@@ -202,7 +202,7 @@ async function viewMarketplace() {
   const isInstalled = (id) => installed.some(m => m.name === id || m.name.split(':')[0] === id.split(':')[0]);
 
   content.innerHTML = `
-    <div class="view-head"><h1>Установка ИИ</h1><p>Локальные нейросети для автономных агентов. Каждая работает прямо на вашем ПК.</p></div>
+    <div class="view-head"><h1>${esc(t('mk.title'))}</h1><p>${esc(t('mk.sub'))}</p></div>
     ${!ollama.running ? `<div class="card" style="margin-bottom:16px;border-color:var(--warn)">
       <div class="row between"><div><h3>⚠️ Ollama не запущена</h3><p class="muted">Ollama — движок для локальных моделей. Установите его одной кнопкой.</p></div>
       <button class="btn primary" id="install-ollama">Установить / запустить Ollama</button></div></div>` : ''}
@@ -263,7 +263,7 @@ async function viewAgents() {
   if (!state.activeAgentId && state.agents[0]) state.activeAgentId = state.agents[0].id;
 
   content.innerHTML = `
-    <div class="view-head row between"><div><h1>${esc(t('nav.agents'))}</h1><p>Автономные помощники с доступом к компьютеру и интернету</p></div>
+    <div class="view-head row between"><div><h1>${esc(t('nav.agents'))}</h1><p>${esc(t('agents.sub'))}</p></div>
       <div class="row"><button class="btn ghost" id="gallery-agent">🧩 Галерея</button><button class="btn ghost" id="import-agent">📥 ${esc(t('btn.import'))}</button><button class="btn primary" id="new-agent">＋ ${esc(t('btn.newAgent'))}</button></div></div>
     <div class="agents-layout">
       <div class="agent-list" id="agent-list"></div>
@@ -441,8 +441,8 @@ async function viewScheduler() {
   const tasks = await N.tasks.list();
   const agents = await N.agents.list();
   content.innerHTML = `
-    <div class="view-head row between"><div><h1>Планировщик задач</h1><p>Что делать при включении ПК, по расписанию или интервалу</p></div>
-      <button class="btn primary" id="new-task">＋ Новая задача</button></div>
+    <div class="view-head row between"><div><h1>${esc(t('sch.title'))}</h1><p>${esc(t('sch.sub'))}</p></div>
+      <button class="btn primary" id="new-task">${esc(t('sch.new'))}</button></div>
     <div class="grid" id="tasks"></div>`;
   $('#new-task').onclick = async () => { if (await ensureLimit('tasks', tasks.length, 'Лимит задач на бесплатном тарифе')) editTask(null, agents); };
 
@@ -530,8 +530,8 @@ async function viewMinecraft() {
   const templates = await N.mc.templates();
   const loaders = await N.mc.modLoaders();
   content.innerHTML = `
-    <div class="view-head row between"><div><h1>Minecraft студия</h1><p>Плагины Paper/Spigot (Maven) и моды Forge/Fabric (Gradle) — генерация и компиляция в .jar</p></div>
-      <div class="row"><button class="btn ghost" id="mc-newmod">＋ Мод</button><button class="btn primary" id="mc-new">＋ Плагин</button></div></div>
+    <div class="view-head row between"><div><h1>${esc(t('mc.title'))}</h1><p>${esc(t('mc.sub'))}</p></div>
+      <div class="row"><button class="btn ghost" id="mc-newmod">${esc(t('mc.newMod'))}</button><button class="btn primary" id="mc-new">${esc(t('mc.newPlugin'))}</button></div></div>
     <div class="grid cols-3" style="margin-bottom:16px">
       <div class="card"><h3>☕ Java (JDK)</h3><p class="muted">${env.java ? '✅ ' + esc(env.javaVersion || 'установлена') : '❌ не найдена · <code>' + esc(env.hints.java) + '</code>'}</p></div>
       <div class="card"><h3>📦 Maven</h3><p class="muted">${env.maven ? '✅ ' + esc(env.mavenVersion || 'установлен') : '❌ не найден · <code>' + esc(env.hints.maven) + '</code>'}</p></div>
@@ -616,8 +616,8 @@ async function viewServers() {
   const available = await N.remote.available();
   const servers = await N.remote.list();
   content.innerHTML = `
-    <div class="view-head row between"><div><h1>Удалённые серверы</h1><p>SSH-проводник по файловой системе, редактор конфигов, команды</p></div>
-      <button class="btn primary" id="srv-new">＋ Подключение</button></div>
+    <div class="view-head row between"><div><h1>${esc(t('srv.title'))}</h1><p>${esc(t('srv.sub'))}</p></div>
+      <button class="btn primary" id="srv-new">${esc(t('srv.new'))}</button></div>
     ${!available ? '<div class="card" style="border-color:var(--warn);margin-bottom:16px"><p class="muted">⚠️ Модуль SSH (ssh2) не установлен. Выполните <code>npm install</code> и перезапустите.</p></div>' : ''}
     <div class="grid cols-2"><div id="srv-list"></div><div class="card" id="srv-explorer"><p class="muted">Выберите сервер слева, чтобы открыть файловую систему.</p></div></div>`;
   $('#srv-new').onclick = async () => { if (await ensureLimit('servers', servers.length, 'Лимит серверов на бесплатном тарифе')) editServer(null); };
@@ -723,7 +723,7 @@ async function viewTranslator() {
   const modelOpts = (models.length ? models.map(m => m.name) : ['qwen2.5:7b']).map(n => `<option>${esc(n)}</option>`).join('');
   const langs = ['Русский', 'English', 'Español', '中文', 'Deutsch', 'Français', '日本語', 'Português', 'العربية', 'हिन्दी'];
   content.innerHTML = `
-    <div class="view-head"><h1>Перевод больших данных</h1><p>Перевод текста и файлов (TXT/JSON/локализации) локальной моделью с разбивкой на части</p></div>
+    <div class="view-head"><h1>${esc(t('tr.title'))}</h1><p>${esc(t('tr.sub'))}</p></div>
     <div class="card">
       <div class="row">
         <label class="field" style="flex:1"><span>Модель</span><select id="tr-model">${modelOpts}</select></label>
@@ -768,7 +768,7 @@ async function viewKnowledge() {
   const embed = await N.store.get('settings.embedModel', 'nomic-embed-text');
   const st = await N.rag.stats('kb');
   content.innerHTML = `
-    <div class="view-head"><h1>📚 ${esc(t('nav.knowledge'))}</h1><p>RAG-память на эмбеддингах: агенты подтягивают релевантные знания под запрос</p></div>
+    <div class="view-head"><h1>📚 ${esc(t('nav.knowledge'))}</h1><p>${esc(t('kb.sub'))}</p></div>
     <div class="card" style="margin-bottom:16px">
       <div class="row between"><div><b>RAG-память</b><br><small class="muted">Модель эмбеддингов: ${esc(embed)} · документов в базе: ${st.count}</small></div>
       <label class="switch"><input type="checkbox" id="rag-on" ${ragOn ? 'checked' : ''}><span class="slider"></span></label></div>
@@ -817,7 +817,7 @@ let swarmState = { running: false };
 async function viewSwarm() {
   const agents = await N.agents.list();
   content.innerHTML = `
-    <div class="view-head"><h1>🐝 ${esc(t('nav.swarm'))}</h1><p>Команда агентов: координатор делит цель на подзадачи и распределяет их между специалистами</p></div>
+    <div class="view-head"><h1>🐝 ${esc(t('nav.swarm'))}</h1><p>${esc(t('sw.sub'))}</p></div>
     <div class="card">
       <label class="field"><span>Цель</span><textarea id="sw-goal" style="min-height:90px" placeholder="Например: исследуй тему X, напиши отчёт и сохрани в файл"></textarea></label>
       <p class="muted" style="margin:6px 0">Участники команды</p>
@@ -848,7 +848,7 @@ async function viewSwarm() {
 async function viewSkills() {
   const list = await N.skills.list();
   content.innerHTML = `
-    <div class="view-head row between"><div><h1>🧩 ${esc(t('nav.skills'))}</h1><p>Плагины-навыки агентов: безопасные шаблоны команд и HTTP-запросов</p></div>
+    <div class="view-head row between"><div><h1>🧩 ${esc(t('nav.skills'))}</h1><p>${esc(t('sk.sub'))}</p></div>
       <div class="row"><button class="btn ghost" id="sk-import">📥 ${esc(t('btn.import'))}</button><button class="btn primary" id="sk-new">＋ Новый скил</button></div></div>
     <div class="grid cols-2" id="sk-list"></div>`;
   $('#sk-new').onclick = () => editSkill(null);
@@ -889,7 +889,7 @@ function editSkill(skill) {
 async function viewDispatch() {
   const s = await N.dispatch.status();
   content.innerHTML = `
-    <div class="view-head"><h1>📡 ${esc(t('nav.dispatch'))}</h1><p>Локальный удалённый доступ к агентам (в духе Claude dispatch) — управляйте ими с телефона в той же сети</p></div>
+    <div class="view-head"><h1>📡 ${esc(t('nav.dispatch'))}</h1><p>${esc(t('dp.sub'))}</p></div>
     <div class="card">
       <div class="row between"><div><b>Локальный сервер</b><br><small class="muted">${s.running ? 'запущен' : 'остановлен'} · режим: ${s.mode}</small></div>
       <label class="switch"><input type="checkbox" id="dp-on" ${s.running ? 'checked' : ''}><span class="slider"></span></label></div>
@@ -927,8 +927,8 @@ async function viewSmartHome() {
   const protocols = await N.smart.protocols();
   const devices = await N.smart.list();
   content.innerHTML = `
-    <div class="view-head row between"><div><h1>🏠 ${esc(t('nav.smarthome'))}</h1><p>Управление устройствами умного дома голосом и агентами — поддержка всех популярных протоколов, включая РФ/СНГ</p></div>
-      <button class="btn primary" id="sh-new">＋ Устройство</button></div>
+    <div class="view-head row between"><div><h1>🏠 ${esc(t('nav.smarthome'))}</h1><p>${esc(t('sh.sub'))}</p></div>
+      <button class="btn primary" id="sh-new">${esc(t('sh.new'))}</button></div>
     <div class="card" style="margin-bottom:16px">
       <h3>🔌 Поддерживаемые протоколы (${protocols.length})</h3>
       <div style="margin-top:8px">${protocols.map((p) => `<span class="tag accent" title="${esc(p.note)}">${p.region === 'ru' ? '🇷🇺 ' : ''}${esc(p.name)}</span>`).join('')}</div>
@@ -991,7 +991,7 @@ async function viewDeveloper() {
   const allTools = ['run_command', 'read_file', 'write_file', 'list_dir', 'open_app', 'open_url', 'web_search', 'http_get', 'play_music', 'open_website', 'web_search_open', 'set_volume', 'change_volume', 'mute_audio', 'smart_home', 'take_screenshot', 'remote_exec'];
   const disabled = await N.store.get('settings.disabledTools', []);
   content.innerHTML = `
-    <div class="view-head"><h1>🛠️ ${esc(t('nav.developer'))}</h1><p>Режим полного контроля для профессионалов: сырые параметры модели, конфиг и инструменты</p></div>
+    <div class="view-head"><h1>🛠️ ${esc(t('nav.developer'))}</h1><p>${esc(t('dev.sub'))}</p></div>
     <div class="card" style="margin-bottom:16px">
       <div class="row between"><div><b>Режим полного контроля</b><br><small class="muted">Включает применение сырых параметров ниже и расширенные настройки</small></div>
       <label class="switch"><input type="checkbox" id="fc-on" ${full ? 'checked' : ''}><span class="slider"></span></label></div>
@@ -1069,7 +1069,7 @@ async function viewVoice() {
   const sttEngine = await N.store.get('settings.sttEngine', 'web');
   const sp = await N.speech.detect();
   content.innerHTML = `
-    <div class="view-head"><h1>${esc(t('nav.voice'))}</h1><p>Говорите — агент слушает, выполняет и отвечает голосом</p></div>
+    <div class="view-head"><h1>${esc(t('nav.voice'))}</h1><p>${esc(t('voice.sub'))}</p></div>
     <div class="card">
       <div class="voice-stage">
         <div class="orb ${state.voiceListening ? 'listening' : ''}" id="orb">${state.voiceListening ? '👂' : '🎙️'}</div>
@@ -1430,10 +1430,10 @@ const SCENARIOS = [
     agentTpl: 'tpl-researcher', task: { name: 'Вечерняя сводка', trigger: 'daily', time: '21:00', action: 'agent', prompt: 'Найди главные новости за день по теме технологий и ИИ, составь краткую сводку и сохрани в файл news.md.' } }
 ];
 async function viewScenarios() {
-  content.innerHTML = `<div class="view-head"><h1>Сценарии использования</h1><p>Готовые наборы агентов и автоматизаций — настройка в один клик</p></div><div class="grid cols-3" id="scn"></div>`;
+  content.innerHTML = `<div class="view-head"><h1>${esc(t('scn.title'))}</h1><p>${esc(t('scn.sub'))}</p></div><div class="grid cols-3" id="scn"></div>`;
   const wrap = $('#scn');
   SCENARIOS.forEach((s) => {
-    const c = el('div', 'card scenario-card', `<div class="scn-ico">${s.icon}</div><h3>${esc(s.name)}</h3><p class="muted">${esc(s.desc)}</p><button class="btn primary sm" style="margin-top:10px">Применить</button>`);
+    const c = el('div', 'card scenario-card', `<div class="scn-ico">${s.icon}</div><h3>${esc(s.name)}</h3><p class="muted">${esc(s.desc)}</p><button class="btn primary sm" style="margin-top:10px">${esc(t('scn.apply'))}</button>`);
     c.querySelector('button').onclick = () => applyScenario(s);
     wrap.appendChild(c);
   });
@@ -1504,7 +1504,7 @@ const PROMPT_LIB = {
 };
 async function viewPrompts() {
   const count = Object.values(PROMPT_LIB).reduce((n, a) => n + a.length, 0);
-  content.innerHTML = `<div class="view-head"><h1>${esc(t('nav.prompts'))} <span class="tag">${count}</span></h1><p>Готовые задачи в один клик — отправятся выбранному агенту</p></div>
+  content.innerHTML = `<div class="view-head"><h1>${esc(t('nav.prompts'))} <span class="tag">${count}</span></h1><p>${esc(t('pr.sub'))}</p></div>
     <input id="pl-search" placeholder="🔎 Поиск по промптам…" style="margin-bottom:16px"><div id="pl"></div>`;
   const draw = (q) => {
     const wrap = $('#pl'); wrap.innerHTML = '';

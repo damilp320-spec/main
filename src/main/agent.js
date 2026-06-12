@@ -13,6 +13,7 @@ const screen = require('./screen');
 const browser = require('./browser');
 const audio = require('./audio');
 const smarthome = require('./smarthome');
+const constitution = require('./constitution');
 
 const activeSessions = new Map(); // sessionId -> { stop: bool }
 
@@ -219,7 +220,7 @@ async function chat({ agentId, sessionId, message, history, effort }, sendToUI) 
   const memCtx = memory.buildContext(agent.id);
   let ragCtx = '';
   try { ragCtx = await rag.buildContext(agent.id, message); } catch { /* RAG best effort */ }
-  const messages = [{ role: 'system', content: agent.system + HONESTY + eff.note + memCtx + ragCtx }];
+  const messages = [{ role: 'system', content: agent.system + constitution.build() + HONESTY + eff.note + memCtx + ragCtx }];
   // Сжимаем длинную историю, чтобы контекст жил долго, но не разрастался.
   let hist = history || [];
   if (hist.length > memory.COMPACT_AFTER) hist = await memory.compactHistory(hist, model);

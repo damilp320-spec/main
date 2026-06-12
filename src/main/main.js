@@ -23,6 +23,8 @@ const browser = require('./browser');
 const audio = require('./audio');
 const smarthome = require('./smarthome');
 const tooling = require('./tooling');
+const taskQueue = require('./taskQueue');
+const constitution = require('./constitution');
 
 let win = null;
 let tray = null;
@@ -127,6 +129,12 @@ app.whenReady().then(async () => {
   try {
     globalShortcut.register('CommandOrControl+Shift+Space', () => sendToUI('voice:hotkey'));
   } catch { /* hotkey may be taken */ }
+
+  // Очередь задач: пробрасываем события в UI и возобновляем незавершённые.
+  taskQueue.load();
+  ['task:added', 'task:started', 'task:progress', 'task:finished', 'queue:update'].forEach((ev) =>
+    taskQueue.on(ev, (payload) => sendToUI('taskq:event', { ev, payload })));
+  taskQueue.process();
 
   // Удалённый доступ (локальный сервер) — автозапуск, если включён.
   if (store.get('dispatch.enabled', false)) {
@@ -241,6 +249,17 @@ ipcMain.handle('voice:state', () => voice.getState());
 // Рендерер сообщает распознанную фразу / финальную команду.
 ipcMain.handle('voice:transcript', (_e, text) => { voice.handleTranscript(text); return true; });
 ipcMain.handle('voice:command', (_e, text) => { voice.handleCommand(text); return true; });
+
+/* ---------------- IPC: task queue ---------------- */
+ipcMain.handle('taskq:list', () => taskQueue.list());
+ipcMain.handle('taskq:add', (_e, opts) => taskQueue.add(opts));
+ipcMain.handle('taskq:cancel', (_e, id) => taskQueue.cancel(id));
+ipcMain.handle('taskq:retry', (_e, id) => taskQueue.retry(id));
+ipcMain.handle('taskq:remove', (_e, id) => taskQueue.remove(id));
+ipcMain.handle('taskq:clearDone', () => taskQueue.clearDone());
+
+/* ---------------- IPC: constitution ---------------- */
+ipcMain.handle('constitution:text', () => constitution.text());
 
 /* ---------------- IPC: tooling (quick installers) ---------------- */
 ipcMain.handle('tooling:installSpeech', () => tooling.installSpeech((line) => sendToUI('tooling:log', { kind: 'speech', line })));

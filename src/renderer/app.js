@@ -126,7 +126,7 @@ const content = $('#content');
 async function render() {
   content.scrollTop = 0;
   content.className = 'content fade-in';
-  const map = { dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scenarios: viewScenarios, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, smarthome: viewSmartHome, knowledge: viewKnowledge, swarm: viewSwarm, skills: viewSkills, dispatch: viewDispatch, prompts: viewPrompts, voice: viewVoice, developer: viewDeveloper, settings: viewSettings };
+  const map = { dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scenarios: viewScenarios, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, smarthome: viewSmartHome, knowledge: viewKnowledge, swarm: viewSwarm, queue: viewQueue, skills: viewSkills, dispatch: viewDispatch, prompts: viewPrompts, voice: viewVoice, developer: viewDeveloper, settings: viewSettings };
   const fn = map[state.view] || viewDashboard;
   // Граница ошибок: сбой одной вкладки не «вешает» весь интерфейс.
   try {
@@ -867,6 +867,67 @@ async function viewKnowledge() {
   };
 }
 
+/* ---------- Task queue ---------- */
+const TASK_STATUS = { queued: '⏳', running: '⚙️', completed: '✅', failed: '❌', cancelled: '⏹️' };
+async function viewQueue() {
+  const agents = await N.agents.list();
+  const conc = await N.store.get('settings.taskConcurrency', 2);
+  content.innerHTML = `
+    <div class="view-head row between"><div><h1>📋 ${esc(t('nav.queue'))}</h1><p>${esc(t('q.sub'))}</p></div>
+      <div class="row"><label class="muted" style="font-size:12px">${esc(t('q.concurrency'))}: <input id="q-conc" type="number" min="1" max="5" value="${conc}" style="width:54px"></label>
+      <button class="btn ghost" id="q-clear">${esc(t('q.clearDone'))}</button><button class="btn primary" id="q-new">＋ ${esc(t('q.add'))}</button></div></div>
+    <div id="q-list"></div>`;
+  $('#q-new').onclick = () => addTaskModal(agents);
+  $('#q-clear').onclick = async () => { await N.taskq.clearDone(); renderQueue(); };
+  $('#q-conc').onchange = (e) => N.store.set('settings.taskConcurrency', Math.max(1, Math.min(5, +e.target.value || 2)));
+  state.queueAgents = agents;
+  renderQueue();
+}
+async function renderQueue() {
+  const wrap = $('#q-list'); if (!wrap) return;
+  const tasks = await N.taskq.list();
+  const agents = state.queueAgents || await N.agents.list();
+  const nameOf = (id) => (agents.find((a) => a.id === id) || {}).name || '—';
+  if (!tasks.length) { wrap.innerHTML = `<div class="empty"><div class="big-ico">📋</div><p>${esc(t('q.empty'))}</p></div>`; return; }
+  const order = { running: 0, queued: 1, failed: 2, cancelled: 3, completed: 4 };
+  tasks.sort((a, b) => (order[a.status] - order[b.status]) || (b.priority - a.priority) || (a.createdAt - b.createdAt));
+  wrap.innerHTML = tasks.map((tk) => `
+    <div class="card" style="margin-bottom:10px" id="qt-${tk.id}">
+      <div class="row between">
+        <div><b>${TASK_STATUS[tk.status] || ''} ${esc(tk.goal.slice(0, 90))}</b>
+          <br><small class="muted">${esc(t('q.prio'))} ${'★'.repeat(tk.priority)} · ${tk.mode === 'swarm' ? '🐝 ' + t('q.team') : '🤖 ' + esc(tk.agentIds.map(nameOf).join(', ') || t('q.auto'))} · ${esc(t('q.status.' + tk.status) || tk.status)}${tk.note ? ' · ' + esc(tk.note) : ''}${tk.error ? ' · ' + esc(tk.error) : ''}</small></div>
+        <div class="row">
+          ${(tk.status === 'queued' || tk.status === 'running') ? `<button class="btn ghost sm" data-cancel="${tk.id}">${esc(t('q.cancel'))}</button>` : ''}
+          ${(tk.status === 'failed' || tk.status === 'cancelled' || tk.status === 'completed') ? `<button class="btn ghost sm" data-retry="${tk.id}">↻</button>` : ''}
+          <button class="btn ghost sm" data-rm="${tk.id}">✕</button>
+        </div>
+      </div>
+      ${tk.status === 'running' ? `<div class="progress" style="margin-top:8px"><i style="width:${tk.progress || 0}%"></i></div>` : ''}
+      ${tk.result ? `<div class="muted" style="margin-top:8px;font-size:12px;white-space:pre-wrap;max-height:140px;overflow:auto">${esc(String(tk.result).slice(0, 800))}</div>` : ''}
+    </div>`).join('');
+  $$('[data-cancel]', wrap).forEach((b) => b.onclick = async () => { await N.taskq.cancel(b.dataset.cancel); renderQueue(); });
+  $$('[data-retry]', wrap).forEach((b) => b.onclick = async () => { await N.taskq.retry(b.dataset.retry); renderQueue(); });
+  $$('[data-rm]', wrap).forEach((b) => b.onclick = async () => { await N.taskq.remove(b.dataset.rm); renderQueue(); });
+}
+function addTaskModal(agents) {
+  const agentChecks = agents.map((a) => `<label class="row" style="gap:8px;padding:3px 0"><input type="checkbox" data-qa="${a.id}"><span>${a.icon || '🤖'} ${esc(a.name)}</span></label>`).join('');
+  modal(`<h2>＋ ${esc(t('q.add'))}</h2>
+    <label class="field"><span>${esc(t('q.goal'))}</span><textarea id="q-goal" style="min-height:80px" placeholder="${esc(t('q.goalPh'))}"></textarea></label>
+    <div class="row"><label class="field" style="flex:1"><span>${esc(t('q.prio'))}</span><select id="q-prio"><option value="5">★★★★★</option><option value="4">★★★★</option><option value="3" selected>★★★</option><option value="2">★★</option><option value="1">★</option></select></label>
+      <label class="field" style="flex:1"><span>${esc(t('q.retries'))}</span><input id="q-ret" type="number" min="0" max="5" value="1"></label></div>
+    <p class="muted" style="margin:6px 0">${esc(t('q.pickAgents'))}</p>
+    <div style="max-height:180px;overflow:auto">${agentChecks}</div>
+    <div class="modal-actions"><button class="btn ghost" id="q-cancel">${esc(t('btn.cancel'))}</button><button class="btn primary" id="q-go">${esc(t('q.add'))}</button></div>`, (m, close) => {
+    $('#q-cancel', m).onclick = close;
+    $('#q-go', m).onclick = async () => {
+      const goal = $('#q-goal', m).value.trim(); if (!goal) return;
+      const agentIds = $$('[data-qa]:checked', m).map((x) => x.dataset.qa);
+      const r = await N.taskq.add({ goal, agentIds, priority: +$('#q-prio', m).value, retries: +$('#q-ret', m).value });
+      if (r.ok) { toast(t('q.added'), '', 'ok'); close(); renderQueue(); } else toast('Ошибка', r.error, 'err');
+    };
+  });
+}
+
 /* ---------- Swarm (multi-agent) ---------- */
 let swarmState = { running: false };
 async function viewSwarm() {
@@ -1188,6 +1249,7 @@ async function viewSettings() {
     voiceRate: await g('voiceRate', 1),
     autoListen: await g('autoListen', false),
     longMemory: await g('longMemory', true),
+    constitutionOn: await g('constitution', true),
     temperature: await g('temperature', 0.7),
     maxSteps: await g('maxSteps', 0),
     defaultModel: await g('defaultModel', '')
@@ -1254,7 +1316,13 @@ async function viewSettings() {
         <p class="muted" style="margin:8px 0">${esc(t('set.memNote'))}</p>
         <label class="field"><span>${esc(t('set.temp'))}: <b id="temp-val">${s.temperature}</b></span>
           <input type="range" id="set-temp" min="0" max="1.5" step="0.05" value="${s.temperature}"></label>
-        <label class="field"><span>${esc(t('set.maxSteps'))}</span><input type="number" id="set-steps" min="0" max="30" value="${s.maxSteps}" placeholder="авто"></label>
+        <label class="field"><span>${esc(t('set.maxSteps'))}</span><input type="number" id="set-steps" min="0" max="100" value="${s.maxSteps}" placeholder="авто"></label>
+      </div>
+      <div class="card">
+        <h3>📜 ${esc(t('set.constitution'))}</h3>
+        ${toggleRow('set-const', t('set.constitution'), s.constitutionOn)}
+        <p class="muted" style="margin:8px 0">${esc(t('set.constitutionNote'))}</p>
+        <button class="btn ghost sm" id="set-viewconst">${esc(t('set.viewConstitution'))}</button>
       </div>
       <div class="card" style="grid-column:1/-1">
         <h3>ℹ️ ${esc(t('set.about'))}</h3>
@@ -1279,6 +1347,8 @@ async function viewSettings() {
   bindToggle('set-vreplies', (v) => N.store.set('settings.voiceReplies', v));
   bindToggle('set-autolisten', (v) => N.store.set('settings.autoListen', v));
   bindToggle('set-mem', (v) => N.store.set('settings.longMemory', v));
+  bindToggle('set-const', (v) => N.store.set('settings.constitution', v));
+  $('#set-viewconst').onclick = showConstitution;
   bindToggle('set-light', async (v) => { const th = await N.store.get('settings.theme', { mode: 'dark', accent: 'violet' }); th.mode = v ? 'light' : 'dark'; await N.store.set('settings.theme', th); applyTheme(); });
   $('#set-rate').oninput = (e) => { $('#rate-val').textContent = (+e.target.value).toFixed(1) + '×'; N.store.set('settings.voiceRate', +e.target.value); };
   // Звук и музыка.
@@ -1371,6 +1441,17 @@ function installLogModal(title, runner) {
   });
 }
 N.on('tooling:log', ({ line }) => { const log = window.__installLog; if (log) { log.textContent += line; log.scrollTop = log.scrollHeight; } });
+
+// Конституция агентов — прозрачность характера и принципов.
+async function showConstitution() {
+  const text = await N.constitution();
+  modal(`<h2>📜 ${esc(t('set.constitution'))}</h2>
+    <p class="muted">${esc(t('set.constitutionNote'))}</p>
+    <pre style="margin-top:10px;background:var(--bg-2);border:1px solid var(--border);border-radius:8px;padding:14px;max-height:55vh;overflow:auto;font-size:12px;line-height:1.6;white-space:pre-wrap;font-family:inherit">${esc(text)}</pre>
+    <div class="modal-actions"><button class="btn primary" id="const-close">${esc(t('btn.close'))}</button></div>`, (m, close) => {
+    $('#const-close', m).onclick = close;
+  });
+}
 
 // Простое подтверждение (да/нет).
 function confirmModal(title, text) {
@@ -1625,6 +1706,7 @@ function buildCommands() {
     nav('prompts', '💡', t('nav.prompts')),
     nav('voice', '🎙️', t('nav.voice')),
     nav('smarthome', '🏠', t('nav.smarthome')),
+    nav('queue', '📋', t('nav.queue')),
     nav('developer', '🛠️', t('nav.developer')),
     nav('settings', '⚙️', t('nav.settings')),
     { ico: '➕', label: t('btn.newAgent'), sub: 'Действие', run: () => { navigate('agents'); setTimeout(() => editAgent(null), 50); } },
@@ -1869,6 +1951,14 @@ N.on('voice:speak-request', (text) => speakOut(text));
 N.on('voice:hotkey', () => { if (state.view !== 'voice') navigate('voice'); toggleVoice(); });
 
 N.on('scheduler:fired', async ({ name }) => { if (await N.store.get('settings.notifications', true)) toast('Задача выполнена', name, 'ok'); });
+
+/* Очередь задач: живое обновление списка + уведомление о завершении. */
+N.on('taskq:event', async ({ ev, payload }) => {
+  if (state.view === 'queue') renderQueue();
+  if (ev === 'task:finished' && payload && payload.status === 'completed' && await N.store.get('settings.notifications', true)) {
+    toast('📋 ' + t('q.status.completed'), String(payload.goal || '').slice(0, 60), 'ok');
+  }
+});
 
 N.on('mc:log', ({ log }) => { if (window.__mcLog) { window.__mcLog.textContent += log; window.__mcLog.scrollTop = window.__mcLog.scrollHeight; } });
 

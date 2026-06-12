@@ -152,6 +152,17 @@ contextBridge.exposeInMainWorld('mythera', {
     installSpeech: () => invoke('tooling:installSpeech'),
     installMcTools: () => invoke('tooling:installMcTools')
   },
+  // Очередь задач
+  taskq: {
+    list: () => invoke('taskq:list'),
+    add: (o) => invoke('taskq:add', o),
+    cancel: (id) => invoke('taskq:cancel', id),
+    retry: (id) => invoke('taskq:retry', id),
+    remove: (id) => invoke('taskq:remove', id),
+    clearDone: () => invoke('taskq:clearDone')
+  },
+  // Конституция агентов
+  constitution: () => invoke('constitution:text'),
   // Удалённый доступ (dispatch)
   dispatch: {
     status: () => invoke('dispatch:status'),

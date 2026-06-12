@@ -11,12 +11,17 @@ const state = {
   agents: [],
   activeAgentId: null,
   chats: {},           // agentId -> [{role, text}] — у каждого агента своя история
-  streamAgentId: null, // агент, чей ответ сейчас стримится
+  streamAgentId: null, // агент, чей ответ сейчас стримится (одиночный режим)
+  sessions: {},        // sessionId -> agentId (поддержка нескольких чатов одновременно)
+  grid: { on: false, cells: [], cols: 3 }, // сетка 3×3 из окон-чатов
   attachment: null,    // прикреплённый к следующему сообщению файл
   sessionId: null,
   busy: false,
   voiceListening: false
 };
+
+// Активен ли сейчас запрос к данному агенту (для блокировки повторной отправки).
+function agentBusy(agentId) { return Object.values(state.sessions).includes(agentId); }
 
 // История текущего (или указанного) агента — создаётся при первом обращении.
 function chatFor(agentId) {
@@ -280,20 +285,32 @@ async function viewAgents() {
   if (!state.activeAgentId && state.agents[0]) state.activeAgentId = state.agents[0].id;
   if (state.activeAgentId) await loadChat(state.activeAgentId);
   const effort = await N.store.get('settings.effort', 'balanced');
+  // Состояние сетки.
+  state.grid.on = await N.store.get('gridOn', false);
+  state.grid.cols = await N.store.get('gridCols', 3);
+  const savedCells = await N.store.get('gridCells', null);
+  if (savedCells && savedCells.length) state.grid.cells = savedCells;
+  else state.grid.cells = state.agents.slice(0, Math.min(9, state.agents.length || 1)).map((a, i) => ({ id: 'c' + i, agentId: a ? a.id : (state.agents[0] && state.agents[0].id) }));
 
-  content.innerHTML = `
+  const effortSel = `<select id="effort-sel" class="effort-sel" title="${esc(t('eff.title'))}">
+      <option value="fast" ${effort === 'fast' ? 'selected' : ''}>⚡ ${esc(t('eff.fast'))}</option>
+      <option value="balanced" ${effort === 'balanced' ? 'selected' : ''}>⚖️ ${esc(t('eff.balanced'))}</option>
+      <option value="thorough" ${effort === 'thorough' ? 'selected' : ''}>🔬 ${esc(t('eff.thorough'))}</option>
+      <option value="max" ${effort === 'max' ? 'selected' : ''}>🧠 ${esc(t('eff.max'))}</option></select>`;
+
+  const header = `
     <div class="view-head row between"><div><h1>${esc(t('nav.agents'))}</h1><p>${esc(t('agents.sub'))}</p></div>
-      <div class="row"><button class="btn ghost" id="gallery-agent">🧩 ${esc(t('agents.gallery'))}</button><button class="btn ghost" id="import-agent">📥 ${esc(t('btn.import'))}</button><button class="btn primary" id="new-agent">＋ ${esc(t('btn.newAgent'))}</button></div></div>
+      <div class="row">${effortSel}
+        <button class="btn ghost" id="grid-toggle" title="${esc(t('agents.gridToggle'))}">${state.grid.on ? '▭ ' + esc(t('agents.single')) : '⊞ ' + esc(t('agents.grid'))}</button>
+        <button class="btn ghost" id="gallery-agent">🧩 ${esc(t('agents.gallery'))}</button>
+        <button class="btn ghost" id="import-agent">📥 ${esc(t('btn.import'))}</button>
+        <button class="btn primary" id="new-agent">＋ ${esc(t('btn.newAgent'))}</button></div></div>`;
+
+  const single = `
     <div class="agents-layout">
       <div class="agent-list" id="agent-list"></div>
       <div class="chat" id="chat">
         <div class="chat-head"><div id="chat-title"></div><div class="row">
-          <select id="effort-sel" class="effort-sel" title="${esc(t('eff.title'))}">
-            <option value="fast" ${effort === 'fast' ? 'selected' : ''}>⚡ ${esc(t('eff.fast'))}</option>
-            <option value="balanced" ${effort === 'balanced' ? 'selected' : ''}>⚖️ ${esc(t('eff.balanced'))}</option>
-            <option value="thorough" ${effort === 'thorough' ? 'selected' : ''}>🔬 ${esc(t('eff.thorough'))}</option>
-            <option value="max" ${effort === 'max' ? 'selected' : ''}>🧠 ${esc(t('eff.max'))}</option>
-          </select>
           <button class="btn ghost sm" id="mem-agent">🧠 ${esc(t('agents.memory'))}</button><button class="btn ghost sm" id="export-agent">📤</button><button class="btn ghost sm" id="edit-agent">✎</button><button class="btn ghost sm" id="clear-chat">${esc(t('agents.clear'))}</button></div></div>
         <div class="chat-body" id="chat-body"></div>
         <div id="attach-bar"></div>
@@ -305,17 +322,22 @@ async function viewAgents() {
       </div>
     </div>`;
 
-  $('#new-agent').onclick = async () => {
-    const count = state.agents.length;
-    if (await ensureLimit('agents', count, 'Лимит агентов на бесплатном тарифе')) editAgent(null);
-  };
+  content.innerHTML = header + (state.grid.on ? gridHTML() : single);
+
+  // Общие кнопки шапки.
+  $('#new-agent').onclick = async () => { if (await ensureLimit('agents', state.agents.length, 'Лимит')) editAgent(null); };
   $('#gallery-agent').onclick = () => templateGallery();
   $('#import-agent').onclick = () => $('#agent-import-input').click();
+  $('#effort-sel').onchange = (e) => { N.store.set('settings.effort', e.target.value); toast('Effort', e.target.value, 'ok'); };
+  $('#grid-toggle').onclick = async () => { state.grid.on = !state.grid.on; await N.store.set('gridOn', state.grid.on); viewAgents(); };
+
+  if (state.grid.on) { wireGrid(); return; }
+
+  // Одиночный режим.
   $('#export-agent').onclick = () => exportActiveAgent();
   $('#edit-agent').onclick = () => editAgent(state.agents.find(a => a.id === state.activeAgentId));
   $('#clear-chat').onclick = () => { state.chats[state.activeAgentId] = []; persistChat(); renderChat(); };
   $('#mem-agent').onclick = () => showMemory(state.activeAgentId);
-  $('#effort-sel').onchange = (e) => { N.store.set('settings.effort', e.target.value); toast('Effort', e.target.value, 'ok'); };
   $('#attach-btn').onclick = () => $('#chat-file-input').click();
   renderAttachBar();
 
@@ -331,12 +353,81 @@ async function viewAgents() {
   const active = state.agents.find(a => a.id === state.activeAgentId);
   $('#chat-title').innerHTML = active ? `<b>${active.icon || '🤖'} ${esc(active.name)}</b> <span class="tag">${esc(autonomyLabel(active.autonomy))}</span>` : '';
   renderChat();
+  updateBusyIndicators();
 
   $('#send-btn').onclick = sendChat;
   $('#chat-text').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); } });
 
-  // Промпт из библиотеки — подставляем в поле ввода.
   if (state.pendingPrompt) { $('#chat-text').value = state.pendingPrompt; state.pendingPrompt = null; $('#chat-text').focus(); }
+}
+
+/* ---------- Сетка 3×3 из окон-чатов ---------- */
+function gridHTML() {
+  const agentOpts = (sel) => state.agents.map((a) => `<option value="${a.id}" ${a.id === sel ? 'selected' : ''}>${a.icon || '🤖'} ${esc(a.name)}</option>`).join('');
+  const cells = state.grid.cells.map((c) => `
+    <div class="chat-cell" data-cell="${c.id}">
+      <div class="cell-head">
+        <select class="cell-agent" data-cell="${c.id}">${agentOpts(c.agentId)}</select>
+        <span class="cell-busy" id="cell-busy-${c.id}" style="display:none">⏳</span>
+        <span class="cell-actions"><span class="cell-clear" data-cell="${c.id}" title="${esc(t('agents.clear'))}">🧹</span><span class="cell-close" data-cell="${c.id}" title="${esc(t('q.cancel'))}">✕</span></span>
+      </div>
+      <div class="cell-body" id="cell-body-${c.id}"></div>
+      <div class="cell-input">
+        <textarea class="cell-text" data-cell="${c.id}" placeholder="${esc(t('agents.send'))}…"></textarea>
+        <button class="btn primary sm cell-send" data-cell="${c.id}">▶</button>
+      </div>
+    </div>`).join('');
+  const addBtn = state.grid.cells.length < 9 ? `<button class="cell-add" id="cell-add">＋ ${esc(t('agents.addCell'))}</button>` : '';
+  return `<div class="grid-toolbar">
+      <span class="muted">${esc(t('agents.windows'))}: ${state.grid.cells.length}/9</span>
+      <div class="row"><span class="muted" style="font-size:12px">${esc(t('agents.cols'))}:</span>
+        <button class="btn ghost sm cols-btn ${state.grid.cols === 2 ? 'active' : ''}" data-cols="2">2</button>
+        <button class="btn ghost sm cols-btn ${state.grid.cols === 3 ? 'active' : ''}" data-cols="3">3</button>
+        ${addBtn}</div>
+    </div>
+    <div class="chat-grid cols-${state.grid.cols}" id="chat-grid">${cells}</div>`;
+}
+function wireGrid() {
+  $$('.cell-agent').forEach((sel) => sel.onchange = async () => {
+    const c = state.grid.cells.find((x) => x.id === sel.dataset.cell); if (!c) return;
+    c.agentId = sel.value; await loadChat(c.agentId); await persistGrid(); renderCellBody(c.id, c.agentId); updateBusyIndicators();
+  });
+  $$('.cell-send').forEach((b) => b.onclick = () => sendCell(b.dataset.cell));
+  $$('.cell-text').forEach((ta) => ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendCell(ta.dataset.cell); } }));
+  $$('.cell-close').forEach((x) => x.onclick = async () => { state.grid.cells = state.grid.cells.filter((c) => c.id !== x.dataset.cell); await persistGrid(); viewAgents(); });
+  $$('.cell-clear').forEach((x) => x.onclick = () => { const c = state.grid.cells.find((y) => y.id === x.dataset.cell); if (c) { state.chats[c.agentId] = []; persistChat(c.agentId); renderCellBody(c.id, c.agentId); } });
+  $$('.cols-btn').forEach((b) => b.onclick = async () => { state.grid.cols = +b.dataset.cols; await N.store.set('gridCols', state.grid.cols); viewAgents(); });
+  if ($('#cell-add')) $('#cell-add').onclick = async () => {
+    if (state.grid.cells.length >= 9) return;
+    const used = new Set(state.grid.cells.map((c) => c.agentId));
+    const pick = state.agents.find((a) => !used.has(a.id)) || state.agents[0];
+    state.grid.cells.push({ id: 'c' + Date.now().toString(36), agentId: pick && pick.id });
+    await persistGrid(); viewAgents();
+  };
+  // загрузить истории и отрисовать ячейки
+  (async () => {
+    for (const c of state.grid.cells) { await loadChat(c.agentId); renderCellBody(c.id, c.agentId); }
+    updateBusyIndicators();
+  })();
+}
+function renderCellBody(cellId, agentId) {
+  const body = document.getElementById('cell-body-' + cellId); if (!body) return;
+  const chat = chatFor(agentId);
+  if (!chat.length) { body.innerHTML = `<div class="cell-empty">🤖</div>`; return; }
+  body.innerHTML = chat.map((m) => `<div class="msg ${m.role}">${esc(m.text)}</div>`).join('');
+  body.scrollTop = body.scrollHeight;
+}
+async function sendCell(cellId) {
+  const c = state.grid.cells.find((x) => x.id === cellId); if (!c) return;
+  const ta = document.querySelector(`.cell-text[data-cell="${cellId}"]`); if (!ta) return;
+  const text = ta.value.trim(); if (!text) return;
+  ta.value = '';
+  await sendToAgent(c.agentId, text, null);
+}
+async function persistGrid() { await N.store.set('gridCells', state.grid.cells.map((c) => ({ id: c.id, agentId: c.agentId }))); }
+function updateBusyIndicators() {
+  const sb = $('#send-btn'); if (sb) sb.disabled = agentBusy(state.activeAgentId);
+  if (state.grid.on) state.grid.cells.forEach((c) => { const d = document.getElementById('cell-busy-' + c.id); if (d) d.style.display = agentBusy(c.agentId) ? 'inline' : 'none'; });
 }
 
 function renderAttachBar() {
@@ -419,38 +510,41 @@ function renderChat() {
   body.scrollTop = body.scrollHeight;
 }
 
-async function sendChat() {
-  const ta = $('#chat-text');
-  let text = ta.value.trim();
-  if ((!text && !state.attachment) || state.busy) return;
-  ta.value = '';
-  const chat = chatFor();
-  // Прикреплённый файл: добавляем его содержимое/путь в сообщение.
+// Единое ядро отправки сообщения агенту (используется одиночным чатом и сеткой).
+async function sendToAgent(agentId, rawText, attachment) {
+  if (!agentId) return;
+  if (agentBusy(agentId)) { toast(t('agents.busyTitle'), t('agents.busy'), 'err'); return; }
+  let text = (rawText || '').trim();
   let userDisplay = text;
-  if (state.attachment) {
-    const att = state.attachment;
-    userDisplay = (text ? text + '\n\n' : '') + '📎 ' + att.name;
+  if (attachment) {
+    userDisplay = (text ? text + '\n\n' : '') + '📎 ' + attachment.name;
     text = (text ? text + '\n\n' : '') +
-      (att.path ? `Прикреплён файл (сохранён в рабочем пространстве): ${att.path}\n` : '') +
-      (att.content ? `Содержимое файла «${att.name}»:\n\`\`\`\n${att.content.slice(0, 12000)}\n\`\`\`` : '');
-    state.attachment = null; renderAttachBar();
+      (attachment.path ? `Прикреплён файл (сохранён в рабочем пространстве): ${attachment.path}\n` : '') +
+      (attachment.content ? `Содержимое файла «${attachment.name}»:\n\`\`\`\n${attachment.content.slice(0, 12000)}\n\`\`\`` : '');
   }
+  if (!text) return;
+  const chat = chatFor(agentId);
   chat.push({ role: 'user', text: userDisplay });
-  state.busy = true;
-  state.streamAgentId = state.activeAgentId;
-  renderChat();
-
   const history = chat.filter(m => m.role === 'user' || m.role === 'bot').slice(0, -1)
     .map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text }));
-
   chat.push({ role: 'bot', text: '' });
-  renderChat();
-
+  const sid = 'sess-' + agentId + '-' + Date.now();
+  state.sessions[sid] = agentId;
+  state.sessionId = sid;
+  renderAgentEverywhere(agentId);
   const effort = await N.store.get('settings.effort', 'balanced');
-  state.sessionId = 'sess-' + Date.now();
-  await N.agents.chat({ agentId: state.activeAgentId, sessionId: state.sessionId, message: text, history, effort });
-  state.busy = false;
-  persistChat(state.streamAgentId);
+  await N.agents.chat({ agentId, sessionId: sid, message: text, history, effort });
+  // финал/persist выполняет обработчик agents:done
+}
+
+async function sendChat() {
+  const ta = $('#chat-text');
+  const text = ta.value.trim();
+  if (!text && !state.attachment) return;
+  if (agentBusy(state.activeAgentId)) { toast(t('agents.busyTitle'), t('agents.busy'), 'err'); return; }
+  ta.value = '';
+  const att = state.attachment; state.attachment = null; renderAttachBar();
+  await sendToAgent(state.activeAgentId, text, att);
 }
 
 function editAgent(agent) {
@@ -1890,30 +1984,48 @@ N.on('navigate', (view) => navigate(view));
 
 // События стрима направляются в чат АГЕНТА, чей ответ выполняется (streamAgentId),
 // а перерисовываем только если этот агент сейчас открыт.
-function streamChat() { return chatFor(state.streamAgentId || state.activeAgentId); }
-function renderIfActive() { if (!state.streamAgentId || state.streamAgentId === state.activeAgentId) renderChat(); }
+// Маршрутизация событий по sessionId → agentId. Поддерживает несколько
+// одновременных чатов (сетка 3×3): каждый стрим идёт в чат своего агента.
+function sessAgent(sessionId) { return state.sessions[sessionId] || null; }
 N.on('agents:stream', ({ sessionId, chunk }) => {
-  if (sessionId !== state.sessionId) return;
-  const c = streamChat();
+  const agentId = sessAgent(sessionId); if (!agentId) return;
+  const c = chatFor(agentId);
   const last = c[c.length - 1];
-  if (last && last.role === 'bot') { last.text += chunk; renderIfActive(); }
+  if (last && last.role === 'bot') { last.text += chunk; renderAgentEverywhere(agentId); }
 });
-N.on('agents:tool', ({ name, args }) => {
-  const c = streamChat();
-  const bot = c.pop(); // вытаскиваем «бота», вставляем строку инструмента перед ним
+N.on('agents:tool', ({ sessionId, name, args }) => {
+  const agentId = sessAgent(sessionId); if (!agentId) return;
+  const c = chatFor(agentId);
+  const bot = c.pop();
   c.push({ role: 'tool', text: `⚙️ ${name}(${JSON.stringify(args).slice(0, 120)})` });
   if (bot) c.push(bot);
-  renderIfActive();
+  renderAgentEverywhere(agentId);
 });
-N.on('agents:toolResult', ({ name, result }) => {
-  const c = streamChat();
+N.on('agents:toolResult', ({ sessionId, name, result }) => {
+  const agentId = sessAgent(sessionId); if (!agentId) return;
+  const c = chatFor(agentId);
   const bot = c.pop();
   c.push({ role: 'tool', text: `✅ ${name} → ${String(result).slice(0, 160)}` });
   if (bot) c.push(bot);
-  renderIfActive();
+  renderAgentEverywhere(agentId);
 });
 N.on('agents:notify', async ({ title, message }) => { if (await N.store.get('settings.notifications', true)) toast(title || 'Агент', message); });
-N.on('agents:done', ({ text }) => { state.busy = false; persistChat(state.streamAgentId); });
+N.on('agents:done', ({ sessionId, text }) => {
+  const agentId = sessAgent(sessionId);
+  if (agentId) { persistChat(agentId); delete state.sessions[sessionId]; renderAgentEverywhere(agentId); }
+  if (!Object.keys(state.sessions).length) state.busy = false;
+});
+
+// Перерисовать чат данного агента во всех местах, где он показан.
+function renderAgentEverywhere(agentId) {
+  if (state.grid.on) {
+    state.grid.cells.forEach((cell) => { if (cell.agentId === agentId) renderCellBody(cell.id, agentId); });
+  } else if (agentId === state.activeAgentId) {
+    renderChat();
+  }
+  // обновляем индикатор «печатает» в шапке ячеек/чата
+  updateBusyIndicators();
+}
 
 function fmtBytes(n) { if (!n) return '0'; const u = ['Б', 'КБ', 'МБ', 'ГБ']; let i = 0; while (n >= 1024 && i < 3) { n /= 1024; i++; } return n.toFixed(i ? 1 : 0) + ' ' + u[i]; }
 function fmtEta(s) { if (s == null) return ''; if (s < 60) return s + ' с'; const m = Math.floor(s / 60); return m + ' мин ' + (s % 60) + ' с'; }

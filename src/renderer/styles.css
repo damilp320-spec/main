@@ -69,6 +69,28 @@ body.focus-mode .sidebar { display: none; }
 .effort-sel { background: var(--bg-2); border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 5px 8px; font-size: 12px; cursor: pointer; }
 .attach-chip { display: inline-flex; align-items: center; gap: 8px; margin: 0 0 8px 14px; padding: 5px 10px; background: var(--bg-3); border: 1px solid var(--border); border-radius: 20px; font-size: 12px; }
 .attach-chip span { cursor: pointer; color: var(--danger); font-weight: 700; }
+
+/* ---------- Сетка 3×3 из окон-чатов ---------- */
+.grid-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.cols-btn.active { background: var(--accent-grad); color: #0b0e14; }
+.cell-add { background: var(--bg-3); border: 1px dashed var(--border); color: var(--text); border-radius: 8px; padding: 5px 12px; font-size: 12px; cursor: pointer; margin-left: 8px; }
+.cell-add:hover { border-color: var(--accent); }
+.chat-grid { display: grid; gap: 10px; height: calc(100vh - 44px - 140px); overflow: auto; padding-bottom: 4px; }
+.chat-grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
+.chat-grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+.chat-cell { display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; min-height: 220px; }
+.cell-head { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--border); background: var(--bg-2); }
+.cell-agent { flex: 1; min-width: 0; background: var(--bg-3); border: 1px solid var(--border); color: var(--text); border-radius: 7px; padding: 4px 6px; font-size: 12px; }
+.cell-busy { font-size: 12px; }
+.cell-actions { display: flex; gap: 6px; }
+.cell-actions span { cursor: pointer; font-size: 12px; opacity: .7; }
+.cell-actions span:hover { opacity: 1; }
+.cell-body { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.cell-body .msg { max-width: 92%; padding: 7px 10px; border-radius: 10px; font-size: 12px; line-height: 1.45; white-space: pre-wrap; word-wrap: break-word; }
+.cell-empty { margin: auto; font-size: 30px; opacity: .35; }
+.cell-input { display: flex; gap: 6px; padding: 7px; border-top: 1px solid var(--border); }
+.cell-text { flex: 1; min-height: 34px; max-height: 90px; font-size: 12px; padding: 6px 8px; }
+.cell-send { flex-shrink: 0; }
 .nav-item { cursor: pointer; }
 .sponsor { text-align: center; font-size: 10px; color: var(--muted); opacity: .65; margin-top: 8px; letter-spacing: .3px; }
 .sponsor b { color: var(--accent); }

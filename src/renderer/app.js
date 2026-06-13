@@ -51,35 +51,28 @@ function navigate(view) {
   render();
 }
 
-/* ---------------- Tab sorting (drag to reorder + persist) ---------------- */
-async function applyNavOrder() {
-  const order = await N.store.get('settings.navOrder', null);
-  const sidebar = $('.sidebar');
-  const spacer = $('.sidebar-spacer');
-  if (order && sidebar && spacer) {
-    order.forEach((view) => { const item = $(`.nav-item[data-view="${view}"]`); if (item) sidebar.insertBefore(item, spacer); });
-  }
-  enableNavDrag();
+/* ---------------- Боковое меню: компактный (rail) режим ---------------- */
+async function setupSidebar() {
+  const collapsed = await N.store.get('sidebarCollapsed', false);
+  applyRail(collapsed);
+  const btn = $('#sidebar-collapse');
+  if (btn) btn.onclick = async () => {
+    const now = !document.body.classList.contains('rail');
+    applyRail(now);
+    await N.store.set('sidebarCollapsed', now);
+  };
+  syncNavTitles();
 }
-function enableNavDrag() {
-  let dragged = null;
-  $$('.nav-item').forEach((item) => {
-    item.draggable = true;
-    item.ondragstart = (e) => { dragged = item; item.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; };
-    item.ondragend = () => { item.classList.remove('dragging'); persistNavOrder(); };
-    item.ondragover = (e) => {
-      e.preventDefault();
-      if (!dragged || dragged === item) return;
-      const rect = item.getBoundingClientRect();
-      const after = (e.clientY - rect.top) > rect.height / 2;
-      item.parentNode.insertBefore(dragged, after ? item.nextSibling : item);
-    };
-  });
+function applyRail(on) {
+  document.body.classList.toggle('rail', on);
+  const btn = $('#sidebar-collapse');
+  if (btn) { btn.textContent = on ? '»' : '«'; btn.title = on ? t('sb.expand') : t('sb.collapse'); }
 }
-function persistNavOrder() {
-  const order = $$('.sidebar .nav-item').map((b) => b.dataset.view);
-  N.store.set('settings.navOrder', order);
+// Подсказки (tooltip) на пунктах меню — в свёрнутом режиме показывают название.
+function syncNavTitles() {
+  $$('.nav-item').forEach((b) => { const lbl = b.querySelector('span:not(.nav-ico)'); if (lbl) b.title = lbl.textContent; });
 }
+function toggleRail() { applyRail(!document.body.classList.contains('rail')); N.store.set('sidebarCollapsed', document.body.classList.contains('rail')); }
 
 /* ---------------- Toasts ---------------- */
 function toast(title, msg, kind) {
@@ -1496,7 +1489,7 @@ async function viewSettings() {
   $('#set-temp').oninput = (e) => { $('#temp-val').textContent = (+e.target.value).toFixed(2); N.store.set('settings.temperature', +e.target.value); };
   $('#set-steps').onchange = (e) => N.store.set('settings.maxSteps', +e.target.value || 0);
   $('#set-defmodel').onchange = (e) => N.store.set('settings.defaultModel', e.target.value);
-  $('#set-lang').onchange = async (e) => { setLangCode(e.target.value); await N.store.set('settings.lang', e.target.value); applyStaticI18n(); viewSettings(); };
+  $('#set-lang').onchange = async (e) => { setLangCode(e.target.value); await N.store.set('settings.lang', e.target.value); applyStaticI18n(); syncNavTitles(); applyRail(document.body.classList.contains('rail')); viewSettings(); };
   $$('#accent-row .theme-swatch').forEach((sw) => sw.onclick = async () => {
     const th = await N.store.get('settings.theme', { mode: 'dark', accent: 'violet' });
     th.accent = sw.dataset.accent; await N.store.set('settings.theme', th); applyTheme(); viewSettings();
@@ -1866,6 +1859,7 @@ function buildCommands() {
     { ico: '🔊', label: 'Включить звук', sub: 'Действие', run: async () => { await N.audio.mute(false); toast('Звук', 'включён', 'ok'); } },
     { ico: '🌗', label: 'Переключить тему', sub: 'Действие', run: toggleThemeMode },
     { ico: '🧘', label: 'Фокус-режим (скрыть меню)', sub: 'Действие', run: toggleFocusMode },
+    { ico: '↔️', label: 'Свернуть/развернуть меню', sub: 'Действие', run: toggleRail },
     { ico: '📥', label: t('btn.import'), sub: 'Действие', run: () => $('#agent-import-input').click() }
   ];
   return cmds;
@@ -1911,6 +1905,7 @@ function promptPlayMusic() {
 
 document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') { e.preventDefault(); toggleFocusMode(); return; }
+  if ((e.ctrlKey || e.metaKey) && e.key === '\\') { e.preventDefault(); toggleRail(); return; }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); $('#cmdk').style.display === 'flex' ? closeCmdk() : openCmdk(); return; }
   if ($('#cmdk').style.display === 'flex') {
     if (e.key === 'Escape') closeCmdk();
@@ -2205,7 +2200,7 @@ async function pollOllama() {
   if (lang) setLangCode(lang);
   applyStaticI18n();
   await applyTheme();
-  await applyNavOrder();
+  await setupSidebar();
   render();
   pollStats(); pollOllama();
   setInterval(pollStats, 3000);

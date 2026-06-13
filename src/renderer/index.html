@@ -27,24 +27,42 @@
   <div class="app">
     <!-- Боковое меню -->
     <nav class="sidebar">
-      <button class="nav-item active" data-view="dashboard"><span class="nav-ico">🏠</span><span data-i18n="nav.dashboard">Главная</span></button>
-      <button class="nav-item" data-view="agents"><span class="nav-ico">🤖</span><span data-i18n="nav.agents">Агенты</span></button>
-      <button class="nav-item" data-view="marketplace"><span class="nav-ico">⬇️</span><span data-i18n="nav.marketplace">Установка ИИ</span></button>
-      <button class="nav-item" data-view="scenarios"><span class="nav-ico">🎬</span><span data-i18n="nav.scenarios">Сценарии</span></button>
-      <button class="nav-item" data-view="scheduler"><span class="nav-ico">⏰</span><span data-i18n="nav.scheduler">Планировщик</span></button>
-      <button class="nav-item" data-view="minecraft"><span class="nav-ico">🧱</span><span data-i18n="nav.minecraft">Minecraft</span></button>
-      <button class="nav-item" data-view="servers"><span class="nav-ico">🖥️</span><span data-i18n="nav.servers">Серверы</span></button>
-      <button class="nav-item" data-view="translator"><span class="nav-ico">🌐</span><span data-i18n="nav.translator">Перевод</span></button>
-      <button class="nav-item" data-view="smarthome"><span class="nav-ico">🏠</span><span data-i18n="nav.smarthome">Умный дом</span></button>
-      <button class="nav-item" data-view="knowledge"><span class="nav-ico">📚</span><span data-i18n="nav.knowledge">База знаний</span></button>
-      <button class="nav-item" data-view="swarm"><span class="nav-ico">🐝</span><span data-i18n="nav.swarm">Команда (Swarm)</span></button>
-      <button class="nav-item" data-view="queue"><span class="nav-ico">📋</span><span data-i18n="nav.queue">Очередь задач</span></button>
-      <button class="nav-item" data-view="skills"><span class="nav-ico">🧩</span><span data-i18n="nav.skills">Скилы</span></button>
-      <button class="nav-item" data-view="dispatch"><span class="nav-ico">📡</span><span data-i18n="nav.dispatch">Удалённый доступ</span></button>
-      <button class="nav-item" data-view="prompts"><span class="nav-ico">💡</span><span data-i18n="nav.prompts">Промпты</span></button>
-      <button class="nav-item" data-view="voice"><span class="nav-ico">🎙️</span><span data-i18n="nav.voice">Голос</span></button>
-      <button class="nav-item" data-view="developer"><span class="nav-ico">🛠️</span><span data-i18n="nav.developer">Разработчику</span></button>
-      <button class="nav-item" data-view="settings"><span class="nav-ico">⚙️</span><span data-i18n="nav.settings">Настройки</span></button>
+      <button class="sb-collapse" id="sidebar-collapse" title="Свернуть меню">«</button>
+
+      <div class="nav-group">
+        <div class="nav-group-title" data-i18n="nav.grp.main">Основное</div>
+        <button class="nav-item active" data-view="dashboard"><span class="nav-ico">🏠</span><span data-i18n="nav.dashboard">Главная</span></button>
+        <button class="nav-item" data-view="agents"><span class="nav-ico">🤖</span><span data-i18n="nav.agents">Агенты</span></button>
+        <button class="nav-item" data-view="queue"><span class="nav-ico">📋</span><span data-i18n="nav.queue">Очередь задач</span></button>
+        <button class="nav-item" data-view="scenarios"><span class="nav-ico">🎬</span><span data-i18n="nav.scenarios">Сценарии</span></button>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-group-title" data-i18n="nav.grp.ai">Модели и знания</div>
+        <button class="nav-item" data-view="marketplace"><span class="nav-ico">⬇️</span><span data-i18n="nav.marketplace">Установка ИИ</span></button>
+        <button class="nav-item" data-view="knowledge"><span class="nav-ico">📚</span><span data-i18n="nav.knowledge">База знаний</span></button>
+        <button class="nav-item" data-view="swarm"><span class="nav-ico">🐝</span><span data-i18n="nav.swarm">Команда (Swarm)</span></button>
+        <button class="nav-item" data-view="translator"><span class="nav-ico">🌐</span><span data-i18n="nav.translator">Перевод</span></button>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-group-title" data-i18n="nav.grp.tools">Инструменты</div>
+        <button class="nav-item" data-view="voice"><span class="nav-ico">🎙️</span><span data-i18n="nav.voice">Голос</span></button>
+        <button class="nav-item" data-view="smarthome"><span class="nav-ico">🏠</span><span data-i18n="nav.smarthome">Умный дом</span></button>
+        <button class="nav-item" data-view="minecraft"><span class="nav-ico">🧱</span><span data-i18n="nav.minecraft">Minecraft</span></button>
+        <button class="nav-item" data-view="servers"><span class="nav-ico">🖥️</span><span data-i18n="nav.servers">Серверы</span></button>
+        <button class="nav-item" data-view="skills"><span class="nav-ico">🧩</span><span data-i18n="nav.skills">Скилы</span></button>
+        <button class="nav-item" data-view="prompts"><span class="nav-ico">💡</span><span data-i18n="nav.prompts">Промпты</span></button>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-group-title" data-i18n="nav.grp.system">Система</div>
+        <button class="nav-item" data-view="scheduler"><span class="nav-ico">⏰</span><span data-i18n="nav.scheduler">Планировщик</span></button>
+        <button class="nav-item" data-view="dispatch"><span class="nav-ico">📡</span><span data-i18n="nav.dispatch">Удалённый доступ</span></button>
+        <button class="nav-item" data-view="developer"><span class="nav-ico">🛠️</span><span data-i18n="nav.developer">Разработчику</span></button>
+        <button class="nav-item" data-view="settings"><span class="nav-ico">⚙️</span><span data-i18n="nav.settings">Настройки</span></button>
+      </div>
+
       <div class="sidebar-spacer"></div>
       <div class="sys-mini" id="sys-mini">
         <div class="sys-row"><span>CPU</span><div class="bar"><i id="cpu-bar"></i></div></div>

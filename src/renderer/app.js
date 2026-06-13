@@ -963,60 +963,91 @@ async function viewKnowledge() {
 
 /* ---------- Task queue ---------- */
 const TASK_STATUS = { queued: '⏳', running: '⚙️', completed: '✅', failed: '❌', cancelled: '⏹️' };
+const TASK_TERMINAL = ['completed', 'failed', 'cancelled'];
 async function viewQueue() {
   const agents = await N.agents.list();
   const conc = await N.store.get('settings.taskConcurrency', 2);
+  const q = await N.taskq.list();
+  state.queueFilter = state.queueFilter || 'all';
   content.innerHTML = `
     <div class="view-head row between"><div><h1>📋 ${esc(t('nav.queue'))}</h1><p>${esc(t('q.sub'))}</p></div>
-      <div class="row"><label class="muted" style="font-size:12px">${esc(t('q.concurrency'))}: <input id="q-conc" type="number" min="1" max="5" value="${conc}" style="width:54px"></label>
-      <button class="btn ghost" id="q-clear">${esc(t('q.clearDone'))}</button><button class="btn primary" id="q-new">＋ ${esc(t('q.add'))}</button></div></div>
+      <div class="row">
+        <button class="btn ${q.paused ? 'primary' : 'ghost'}" id="q-pause">${q.paused ? '▶ ' + esc(t('q.resume')) : '⏸ ' + esc(t('q.pause'))}</button>
+        <label class="muted" style="font-size:12px">${esc(t('q.concurrency'))}: <input id="q-conc" type="number" min="1" max="5" value="${conc}" style="width:54px"></label>
+        <button class="btn ghost" id="q-clear">${esc(t('q.clearDone'))}</button><button class="btn primary" id="q-new">＋ ${esc(t('q.add'))}</button></div></div>
+    <div class="row wrap" id="q-filters" style="margin-bottom:12px">
+      ${['all', 'queued', 'running', 'completed', 'failed'].map((f) => `<button class="btn ghost sm q-filter ${state.queueFilter === f ? 'active' : ''}" data-f="${f}">${esc(t('q.f.' + f))}</button>`).join('')}
+    </div>
     <div id="q-list"></div>`;
   $('#q-new').onclick = () => addTaskModal(agents);
   $('#q-clear').onclick = async () => { await N.taskq.clearDone(); renderQueue(); };
+  $('#q-pause').onclick = async () => { await N.taskq.pause(!q.paused); viewQueue(); };
   $('#q-conc').onchange = (e) => N.store.set('settings.taskConcurrency', Math.max(1, Math.min(5, +e.target.value || 2)));
+  $$('.q-filter').forEach((b) => b.onclick = () => { state.queueFilter = b.dataset.f; viewQueue(); });
   state.queueAgents = agents;
   renderQueue();
 }
 async function renderQueue() {
   const wrap = $('#q-list'); if (!wrap) return;
-  const tasks = await N.taskq.list();
+  const q = await N.taskq.list();
+  let tasks = q.tasks || [];
   const agents = state.queueAgents || await N.agents.list();
   const nameOf = (id) => (agents.find((a) => a.id === id) || {}).name || '—';
+  if (state.queueFilter && state.queueFilter !== 'all') tasks = tasks.filter((tk) => tk.status === state.queueFilter);
   if (!tasks.length) { wrap.innerHTML = `<div class="empty"><div class="big-ico">📋</div><p>${esc(t('q.empty'))}</p></div>`; return; }
   const order = { running: 0, queued: 1, failed: 2, cancelled: 3, completed: 4 };
   tasks.sort((a, b) => (order[a.status] - order[b.status]) || (b.priority - a.priority) || (a.createdAt - b.createdAt));
+  const sched = (tk) => {
+    const bits = [];
+    if (tk.runAt && tk.runAt > Date.now()) bits.push('⏰ ' + new Date(tk.runAt).toLocaleTimeString());
+    if (tk.dependsOn && tk.dependsOn.length) bits.push('🔗 ' + tk.dependsOn.length);
+    return bits.length ? ' · ' + bits.join(' · ') : '';
+  };
   wrap.innerHTML = tasks.map((tk) => `
     <div class="card" style="margin-bottom:10px" id="qt-${tk.id}">
       <div class="row between">
         <div><b>${TASK_STATUS[tk.status] || ''} ${esc(tk.goal.slice(0, 90))}</b>
-          <br><small class="muted">${esc(t('q.prio'))} ${'★'.repeat(tk.priority)} · ${tk.mode === 'swarm' ? '🐝 ' + t('q.team') : '🤖 ' + esc(tk.agentIds.map(nameOf).join(', ') || t('q.auto'))} · ${esc(t('q.status.' + tk.status) || tk.status)}${tk.note ? ' · ' + esc(tk.note) : ''}${tk.error ? ' · ' + esc(tk.error) : ''}</small></div>
+          <br><small class="muted">${esc(t('q.prio'))} ${'★'.repeat(tk.priority)} · ${tk.mode === 'swarm' ? '🐝 ' + t('q.team') : '🤖 ' + esc(tk.agentIds.map(nameOf).join(', ') || t('q.auto'))} · ${esc(t('q.status.' + tk.status) || tk.status)}${sched(tk)}${tk.note ? ' · ' + esc(tk.note) : ''}${tk.error ? ' · ' + esc(tk.error) : ''}</small></div>
         <div class="row">
+          ${tk.status === 'queued' ? `<button class="btn ghost sm" data-pup="${tk.id}" title="${esc(t('q.prioUp'))}">▲</button><button class="btn ghost sm" data-pdn="${tk.id}" title="${esc(t('q.prioDown'))}">▼</button>` : ''}
+          ${tk.status === 'queued' && (tk.runAt > Date.now() || (tk.dependsOn && tk.dependsOn.length)) ? `<button class="btn ghost sm" data-now="${tk.id}" title="${esc(t('q.runNow'))}">⏵</button>` : ''}
           ${(tk.status === 'queued' || tk.status === 'running') ? `<button class="btn ghost sm" data-cancel="${tk.id}">${esc(t('q.cancel'))}</button>` : ''}
-          ${(tk.status === 'failed' || tk.status === 'cancelled' || tk.status === 'completed') ? `<button class="btn ghost sm" data-retry="${tk.id}">↻</button>` : ''}
+          ${TASK_TERMINAL.includes(tk.status) ? `<button class="btn ghost sm" data-retry="${tk.id}" title="${esc(t('q.retryT'))}">↻</button><button class="btn ghost sm" data-dup="${tk.id}" title="${esc(t('q.duplicate'))}">⧉</button>` : ''}
           <button class="btn ghost sm" data-rm="${tk.id}">✕</button>
         </div>
       </div>
       ${tk.status === 'running' ? `<div class="progress" style="margin-top:8px"><i style="width:${tk.progress || 0}%"></i></div>` : ''}
       ${tk.result ? `<div class="muted" style="margin-top:8px;font-size:12px;white-space:pre-wrap;max-height:140px;overflow:auto">${esc(String(tk.result).slice(0, 800))}</div>` : ''}
     </div>`).join('');
-  $$('[data-cancel]', wrap).forEach((b) => b.onclick = async () => { await N.taskq.cancel(b.dataset.cancel); renderQueue(); });
-  $$('[data-retry]', wrap).forEach((b) => b.onclick = async () => { await N.taskq.retry(b.dataset.retry); renderQueue(); });
-  $$('[data-rm]', wrap).forEach((b) => b.onclick = async () => { await N.taskq.remove(b.dataset.rm); renderQueue(); });
+  const re = () => renderQueue();
+  $$('[data-cancel]', wrap).forEach((b) => b.onclick = async () => { await N.taskq.cancel(b.dataset.cancel); re(); });
+  $$('[data-retry]', wrap).forEach((b) => b.onclick = async () => { await N.taskq.retry(b.dataset.retry); re(); });
+  $$('[data-rm]', wrap).forEach((b) => b.onclick = async () => { await N.taskq.remove(b.dataset.rm); re(); });
+  $$('[data-dup]', wrap).forEach((b) => b.onclick = async () => { await N.taskq.duplicate(b.dataset.dup); re(); });
+  $$('[data-now]', wrap).forEach((b) => b.onclick = async () => { await N.taskq.runNow(b.dataset.now); re(); });
+  $$('[data-pup]', wrap).forEach((b) => b.onclick = async () => { const tk = tasks.find((x) => x.id === b.dataset.pup); await N.taskq.setPriority(b.dataset.pup, (tk.priority || 3) + 1); re(); });
+  $$('[data-pdn]', wrap).forEach((b) => b.onclick = async () => { const tk = tasks.find((x) => x.id === b.dataset.pdn); await N.taskq.setPriority(b.dataset.pdn, (tk.priority || 3) - 1); re(); });
 }
-function addTaskModal(agents) {
+async function addTaskModal(agents) {
+  const q = await N.taskq.list();
+  const queued = (q.tasks || []).filter((tk) => tk.status === 'queued');
   const agentChecks = agents.map((a) => `<label class="row" style="gap:8px;padding:3px 0"><input type="checkbox" data-qa="${a.id}"><span>${a.icon || '🤖'} ${esc(a.name)}</span></label>`).join('');
+  const depOpts = `<option value="">${esc(t('q.none'))}</option>` + queued.map((tk) => `<option value="${tk.id}">${esc(tk.goal.slice(0, 40))}</option>`).join('');
   modal(`<h2>＋ ${esc(t('q.add'))}</h2>
     <label class="field"><span>${esc(t('q.goal'))}</span><textarea id="q-goal" style="min-height:80px" placeholder="${esc(t('q.goalPh'))}"></textarea></label>
     <div class="row"><label class="field" style="flex:1"><span>${esc(t('q.prio'))}</span><select id="q-prio"><option value="5">★★★★★</option><option value="4">★★★★</option><option value="3" selected>★★★</option><option value="2">★★</option><option value="1">★</option></select></label>
       <label class="field" style="flex:1"><span>${esc(t('q.retries'))}</span><input id="q-ret" type="number" min="0" max="5" value="1"></label></div>
+    <div class="row"><label class="field" style="flex:1"><span>${esc(t('q.delay'))}</span><input id="q-delay" type="number" min="0" value="0"></label>
+      <label class="field" style="flex:1"><span>${esc(t('q.dependsOn'))}</span><select id="q-dep">${depOpts}</select></label></div>
     <p class="muted" style="margin:6px 0">${esc(t('q.pickAgents'))}</p>
-    <div style="max-height:180px;overflow:auto">${agentChecks}</div>
+    <div style="max-height:160px;overflow:auto">${agentChecks}</div>
     <div class="modal-actions"><button class="btn ghost" id="q-cancel">${esc(t('btn.cancel'))}</button><button class="btn primary" id="q-go">${esc(t('q.add'))}</button></div>`, (m, close) => {
     $('#q-cancel', m).onclick = close;
     $('#q-go', m).onclick = async () => {
       const goal = $('#q-goal', m).value.trim(); if (!goal) return;
       const agentIds = $$('[data-qa]:checked', m).map((x) => x.dataset.qa);
-      const r = await N.taskq.add({ goal, agentIds, priority: +$('#q-prio', m).value, retries: +$('#q-ret', m).value });
+      const dep = $('#q-dep', m).value;
+      const r = await N.taskq.add({ goal, agentIds, priority: +$('#q-prio', m).value, retries: +$('#q-ret', m).value, delaySec: +$('#q-delay', m).value || 0, dependsOn: dep ? [dep] : [] });
       if (r.ok) { toast(t('q.added'), '', 'ok'); close(); renderQueue(); } else toast('Ошибка', r.error, 'err');
     };
   });
@@ -1344,6 +1375,7 @@ async function viewSettings() {
     autoListen: await g('autoListen', false),
     longMemory: await g('longMemory', true),
     constitutionOn: await g('constitution', true),
+    appControl: await g('appControl', true),
     temperature: await g('temperature', 0.7),
     maxSteps: await g('maxSteps', 0),
     defaultModel: await g('defaultModel', '')
@@ -1418,6 +1450,11 @@ async function viewSettings() {
         <p class="muted" style="margin:8px 0">${esc(t('set.constitutionNote'))}</p>
         <button class="btn ghost sm" id="set-viewconst">${esc(t('set.viewConstitution'))}</button>
       </div>
+      <div class="card">
+        <h3>🔗 ${esc(t('set.appControl'))}</h3>
+        ${toggleRow('set-appctl', t('set.appControl'), s.appControl)}
+        <p class="muted" style="margin:8px 0">${esc(t('set.appControlNote'))}</p>
+      </div>
       <div class="card" style="grid-column:1/-1">
         <h3>ℹ️ ${esc(t('set.about'))}</h3>
         <p class="muted">Mythera AI Hub v${esc(info.appVersion)} · ${esc(info.platform)} ${esc(info.release)} · ${info.cpus} ${'ядер/cores'}</p>
@@ -1442,6 +1479,7 @@ async function viewSettings() {
   bindToggle('set-autolisten', (v) => N.store.set('settings.autoListen', v));
   bindToggle('set-mem', (v) => N.store.set('settings.longMemory', v));
   bindToggle('set-const', (v) => N.store.set('settings.constitution', v));
+  bindToggle('set-appctl', (v) => N.store.set('settings.appControl', v));
   $('#set-viewconst').onclick = showConstitution;
   bindToggle('set-light', async (v) => { const th = await N.store.get('settings.theme', { mode: 'dark', accent: 'violet' }); th.mode = v ? 'light' : 'dark'; await N.store.set('settings.theme', th); applyTheme(); });
   $('#set-rate').oninput = (e) => { $('#rate-val').textContent = (+e.target.value).toFixed(1) + '×'; N.store.set('settings.voiceRate', +e.target.value); };
@@ -2070,6 +2108,14 @@ N.on('taskq:event', async ({ ev, payload }) => {
   if (ev === 'task:finished' && payload && payload.status === 'completed' && await N.store.get('settings.notifications', true)) {
     toast('📋 ' + t('q.status.completed'), String(payload.goal || '').slice(0, 60), 'ok');
   }
+});
+
+// Агент изменил приложение (создал скил/агента, поставил задачу и т.п.) — обновляем UI.
+N.on('app:changed', ({ what }) => {
+  const map = { skills: 'skills', agents: 'agents', queue: 'queue', settings: 'settings' };
+  if (map[what] && state.view === map[what]) render();
+  if (what === 'skills') toast('🧩', t('appChanged.skill'), 'ok');
+  else if (what === 'agents') toast('🤖', t('appChanged.agent'), 'ok');
 });
 
 N.on('mc:log', ({ log }) => { if (window.__mcLog) { window.__mcLog.textContent += log; window.__mcLog.scrollTop = window.__mcLog.scrollHeight; } });

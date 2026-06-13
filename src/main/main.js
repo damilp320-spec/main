@@ -130,6 +130,9 @@ app.whenReady().then(async () => {
     globalShortcut.register('CommandOrControl+Shift+Space', () => sendToUI('voice:hotkey'));
   } catch { /* hotkey may be taken */ }
 
+  // Бесшовное управление приложением агентами: даём модулю отправлять события в UI.
+  require('./appcontrol').setUISender(sendToUI);
+
   // Очередь задач: пробрасываем события в UI и возобновляем незавершённые.
   taskQueue.load();
   ['task:added', 'task:started', 'task:progress', 'task:finished', 'queue:update'].forEach((ev) =>
@@ -257,6 +260,10 @@ ipcMain.handle('taskq:cancel', (_e, id) => taskQueue.cancel(id));
 ipcMain.handle('taskq:retry', (_e, id) => taskQueue.retry(id));
 ipcMain.handle('taskq:remove', (_e, id) => taskQueue.remove(id));
 ipcMain.handle('taskq:clearDone', () => taskQueue.clearDone());
+ipcMain.handle('taskq:pause', (_e, v) => taskQueue.setPaused(v));
+ipcMain.handle('taskq:duplicate', (_e, id) => taskQueue.duplicate(id));
+ipcMain.handle('taskq:setPriority', (_e, id, p) => taskQueue.setPriority(id, p));
+ipcMain.handle('taskq:runNow', (_e, id) => taskQueue.runNow(id));
 
 /* ---------------- IPC: constitution ---------------- */
 ipcMain.handle('constitution:text', () => constitution.text());

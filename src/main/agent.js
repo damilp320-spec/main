@@ -14,6 +14,7 @@ const browser = require('./browser');
 const audio = require('./audio');
 const smarthome = require('./smarthome');
 const constitution = require('./constitution');
+const appcontrol = require('./appcontrol');
 
 const activeSessions = new Map(); // sessionId -> { stop: bool }
 
@@ -34,6 +35,7 @@ function allToolSchemas() {
     ...browser.toolSchemas,
     ...audio.toolSchemas,
     ...smarthome.toolSchemas,
+    ...(store.get('settings.appControl', true) ? appcontrol.toolSchemas : []),
     ...skills.toolSchemas(),
     visionToolSchema
   ];
@@ -41,7 +43,7 @@ function allToolSchemas() {
   return disabled.length ? all.filter((t) => !disabled.includes(t.function.name)) : all;
 }
 
-const extraHandlers = { ...minecraft.toolHandlers, ...remote.toolHandlers, ...translator.toolHandlers, ...browser.toolHandlers, ...audio.toolHandlers, ...smarthome.toolHandlers };
+const extraHandlers = { ...minecraft.toolHandlers, ...remote.toolHandlers, ...translator.toolHandlers, ...browser.toolHandlers, ...audio.toolHandlers, ...smarthome.toolHandlers, ...appcontrol.toolHandlers };
 
 async function dispatchTool(name, args) {
   if (skills.isSkillTool(name)) {

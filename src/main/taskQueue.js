@@ -13,11 +13,14 @@ class TaskQueue extends EventEmitter {
     this.tasks = [];
     this.running = new Set(); // ids
     this.loaded = false;
+    this.paused = false;
+    this.timer = null; // для отложенных задач (runAt)
   }
 
   load() {
     if (this.loaded) return;
     this.loaded = true;
+    this.paused = !!store.get('taskQueuePaused', false);
     const saved = store.get('taskQueue', []);
     // Незавершённые задачи после перезапуска переводим обратно в очередь.
     this.tasks = (Array.isArray(saved) ? saved : []).map((t) => (
@@ -27,7 +30,7 @@ class TaskQueue extends EventEmitter {
 
   maxConcurrent() { return Math.max(1, Math.min(5, parseInt(store.get('settings.taskConcurrency', 2), 10) || 2)); }
 
-  list() { this.load(); return this.tasks.map((t) => ({ ...t, result: t.result ? String(t.result).slice(0, 4000) : t.result })); }
+  list() { this.load(); return { paused: this.paused, tasks: this.tasks.map((t) => ({ ...t, result: t.result ? String(t.result).slice(0, 4000) : t.result })) }; }
 
   save() {
     // Храним всё активное + завершённое за последние 24 ч.
@@ -37,7 +40,7 @@ class TaskQueue extends EventEmitter {
     this.emit('queue:update', this.list());
   }
 
-  add({ goal, agentIds = [], priority = 3, retries = 1, mode } = {}) {
+  add({ goal, agentIds = [], priority = 3, retries = 1, mode, dependsOn = [], delaySec = 0 } = {}) {
     this.load();
     if (!goal || !String(goal).trim()) return { ok: false, error: 'Пустая цель' };
     const task = {
@@ -47,6 +50,8 @@ class TaskQueue extends EventEmitter {
       mode: mode || (agentIds.length > 1 ? 'swarm' : 'single'),
       priority: Math.max(1, Math.min(5, +priority || 3)),
       retries: Math.max(0, Math.min(5, +retries || 0)),
+      dependsOn: Array.isArray(dependsOn) ? dependsOn.slice(0, 10) : [],
+      runAt: delaySec > 0 ? Date.now() + delaySec * 1000 : 0,
       attempts: 0,
       status: 'queued',
       progress: 0,
@@ -63,19 +68,50 @@ class TaskQueue extends EventEmitter {
     return { ok: true, task };
   }
 
+  // Зависимости выполнены (все depends-задачи completed)?
+  depsReady(task) {
+    if (!task.dependsOn || !task.dependsOn.length) return true;
+    return task.dependsOn.every((depId) => {
+      const dep = this.tasks.find((x) => x.id === depId);
+      return !dep || dep.status === 'completed';
+    });
+  }
+
   nextQueued() {
+    const now = Date.now();
     return this.tasks
-      .filter((t) => t.status === 'queued')
+      .filter((t) => t.status === 'queued' && (!t.runAt || t.runAt <= now) && this.depsReady(t))
       .sort((a, b) => (b.priority - a.priority) || (a.createdAt - b.createdAt))[0];
+  }
+
+  // Когда есть отложенные/ждущие задачи — перепланируем процесс.
+  scheduleRecheck() {
+    const now = Date.now();
+    const pending = this.tasks.filter((t) => t.status === 'queued' && t.runAt && t.runAt > now);
+    if (!pending.length) return;
+    const soonest = Math.min(...pending.map((t) => t.runAt));
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.process(), Math.max(500, soonest - now + 50));
   }
 
   async process() {
     this.load();
+    if (this.paused) return;
     while (this.running.size < this.maxConcurrent()) {
       const task = this.nextQueued();
       if (!task) break;
       this.runTask(task); // не await — параллельно
     }
+    this.scheduleRecheck();
+  }
+
+  setPaused(v) {
+    this.load();
+    this.paused = !!v;
+    store.set('taskQueuePaused', this.paused);
+    this.emit('queue:update', this.list());
+    if (!this.paused) this.process();
+    return { ok: true, paused: this.paused };
   }
 
   async runTask(task) {
@@ -164,6 +200,35 @@ class TaskQueue extends EventEmitter {
 
   remove(id) { this.load(); this.tasks = this.tasks.filter((t) => t.id !== id); this.save(); return { ok: true }; }
   clearDone() { this.load(); this.tasks = this.tasks.filter((t) => !TERMINAL.includes(t.status)); this.save(); return { ok: true }; }
+
+  duplicate(id) {
+    this.load();
+    const t = this.tasks.find((x) => x.id === id);
+    if (!t) return { ok: false };
+    return this.add({ goal: t.goal, agentIds: t.agentIds, priority: t.priority, retries: t.retries, mode: t.mode });
+  }
+
+  setPriority(id, priority) {
+    this.load();
+    const t = this.tasks.find((x) => x.id === id);
+    if (!t) return { ok: false };
+    t.priority = Math.max(1, Math.min(5, +priority || t.priority));
+    t.updatedAt = Date.now();
+    this.save();
+    this.process();
+    return { ok: true, priority: t.priority };
+  }
+
+  // Запустить отложенную/ждущую задачу немедленно.
+  runNow(id) {
+    this.load();
+    const t = this.tasks.find((x) => x.id === id);
+    if (!t || t.status !== 'queued') return { ok: false };
+    t.runAt = 0; t.dependsOn = []; t.updatedAt = Date.now();
+    this.save();
+    this.process();
+    return { ok: true };
+  }
 }
 
 module.exports = new TaskQueue();

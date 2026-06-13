@@ -159,7 +159,11 @@ contextBridge.exposeInMainWorld('mythera', {
     cancel: (id) => invoke('taskq:cancel', id),
     retry: (id) => invoke('taskq:retry', id),
     remove: (id) => invoke('taskq:remove', id),
-    clearDone: () => invoke('taskq:clearDone')
+    clearDone: () => invoke('taskq:clearDone'),
+    pause: (v) => invoke('taskq:pause', v),
+    duplicate: (id) => invoke('taskq:duplicate', id),
+    setPriority: (id, p) => invoke('taskq:setPriority', id, p),
+    runNow: (id) => invoke('taskq:runNow', id)
   },
   // Конституция агентов
   constitution: () => invoke('constitution:text'),

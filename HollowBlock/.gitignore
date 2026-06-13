@@ -1,0 +1,40 @@
+# Unreal Engine generated folders
+Binaries/
+Build/
+DerivedDataCache/
+Intermediate/
+Saved/
+.vs/
+.vscode/
+.idea/
+
+# Generated project files
+*.VC.db
+*.opensdf
+*.opendb
+*.sdf
+*.sln
+*.suo
+*.xcodeproj
+*.xcworkspace
+
+# Compiled artifacts
+*.obj
+*.pdb
+*.o
+*.so
+*.dll
+*.dylib
+*.app
+
+# Crash / log output
+*.log
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Keep these tracked (counter to broad ignores above):
+!Config/
+!Source/
+!Content/

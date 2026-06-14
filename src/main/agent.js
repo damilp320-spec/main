@@ -24,6 +24,7 @@ const docs = require('./docs');
 const learner = require('./learner');
 const analysis = require('./analysis');
 const markets = require('./markets');
+const trading = require('./trading');
 
 const activeSessions = new Map(); // sessionId -> { stop: bool }
 
@@ -48,6 +49,7 @@ function allToolSchemas() {
     ...docs.toolSchemas,
     ...analysis.toolSchemas,
     ...markets.toolSchemas,
+    ...(store.get('settings.tradingEnabled', false) ? trading.toolSchemas : []),
     ...(store.get('settings.webAutomation', false) ? webagent.toolSchemas : []),
     ...(store.get('settings.guiAutomation', false) ? gui.toolSchemas : []),
     ...(store.get('settings.mcpEnabled', false) ? mcp.toolSchemas() : []),
@@ -59,7 +61,7 @@ function allToolSchemas() {
   return disabled.length ? all.filter((t) => !disabled.includes(t.function.name)) : all;
 }
 
-const extraHandlers = { ...minecraft.toolHandlers, ...remote.toolHandlers, ...translator.toolHandlers, ...browser.toolHandlers, ...audio.toolHandlers, ...smarthome.toolHandlers, ...appcontrol.toolHandlers, ...webagent.toolHandlers, ...gui.toolHandlers, ...docs.toolHandlers, ...analysis.toolHandlers, ...markets.toolHandlers };
+const extraHandlers = { ...minecraft.toolHandlers, ...remote.toolHandlers, ...translator.toolHandlers, ...browser.toolHandlers, ...audio.toolHandlers, ...smarthome.toolHandlers, ...appcontrol.toolHandlers, ...webagent.toolHandlers, ...gui.toolHandlers, ...docs.toolHandlers, ...analysis.toolHandlers, ...markets.toolHandlers, ...trading.toolHandlers };
 
 async function dispatchTool(name, args) {
   if (mcp.isMcpTool(name)) {

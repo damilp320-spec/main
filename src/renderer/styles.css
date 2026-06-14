@@ -248,6 +248,15 @@ body.artifact-open .content { margin-right: 42vw; }
 .tabs .tab.active { color: var(--text); border-bottom-color: var(--accent); }
 .tabs .tab:hover { color: var(--text); }
 
+/* ---------- Trading ---------- */
+.tr-safe { border: 1px solid rgba(38,166,154,.4); background: rgba(38,166,154,.07); }
+.tr-live { border: 1px solid rgba(239,83,80,.5); background: rgba(239,83,80,.08); }
+.tr-log { max-height: 240px; overflow-y: auto; font-size: 12px; font-family: 'Consolas', monospace; }
+.tr-log-line { display: flex; gap: 10px; padding: 4px 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.tr-pf-tbl { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
+.tr-pf-tbl th, .tr-pf-tbl td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--border); }
+.tr-pf-tbl th { color: var(--muted); font-weight: 500; font-size: 11px; }
+
 /* ---------- Markets ---------- */
 .mk-presets { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 12px; }
 .mk-preset-group { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }

@@ -38,6 +38,7 @@ const watchers = require('./watchers');
 const flows = require('./flows');
 const analysis = require('./analysis');
 const markets = require('./markets');
+const trading = require('./trading');
 
 let win = null;
 let tray = null;
@@ -156,6 +157,8 @@ app.whenReady().then(async () => {
 
   // Анализ данных: модуль шлёт построенные графики в панель артефактов.
   analysis.setUISender(sendToUI);
+  // Брокер/торговля: подтверждения и аудит-события в UI.
+  trading.setUISender(sendToUI);
 
   // Глобальный быстрый запуск (Spotlight для ИИ) + горячая клавиша.
   quickask.init({ getMainWin: () => win });
@@ -421,6 +424,19 @@ ipcMain.handle('watchers:save', (_e, w) => watchers.save(w));
 ipcMain.handle('watchers:remove', (_e, id) => watchers.remove(id));
 ipcMain.handle('watchers:toggle', (_e, id, on) => watchers.toggle(id, on));
 ipcMain.handle('watchers:fireNow', (_e, id) => watchers.fireNow(id));
+
+/* ---------------- IPC: broker / auto-trading ---------------- */
+ipcMain.handle('trade:cfg', () => trading.publicCfg());
+ipcMain.handle('trade:setCfg', (_e, patch) => trading.setCfg(patch));
+ipcMain.handle('trade:setToken', (_e, tok) => trading.setToken(tok));
+ipcMain.handle('trade:test', () => trading.test());
+ipcMain.handle('trade:portfolio', (_e, accountId) => trading.getPortfolio(accountId));
+ipcMain.handle('trade:find', (_e, q) => trading.findInstrument(q));
+ipcMain.handle('trade:order', (_e, o) => trading.requestOrder(o, 'manual'));
+ipcMain.handle('trade:confirm', (_e, id) => trading.confirmOrder(id));
+ipcMain.handle('trade:reject', (_e, id) => trading.rejectOrder(id));
+ipcMain.handle('trade:panic', () => trading.panic());
+ipcMain.handle('trade:log', () => trading.getLog());
 
 /* ---------------- IPC: markets (stocks/futures/crypto) ---------------- */
 ipcMain.handle('markets:candles', (_e, opts) => markets.candles(opts));

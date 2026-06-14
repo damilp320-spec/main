@@ -126,7 +126,7 @@ async function render() {
   content.className = 'content fade-in';
   // Останавливаем авто-обновление рынков при уходе с раздела.
   if (state.view !== 'markets' && window.__marketTimer) { clearInterval(window.__marketTimer); window.__marketTimer = null; }
-  const map = { dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scenarios: viewScenarios, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, smarthome: viewSmartHome, knowledge: viewKnowledge, swarm: viewSwarm, queue: viewQueue, skills: viewSkills, dispatch: viewDispatch, prompts: viewPrompts, voice: viewVoice, operator: viewOperator, automation: viewAutomation, markets: viewMarkets, developer: viewDeveloper, settings: viewSettings };
+  const map = { dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scenarios: viewScenarios, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, smarthome: viewSmartHome, knowledge: viewKnowledge, swarm: viewSwarm, queue: viewQueue, skills: viewSkills, dispatch: viewDispatch, prompts: viewPrompts, voice: viewVoice, operator: viewOperator, automation: viewAutomation, markets: viewMarkets, trading: viewTrading, developer: viewDeveloper, settings: viewSettings };
   const fn = map[state.view] || viewDashboard;
   // Граница ошибок: сбой одной вкладки не «вешает» весь интерфейс.
   try {
@@ -1436,7 +1436,8 @@ async function viewSettings() {
     autoLearnSkills: await g('autoLearnSkills', false),
     duplexVoice: await g('duplexVoice', false),
     artifacts: await g('artifacts', true),
-    quickAsk: await g('quickAsk', true)
+    quickAsk: await g('quickAsk', true),
+    tradingEnabled: await g('tradingEnabled', false)
   };
   const docCaps = await N.docs.capabilities();
   const cloudKey = await N.cloud.hasKey();
@@ -1543,6 +1544,8 @@ async function viewSettings() {
         <p class="muted" style="margin:6px 0">${esc(t('set.operatorNote'))}</p>
         ${toggleRow('set-quickask', t('set.quickAsk'), s.quickAsk)}
         <p class="muted" style="margin:6px 0">${esc(t('set.quickAskNote'))}</p>
+        ${toggleRow('set-trading', t('set.trading'), s.tradingEnabled)}
+        <p class="muted" style="margin:6px 0">${esc(t('set.tradingNote'))}</p>
         <p class="muted" style="margin:10px 0 4px"><b>${esc(t('set.docs'))}</b></p>
         <p class="muted" style="margin:4px 0">${esc(t('set.docsNote'))}</p>
         <p class="muted" style="margin:4px 0;font-family:monospace;font-size:11px">PDF ${docCaps.pdftotext ? '✅' : '⚪'} · Office ${docCaps.soffice ? '✅' : '⚪'} · OCR ${docCaps.tesseract ? '✅' : '⚪'}</p>
@@ -1608,6 +1611,7 @@ async function viewSettings() {
   bindToggle('set-artifacts', (v) => { N.store.set('settings.artifacts', v); window.__artifactsOn = v; });
   bindToggle('set-duplex', (v) => N.store.set('settings.duplexVoice', v));
   bindToggle('set-quickask', (v) => N.store.set('settings.quickAsk', v));
+  bindToggle('set-trading', async (v) => { if (v) { const ok = await confirmModal('💹 ' + t('set.trading'), t('set.tradingNote')); if (!ok) return viewSettings(); } N.store.set('settings.tradingEnabled', v); });
   bindToggle('set-operator', async (v) => {
     if (v) { const ok = await confirmModal('🦾 ' + t('set.operator'), t('set.operatorNote')); if (!ok) return viewSettings(); N.store.set('settings.guiAutomation', true); }
     N.store.set('settings.operator', v);
@@ -1958,6 +1962,145 @@ N.on('operator:done', ({ ok, summary, error }) => {
   operatorSession = null;
   if (summary) toast('🦾 ' + t('op.title'), String(summary).slice(0, 80), ok ? 'ok' : 'err');
 });
+
+/* ---------- Торговля: брокер (Tinkoff Invest) + безопасная автоторговля ---------- */
+async function viewTrading() {
+  const c = await N.trade.cfg();
+  const live = c.env === 'live';
+  content.innerHTML = `
+    <div class="view-head"><h1>💹 ${esc(t('tr.title'))}</h1><p>${esc(t('tr.sub'))}</p></div>
+    <div class="card ${live ? 'tr-live' : 'tr-safe'}">
+      <b>${live ? '🔴 ' + esc(t('tr.liveMode')) : '🟢 ' + esc(t('tr.sandboxMode'))}</b>
+      <span class="muted" style="margin-left:8px">${c.dryRun ? '· ' + esc(t('tr.dryOn')) : '· ' + esc(t('tr.dryOff'))}</span>
+      <p class="muted" style="margin-top:6px">${esc(t('tr.disclaimer'))}</p>
+    </div>
+    <div class="grid cols-2">
+      <div class="card">
+        <h3>🔌 ${esc(t('tr.connection'))}</h3>
+        <label class="field"><span>${esc(t('tr.env'))}</span><select id="tr-env">
+          <option value="sandbox" ${!live ? 'selected' : ''}>🟢 ${esc(t('tr.sandbox'))}</option>
+          <option value="live" ${live ? 'selected' : ''}>🔴 ${esc(t('tr.live'))}</option></select></label>
+        <label class="field"><span>${esc(t('tr.token'))}</span><input id="tr-token" type="password" placeholder="${c.hasToken ? '•••••• (сохранён)' : 't.xxxxxxxx'}"></label>
+        <div class="row" style="gap:6px"><button class="btn sm" id="tr-savetok">${esc(t('tr.saveToken'))}</button><button class="btn ghost sm" id="tr-test">${esc(t('tr.test'))}</button></div>
+        <div id="tr-accs" style="margin-top:10px"></div>
+        <p class="muted" style="margin-top:8px;font-size:11px">${esc(t('tr.tokenHint'))}</p>
+      </div>
+      <div class="card">
+        <h3>🛡️ ${esc(t('tr.safety'))}</h3>
+        ${toggleRow('tr-dry', t('tr.dryRun'), c.dryRun)}
+        ${toggleRow('tr-confirm', t('tr.confirmEach'), c.confirmEveryOrder)}
+        ${toggleRow('tr-auto', t('tr.autoTrade'), c.autoTrade)}
+        <p class="muted" style="margin:4px 0 10px;font-size:11px">${esc(t('tr.autoNote'))}</p>
+        <label class="field"><span>${esc(t('tr.maxOrder'))}</span><input type="number" id="tr-maxval" value="${esc(c.maxOrderValue)}"></label>
+        <div class="row" style="gap:8px">
+          <label class="field"><span>${esc(t('tr.maxDaily'))}</span><input type="number" id="tr-maxday" value="${esc(c.maxDailyOrders)}"></label>
+          <label class="field"><span>${esc(t('tr.maxLoss'))}</span><input type="number" id="tr-maxloss" value="${esc(c.maxDailyLossPct)}"></label>
+        </div>
+        <label class="field"><span>${esc(t('tr.whitelist'))}</span><input id="tr-wl" value="${esc((c.whitelist || []).join(', '))}" placeholder="AAPL, SBER, ..."></label>
+        <button class="btn danger" id="tr-panic" style="margin-top:6px">🛑 ${esc(t('tr.panic'))}</button>
+      </div>
+      <div class="card">
+        <h3>📊 ${esc(t('tr.portfolio'))}</h3>
+        <button class="btn ghost sm" id="tr-loadpf">↻ ${esc(t('tr.loadPf'))}</button>
+        <div id="tr-pf" style="margin-top:10px" class="muted">${esc(t('tr.pfHint'))}</div>
+      </div>
+      <div class="card">
+        <h3>🧾 ${esc(t('tr.order'))}</h3>
+        <label class="field"><span>${esc(t('tr.instrument'))}</span><div class="row"><input id="tr-tkr" placeholder="AAPL / SBER"><button class="btn ghost" id="tr-find">🔍</button></div></label>
+        <div id="tr-found" class="muted" style="font-size:12px;margin:4px 0"></div>
+        <div class="row" style="gap:8px">
+          <label class="field"><span>${esc(t('tr.direction'))}</span><select id="tr-dir"><option value="buy">🟢 ${esc(t('tr.buy'))}</option><option value="sell">🔴 ${esc(t('tr.sell'))}</option></select></label>
+          <label class="field"><span>${esc(t('tr.lots'))}</span><input type="number" id="tr-lots" value="1" min="1"></label>
+          <label class="field"><span>${esc(t('tr.type'))}</span><select id="tr-otype"><option value="market">${esc(t('tr.market'))}</option><option value="limit">${esc(t('tr.limit'))}</option></select></label>
+        </div>
+        <label class="field tr-lim" style="display:none"><span>${esc(t('tr.price'))}</span><input type="number" id="tr-price" step="0.01"></label>
+        <button class="btn primary" id="tr-place" style="margin-top:6px">${esc(t('tr.place'))}</button>
+      </div>
+      <div class="card" style="grid-column:1/-1">
+        <h3>📜 ${esc(t('tr.audit'))}</h3>
+        <div id="tr-log" class="tr-log"></div>
+      </div>
+    </div>`;
+
+  let foundInstrument = null;
+  // Переключение окружения с предупреждением для live.
+  $('#tr-env').onchange = async (e) => {
+    if (e.target.value === 'live') {
+      const ok = await confirmModal('🔴 ' + t('tr.live'), t('tr.liveWarn'));
+      if (!ok) { e.target.value = 'sandbox'; return; }
+    }
+    await N.trade.setCfg({ env: e.target.value }); viewTrading();
+  };
+  $('#tr-savetok').onclick = async () => { const tok = $('#tr-token').value.trim(); if (!tok) return; const r = await N.trade.setToken(tok); $('#tr-token').value = ''; toast('🔑', r.encrypted ? 'OK (зашифрован)' : 'OK', 'ok'); };
+  $('#tr-test').onclick = async () => {
+    const r = await N.trade.test(); const box = $('#tr-accs');
+    if (!r.ok) { box.innerHTML = `<span class="mk-down">⚠️ ${esc(r.error)}</span>`; return; }
+    box.innerHTML = `<label class="field"><span>${esc(t('tr.account'))}</span><select id="tr-acc">${r.accounts.map((a) => `<option value="${esc(a.id)}">${esc(a.name)} (${esc(a.id)})</option>`).join('')}</select></label>`;
+    const sel = $('#tr-acc'); if (sel) sel.onchange = () => N.trade.setCfg({ accountId: sel.value });
+    if (r.accounts[0]) N.trade.setCfg({ accountId: r.accounts[0].id });
+    toast('✅', t('tr.connected') + ': ' + r.accounts.length, 'ok');
+  };
+  bindToggle('tr-dry', async (v) => { if (!v) { const ok = await confirmModal('⚠️ ' + t('tr.dryRun'), t('tr.dryOffWarn')); if (!ok) return viewTrading(); } N.trade.setCfg({ dryRun: v }); });
+  bindToggle('tr-confirm', async (v) => { if (!v) { const ok = await confirmModal('⚠️ ' + t('tr.confirmEach'), t('tr.confirmOffWarn')); if (!ok) return viewTrading(); } N.trade.setCfg({ confirmEveryOrder: v }); });
+  bindToggle('tr-auto', async (v) => { if (v) { const ok = await confirmModal('⚠️ ' + t('tr.autoTrade'), t('tr.autoWarn')); if (!ok) return viewTrading(); } N.trade.setCfg({ autoTrade: v }); });
+  $('#tr-maxval').onchange = (e) => N.trade.setCfg({ maxOrderValue: +e.target.value || 0 });
+  $('#tr-maxday').onchange = (e) => N.trade.setCfg({ maxDailyOrders: +e.target.value || 0 });
+  $('#tr-maxloss').onchange = (e) => N.trade.setCfg({ maxDailyLossPct: +e.target.value || 0 });
+  $('#tr-wl').onchange = (e) => N.trade.setCfg({ whitelist: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) });
+  $('#tr-panic').onclick = async () => { if (await confirmModal('🛑 ' + t('tr.panic'), t('tr.panicConfirm'))) { const r = await N.trade.panic(); toast('🛑', t('tr.panicDone') + ': ' + r.cancelled, 'ok'); viewTrading(); } };
+  $('#tr-loadpf').onclick = async () => {
+    const pf = $('#tr-pf'); pf.textContent = '⏳…';
+    const r = await N.trade.portfolio();
+    if (!r.ok) { pf.innerHTML = `<span class="mk-down">⚠️ ${esc(r.error)}</span>`; return; }
+    pf.innerHTML = `<b>${esc(t('tr.total'))}: ${r.total.toFixed(2)}</b>` + (r.positions.length ? '<table class="tr-pf-tbl"><tr><th>Тикер</th><th>Кол-во</th><th>Ср.цена</th><th>Тек.</th><th>Дох.</th></tr>' + r.positions.map((p) => `<tr><td>${esc(p.ticker || p.figi)}</td><td>${p.quantity}</td><td>${p.avgPrice.toFixed(2)}</td><td>${p.curPrice.toFixed(2)}</td><td class="${p.yield >= 0 ? 'mk-up' : 'mk-down'}">${p.yield.toFixed(2)}</td></tr>`).join('') + '</table>' : `<p class="muted">${esc(t('tr.noPos'))}</p>`);
+  };
+  $('#tr-otype').onchange = (e) => { $('.tr-lim').style.display = e.target.value === 'limit' ? '' : 'none'; };
+  $('#tr-find').onclick = async () => {
+    const q = $('#tr-tkr').value.trim(); if (!q) return;
+    const r = await N.trade.find(q); const box = $('#tr-found');
+    if (!r.ok || !r.instruments.length) { box.innerHTML = `<span class="mk-down">не найдено</span>`; foundInstrument = null; return; }
+    foundInstrument = r.instruments[0];
+    box.innerHTML = `✅ ${esc(foundInstrument.name)} (${esc(foundInstrument.ticker)}, ${esc(foundInstrument.type)}, лот ${foundInstrument.lot})`;
+  };
+  $('#tr-place').onclick = async () => {
+    if (!foundInstrument) { toast(t('tr.instrument'), 'Сначала найдите инструмент', 'err'); return; }
+    const o = { figi: foundInstrument.figi, ticker: foundInstrument.ticker, lotSize: foundInstrument.lot, direction: $('#tr-dir').value, lots: +$('#tr-lots').value || 1, orderType: $('#tr-otype').value };
+    if (o.orderType === 'limit') o.price = +$('#tr-price').value || null;
+    const r = await N.trade.order(o);
+    if (r.blocked) toast('🛡️ ' + t('tr.blocked'), r.error, 'err');
+    else if (r.pending) toast('⏳', t('tr.pendingConfirm'), 'ok');
+    else if (r.ok) toast('✅', r.message, 'ok');
+    else toast('⚠️', r.error || 'ошибка', 'err');
+  };
+  renderTradeLog();
+}
+async function renderTradeLog() {
+  const box = $('#tr-log'); if (!box) return;
+  const log = (await N.trade.log()).slice(-30).reverse();
+  const ic = { requested: '📝', executed: '✅', simulated: '🧪', blocked: '🛡️', rejected: '🚫', failed: '❌', panic: '🛑' };
+  box.innerHTML = log.length ? log.map((e) => {
+    const o = e.order || {}; const when = new Date(e.at).toLocaleTimeString();
+    return `<div class="tr-log-line"><span>${ic[e.kind] || '•'} ${esc(e.kind)}</span> <span class="muted">${when} · ${esc(e.env || '')}</span> ${o.ticker ? `<span>${esc(o.direction || '')} ${o.lots || ''} ${esc(o.ticker)}</span>` : ''} ${e.reason ? `<span class="mk-down">${esc(e.reason)}</span>` : ''}</div>`;
+  }).join('') : `<p class="muted">${esc(t('tr.logEmpty'))}</p>`;
+}
+// Глобальный модал подтверждения заявки (приходит от ручного размещения и от ИИ).
+N.on('trade:confirm', ({ order, cfg }) => {
+  const live = cfg && cfg.env === 'live'; const dry = cfg && cfg.dryRun;
+  modal(`<h2>${order.source === 'agent' ? '🤖 ' : '🧾 '}${esc(t('tr.confirmTitle'))}</h2>
+    <div class="card ${live && !dry ? 'tr-live' : 'tr-safe'}" style="margin:8px 0">
+      <div style="font-size:18px"><b class="${order.direction === 'buy' ? 'mk-up' : 'mk-down'}">${order.direction === 'buy' ? '🟢 ПОКУПКА' : '🔴 ПРОДАЖА'}</b> ${esc(order.ticker || order.figi)}</div>
+      <p style="margin-top:6px">${esc(t('tr.lots'))}: <b>${order.lots}</b> · ${esc(t('tr.type'))}: ${esc(order.orderType)}${order.price ? ' @ ' + order.price : ''}</p>
+      ${order.estValue ? `<p class="muted">≈ ${order.estValue.toFixed(2)}</p>` : ''}
+      <p class="muted" style="font-size:12px">${esc(t('tr.env'))}: ${live ? '🔴 LIVE' : '🟢 sandbox'} ${dry ? '· 🧪 dry-run (симуляция)' : (live ? '· ⚠️ РЕАЛЬНЫЕ ДЕНЬГИ' : '')}</p>
+      ${order.source === 'agent' ? `<p class="muted" style="font-size:12px">${esc(t('tr.byAgent'))}</p>` : ''}
+    </div>
+    <div class="modal-actions"><button class="btn ghost" id="tc-no">${esc(t('tr.cReject'))}</button><button class="btn ${live && !dry ? 'danger' : 'primary'}" id="tc-yes">${esc(t('tr.cApprove'))}${live && !dry ? ' (РЕАЛЬНО)' : ''}</button></div>`,
+    (m, close) => {
+      $('#tc-no', m).onclick = async () => { await N.trade.reject(order.id); close(); if (state.view === 'trading') renderTradeLog(); };
+      $('#tc-yes', m).onclick = async () => { close(); const r = await N.trade.confirm(order.id); toast(r.ok ? '✅' : '⚠️', r.message || r.error || '', r.ok ? 'ok' : 'err'); if (state.view === 'trading') { renderTradeLog(); } };
+    });
+});
+N.on('trade:log', () => { if (state.view === 'trading') renderTradeLog(); });
 
 /* ---------- Рынки: акции / фьючерсы / крипта / форекс / индексы ---------- */
 const MARKET_PRESETS = [

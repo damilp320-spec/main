@@ -241,6 +241,20 @@ contextBridge.exposeInMainWorld('mythera', {
     remove: (id) => invoke('flows:remove', id),
     run: (id) => invoke('flows:run', id)
   },
+  // Брокер / автоторговля
+  trade: {
+    cfg: () => invoke('trade:cfg'),
+    setCfg: (p) => invoke('trade:setCfg', p),
+    setToken: (tok) => invoke('trade:setToken', tok),
+    test: () => invoke('trade:test'),
+    portfolio: (id) => invoke('trade:portfolio', id),
+    find: (q) => invoke('trade:find', q),
+    order: (o) => invoke('trade:order', o),
+    confirm: (id) => invoke('trade:confirm', id),
+    reject: (id) => invoke('trade:reject', id),
+    panic: () => invoke('trade:panic'),
+    log: () => invoke('trade:log')
+  },
   // Рынки (акции/фьючерсы/крипта)
   markets: {
     candles: (o) => invoke('markets:candles', o),

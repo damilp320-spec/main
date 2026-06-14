@@ -37,7 +37,9 @@ const BUNDLES = [
   { name: 'gui', tools: ['gui_click', 'gui_move', 'gui_type', 'gui_key', 'gui_screenshot'],
     kw: ['мышк', 'мышь', 'курсор', 'клик по', 'нажми клавиш', 'набери текст', 'mouse', 'keyboard', 'горяч клавиш'] },
   { name: 'data', tools: ['read_table', 'run_chart', 'read_document', 'run_python', 'read_file'],
-    kw: ['данны', 'таблиц', 'csv', 'excel', 'xlsx', 'график', 'диаграмм', 'chart', 'plot', 'статист', 'метрик', 'анализ', 'pandas', 'matplotlib', 'визуализ', 'документ', 'pdf'] }
+    kw: ['данны', 'таблиц', 'csv', 'excel', 'xlsx', 'график', 'диаграмм', 'chart', 'plot', 'статист', 'метрик', 'анализ', 'pandas', 'matplotlib', 'визуализ', 'документ', 'pdf'] },
+  { name: 'markets', tools: ['market_data', 'web_search', 'http_get'],
+    kw: ['акци', 'акция', 'фьючерс', 'крипт', 'биткоин', 'bitcoin', 'btc', 'eth', 'котировк', 'тикер', 'бирж', 'трейд', 'инвест', 'stock', 'ticker', 'futures', 'forex', 'форекс', 'индекс', 'nasdaq', 's&p', 'доллар', 'нефть', 'золото', 'цена акц', 'свеч'] }
 ];
 
 // Роль агента → бандлы, которые всегда полезны для него (даже без слов-триггеров).

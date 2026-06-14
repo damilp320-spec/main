@@ -248,6 +248,26 @@ body.artifact-open .content { margin-right: 42vw; }
 .tabs .tab.active { color: var(--text); border-bottom-color: var(--accent); }
 .tabs .tab:hover { color: var(--text); }
 
+/* ---------- Markets ---------- */
+.mk-presets { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 12px; }
+.mk-preset-group { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.mk-preset-label { font-size: 11px; color: var(--muted); margin-right: 2px; }
+.mk-chip { background: var(--bg-3); border: 1px solid var(--border); border-radius: 7px; padding: 3px 8px; font-size: 12px; cursor: pointer; font-family: 'Consolas', monospace; }
+.mk-chip:hover { background: var(--bg-2); border-color: var(--accent); }
+.mk-quote { font-size: 16px; display: flex; align-items: center; gap: 8px; }
+.mk-quote .mk-price { font-family: 'Consolas', monospace; }
+.mk-up { color: #26a69a; font-weight: 600; }
+.mk-down { color: #ef5350; font-weight: 600; }
+.mk-ind { font-size: 12px; color: var(--muted); display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.mk-chart-wrap { position: relative; width: 100%; height: 360px; margin-top: 12px; }
+#mk-canvas { display: block; width: 100%; height: 100%; }
+.mk-loading { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(11,14,20,.5); color: var(--muted); font-size: 13px; }
+.mk-ai { white-space: pre-wrap; line-height: 1.55; font-size: 13.5px; min-height: 60px; }
+.mk-wl-item { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.mk-wl-sym { flex: 1; font-family: 'Consolas', monospace; cursor: pointer; font-weight: 600; }
+.mk-wl-sym:hover { color: var(--accent); }
+.mk-alert { width: 90px; background: var(--bg-3); border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px; color: var(--text); font-size: 12px; }
+
 /* ---------- Flow / watcher cards ---------- */
 .flow-steps { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .flow-pill { background: var(--bg-3); border: 1px solid var(--border); border-radius: 20px; padding: 3px 10px; font-size: 12px; }

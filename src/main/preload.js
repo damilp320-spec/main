@@ -241,6 +241,14 @@ contextBridge.exposeInMainWorld('mythera', {
     remove: (id) => invoke('flows:remove', id),
     run: (id) => invoke('flows:run', id)
   },
+  // Рынки (акции/фьючерсы/крипта)
+  markets: {
+    candles: (o) => invoke('markets:candles', o),
+    search: (q) => invoke('markets:search', q),
+    analyze: (o) => invoke('markets:analyze', o),
+    watchlist: () => invoke('markets:watchlist'),
+    setWatchlist: (l) => invoke('markets:setWatchlist', l)
+  },
   // Удалённый доступ (dispatch)
   dispatch: {
     status: () => invoke('dispatch:status'),

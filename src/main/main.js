@@ -37,6 +37,7 @@ const quickask = require('./quickask');
 const watchers = require('./watchers');
 const flows = require('./flows');
 const analysis = require('./analysis');
+const markets = require('./markets');
 
 let win = null;
 let tray = null;
@@ -420,6 +421,13 @@ ipcMain.handle('watchers:save', (_e, w) => watchers.save(w));
 ipcMain.handle('watchers:remove', (_e, id) => watchers.remove(id));
 ipcMain.handle('watchers:toggle', (_e, id, on) => watchers.toggle(id, on));
 ipcMain.handle('watchers:fireNow', (_e, id) => watchers.fireNow(id));
+
+/* ---------------- IPC: markets (stocks/futures/crypto) ---------------- */
+ipcMain.handle('markets:candles', (_e, opts) => markets.candles(opts));
+ipcMain.handle('markets:search', (_e, q) => markets.search(q));
+ipcMain.handle('markets:analyze', (_e, opts) => markets.analyze(opts));
+ipcMain.handle('markets:watchlist', () => markets.getWatchlist());
+ipcMain.handle('markets:setWatchlist', (_e, list) => markets.setWatchlist(list));
 
 /* ---------------- IPC: workflow flows ---------------- */
 ipcMain.handle('flows:list', () => flows.list());

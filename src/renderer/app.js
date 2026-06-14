@@ -124,7 +124,9 @@ const content = $('#content');
 async function render() {
   content.scrollTop = 0;
   content.className = 'content fade-in';
-  const map = { dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scenarios: viewScenarios, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, smarthome: viewSmartHome, knowledge: viewKnowledge, swarm: viewSwarm, queue: viewQueue, skills: viewSkills, dispatch: viewDispatch, prompts: viewPrompts, voice: viewVoice, operator: viewOperator, automation: viewAutomation, developer: viewDeveloper, settings: viewSettings };
+  // Останавливаем авто-обновление рынков при уходе с раздела.
+  if (state.view !== 'markets' && window.__marketTimer) { clearInterval(window.__marketTimer); window.__marketTimer = null; }
+  const map = { dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scenarios: viewScenarios, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, smarthome: viewSmartHome, knowledge: viewKnowledge, swarm: viewSwarm, queue: viewQueue, skills: viewSkills, dispatch: viewDispatch, prompts: viewPrompts, voice: viewVoice, operator: viewOperator, automation: viewAutomation, markets: viewMarkets, developer: viewDeveloper, settings: viewSettings };
   const fn = map[state.view] || viewDashboard;
   // Граница ошибок: сбой одной вкладки не «вешает» весь интерфейс.
   try {
@@ -1956,6 +1958,182 @@ N.on('operator:done', ({ ok, summary, error }) => {
   operatorSession = null;
   if (summary) toast('🦾 ' + t('op.title'), String(summary).slice(0, 80), ok ? 'ok' : 'err');
 });
+
+/* ---------- Рынки: акции / фьючерсы / крипта / форекс / индексы ---------- */
+const MARKET_PRESETS = [
+  { label: 'Акции', items: [['AAPL', 'Apple'], ['TSLA', 'Tesla'], ['NVDA', 'NVIDIA'], ['MSFT', 'Microsoft'], ['SBER.ME', 'Сбер']] },
+  { label: 'Крипта', items: [['BTC-USD', 'Bitcoin'], ['ETH-USD', 'Ethereum'], ['SOL-USD', 'Solana']] },
+  { label: 'Фьючерсы', items: [['ES=F', 'S&P 500'], ['NQ=F', 'Nasdaq'], ['CL=F', 'Нефть'], ['GC=F', 'Золото']] },
+  { label: 'Форекс', items: [['EURUSD=X', 'EUR/USD'], ['RUB=X', 'USD/RUB']] },
+  { label: 'Индексы', items: [['^GSPC', 'S&P 500'], ['^IXIC', 'Nasdaq'], ['^DJI', 'Dow Jones'], ['IMOEX.ME', 'МосБиржа']] }
+];
+const MARKET_INTERVALS = [['5m', '5м'], ['15m', '15м'], ['1h', '1ч'], ['1d', '1д'], ['1wk', '1н']];
+const MARKET_RANGES = [['5d', '5д'], ['1mo', '1мес'], ['3mo', '3мес'], ['6mo', '6мес'], ['1y', '1г'], ['5y', '5л'], ['max', 'макс']];
+
+async function viewMarkets() {
+  if (!state.market) state.market = { symbol: 'AAPL', interval: '1d', range: '6mo', sma20: true, sma50: true };
+  const mk = state.market;
+  const presetHTML = MARKET_PRESETS.map((g) => `<div class="mk-preset-group"><span class="mk-preset-label">${esc(g.label)}</span>${g.items.map(([s, n]) => `<button class="mk-chip" data-sym="${esc(s)}" title="${esc(n)}">${esc(s)}</button>`).join('')}</div>`).join('');
+  content.innerHTML = `
+    <div class="view-head"><h1>📈 ${esc(t('mk.title'))}</h1><p>${esc(t('mk.sub'))}</p></div>
+    <div class="card">
+      <div class="row" style="gap:8px;flex-wrap:wrap;align-items:flex-end">
+        <label class="field" style="flex:1;min-width:180px"><span>${esc(t('mk.symbol'))}</span>
+          <div class="row"><input id="mk-sym" value="${esc(mk.symbol)}" placeholder="AAPL, BTC-USD, ES=F…"><button class="btn" id="mk-load">${esc(t('mk.load'))}</button></div></label>
+        <label class="field" style="max-width:120px"><span>${esc(t('mk.interval'))}</span><select id="mk-int">${MARKET_INTERVALS.map(([v, l]) => `<option value="${v}" ${v === mk.interval ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+        <label class="field" style="max-width:120px"><span>${esc(t('mk.range'))}</span><select id="mk-rng">${MARKET_RANGES.map(([v, l]) => `<option value="${v}" ${v === mk.range ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+        <button class="btn primary" id="mk-analyze">🧠 ${esc(t('mk.analyze'))}</button>
+      </div>
+      <div class="mk-presets">${presetHTML}</div>
+    </div>
+    <div class="card">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <div id="mk-quote" class="mk-quote">—</div>
+        <div class="row" style="gap:10px">
+          <label class="mk-ind"><input type="checkbox" id="mk-sma20" ${mk.sma20 ? 'checked' : ''}> SMA20</label>
+          <label class="mk-ind"><input type="checkbox" id="mk-sma50" ${mk.sma50 ? 'checked' : ''}> SMA50</label>
+          <button class="btn ghost sm" id="mk-watch">⭐ ${esc(t('mk.watch'))}</button>
+        </div>
+      </div>
+      <div class="mk-chart-wrap"><canvas id="mk-canvas"></canvas><div id="mk-loading" class="mk-loading">${esc(t('mk.loading'))}</div></div>
+    </div>
+    <div class="grid cols-2">
+      <div class="card"><h3>⭐ ${esc(t('mk.watchlist'))}</h3><div id="mk-wl"></div></div>
+      <div class="card"><h3>🧠 ${esc(t('mk.aiTitle'))}</h3><div id="mk-ai" class="mk-ai muted">${esc(t('mk.aiHint'))}</div></div>
+    </div>`;
+
+  const load = async (sym) => { if (sym) mk.symbol = sym; mk.interval = $('#mk-int').value; mk.range = $('#mk-rng').value; $('#mk-sym').value = mk.symbol; await loadMarket(); };
+  $('#mk-load').onclick = () => load($('#mk-sym').value.trim());
+  $('#mk-sym').addEventListener('keydown', (e) => { if (e.key === 'Enter') load($('#mk-sym').value.trim()); });
+  $('#mk-int').onchange = () => load();
+  $('#mk-rng').onchange = () => load();
+  $$('#content .mk-chip').forEach((b) => b.onclick = () => load(b.dataset.sym));
+  $('#mk-sma20').onchange = (e) => { mk.sma20 = e.target.checked; drawMarket(); };
+  $('#mk-sma50').onchange = (e) => { mk.sma50 = e.target.checked; drawMarket(); };
+  $('#mk-watch').onclick = addToWatchlist;
+  $('#mk-analyze').onclick = analyzeMarket;
+  window.addEventListener('resize', drawMarket);
+  await renderWatchlist();
+  await loadMarket();
+  // Авто-обновление текущего тикера.
+  if (window.__marketTimer) clearInterval(window.__marketTimer);
+  window.__marketTimer = setInterval(() => { if (state.view === 'markets') loadMarket(true); }, 45000);
+}
+
+async function loadMarket(silent) {
+  const mk = state.market;
+  if (!silent) { const l = $('#mk-loading'); if (l) l.style.display = 'flex'; }
+  const d = await N.markets.candles({ symbol: mk.symbol, interval: mk.interval, range: mk.range });
+  const l = $('#mk-loading'); if (l) l.style.display = 'none';
+  if (!d.ok) { const q = $('#mk-quote'); if (q) q.innerHTML = `<span class="mk-down">⚠️ ${esc(d.error || 'нет данных')}</span>`; mk.data = null; drawMarket(); return; }
+  mk.data = d;
+  const c = d.candles; const last = c[c.length - 1].c; const first = c[0].c;
+  const chg = ((last - first) / first) * 100; const up = chg >= 0;
+  const q = $('#mk-quote');
+  if (q) q.innerHTML = `<b>${esc(d.symbol)}</b> <span class="mk-price">${last.toFixed(2)} ${esc(d.currency || '')}</span> <span class="${up ? 'mk-up' : 'mk-down'}">${up ? '▲' : '▼'} ${chg.toFixed(2)}%</span> <span class="muted" style="font-size:11px">· ${esc(d.source)}</span>`;
+  drawMarket();
+  checkAlerts(d.symbol, last);
+}
+
+// Свечной график на canvas (без внешних библиотек).
+function drawMarket() {
+  const cv = $('#mk-canvas'); if (!cv) return;
+  const mk = state.market; const data = mk.data;
+  const wrap = cv.parentElement; const W = wrap.clientWidth; const H = wrap.clientHeight || 340;
+  const dpr = window.devicePixelRatio || 1;
+  cv.width = W * dpr; cv.height = H * dpr; cv.style.width = W + 'px'; cv.style.height = H + 'px';
+  const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+  if (!data || !data.candles.length) return;
+  const css = getComputedStyle(document.body);
+  const grid = 'rgba(140,150,170,.14)'; const txt = css.getPropertyValue('--muted') || '#8b93a7';
+  const c = data.candles;
+  const padL = 6, padR = 60, padT = 12, padB = 26, volH = 36;
+  const chartW = W - padL - padR; const chartH = H - padT - padB - volH;
+  let lo = Infinity, hi = -Infinity, vMax = 0;
+  for (const k of c) { if (k.l < lo) lo = k.l; if (k.h > hi) hi = k.h; if (k.v > vMax) vMax = k.v; }
+  const pad = (hi - lo) * 0.05 || 1; lo -= pad; hi += pad;
+  const x = (i) => padL + (i + 0.5) * (chartW / c.length);
+  const y = (p) => padT + (1 - (p - lo) / (hi - lo)) * chartH;
+  // Сетка + ценовая ось.
+  ctx.strokeStyle = grid; ctx.fillStyle = txt; ctx.font = '10px Consolas, monospace'; ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const gy = padT + (chartH * i) / 4; const price = hi - ((hi - lo) * i) / 4;
+    ctx.beginPath(); ctx.moveTo(padL, gy); ctx.lineTo(padL + chartW, gy); ctx.stroke();
+    ctx.fillText(price.toFixed(2), padL + chartW + 4, gy + 3);
+  }
+  // Объёмы.
+  for (let i = 0; i < c.length; i++) {
+    const vh = vMax ? (c[i].v / vMax) * (volH - 4) : 0;
+    ctx.fillStyle = c[i].c >= c[i].o ? 'rgba(38,166,154,.35)' : 'rgba(239,83,80,.35)';
+    const bw = Math.max(1, (chartW / c.length) * 0.6);
+    ctx.fillRect(x(i) - bw / 2, H - padB - vh, bw, vh);
+  }
+  // Свечи.
+  const bw = Math.max(1, (chartW / c.length) * 0.62);
+  for (let i = 0; i < c.length; i++) {
+    const k = c[i]; const up = k.c >= k.o; const col = up ? '#26a69a' : '#ef5350';
+    ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x(i), y(k.h)); ctx.lineTo(x(i), y(k.l)); ctx.stroke();
+    const yo = y(k.o), yc = y(k.c); const top = Math.min(yo, yc); const hgt = Math.max(1, Math.abs(yc - yo));
+    ctx.fillRect(x(i) - bw / 2, top, bw, hgt);
+  }
+  // SMA-наложения.
+  const closes = c.map((k) => k.c);
+  const drawLine = (vals, color) => { ctx.strokeStyle = color; ctx.lineWidth = 1.4; ctx.beginPath(); let started = false; for (let i = 0; i < vals.length; i++) { if (vals[i] == null) continue; const px = x(i), py = y(vals[i]); if (!started) { ctx.moveTo(px, py); started = true; } else ctx.lineTo(px, py); } ctx.stroke(); };
+  if (mk.sma20) drawLine(smaCalc(closes, 20), '#f7b733');
+  if (mk.sma50) drawLine(smaCalc(closes, 50), '#7c5cff');
+  // Линия последней цены.
+  const lastP = closes[closes.length - 1]; ctx.strokeStyle = 'rgba(124,92,255,.6)'; ctx.setLineDash([4, 3]);
+  ctx.beginPath(); ctx.moveTo(padL, y(lastP)); ctx.lineTo(padL + chartW, y(lastP)); ctx.stroke(); ctx.setLineDash([]);
+  // Подписи дат (5 шт).
+  ctx.fillStyle = txt;
+  for (let i = 0; i <= 4; i++) {
+    const idx = Math.round((c.length - 1) * i / 4); const d = new Date(c[idx].t);
+    const lbl = (mk.interval.includes('m') || mk.interval.includes('h')) ? `${d.getDate()}.${d.getMonth() + 1} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` : `${d.getDate()}.${d.getMonth() + 1}.${String(d.getFullYear()).slice(2)}`;
+    ctx.fillText(lbl, Math.min(x(idx) - 18, padL + chartW - 60), H - 6);
+  }
+}
+function smaCalc(arr, n) { const out = []; for (let i = 0; i < arr.length; i++) { if (i < n - 1) { out.push(null); continue; } let s = 0; for (let j = i - n + 1; j <= i; j++) s += arr[j]; out.push(s / n); } return out; }
+
+async function analyzeMarket() {
+  const mk = state.market; const ai = $('#mk-ai'); if (!ai) return;
+  ai.classList.remove('muted'); ai.innerHTML = '<span class="spin">⏳</span> ' + esc(t('mk.analyzing'));
+  const r = await N.markets.analyze({ symbol: mk.symbol, interval: mk.interval, range: mk.range });
+  ai.textContent = r.ok ? r.text : ('⚠️ ' + (r.error || 'ошибка'));
+}
+
+async function addToWatchlist() {
+  const mk = state.market; if (!mk.symbol) return;
+  const wl = await N.markets.watchlist();
+  if (!wl.some((w) => w.symbol === mk.symbol)) { wl.push({ symbol: mk.symbol, name: (mk.data && mk.data.symbol) || mk.symbol, alert: null }); await N.markets.setWatchlist(wl); }
+  renderWatchlist();
+  toast('⭐', mk.symbol + ' → ' + t('mk.watchlist'), 'ok');
+}
+async function renderWatchlist() {
+  const box = $('#mk-wl'); if (!box) return;
+  const wl = await N.markets.watchlist();
+  box.innerHTML = wl.length ? wl.map((w) => `
+    <div class="mk-wl-item">
+      <span class="mk-wl-sym" data-load="${esc(w.symbol)}">${esc(w.symbol)}</span>
+      <input class="mk-alert" data-alert="${esc(w.symbol)}" type="number" placeholder="🔔 цена" value="${w.alert != null ? esc(w.alert) : ''}" title="${esc(t('mk.alertHint'))}">
+      <button class="btn ghost sm" data-rm="${esc(w.symbol)}">✕</button>
+    </div>`).join('') : `<p class="muted">${esc(t('mk.wlEmpty'))}</p>`;
+  $$('#mk-wl [data-load]').forEach((s) => s.onclick = () => { state.market.symbol = s.dataset.load; $('#mk-sym').value = s.dataset.load; loadMarket(); });
+  $$('#mk-wl [data-rm]').forEach((b) => b.onclick = async () => { await N.markets.setWatchlist((await N.markets.watchlist()).filter((w) => w.symbol !== b.dataset.rm)); renderWatchlist(); });
+  $$('#mk-wl [data-alert]').forEach((inp) => inp.onchange = async () => { const list = await N.markets.watchlist(); const it = list.find((w) => w.symbol === inp.dataset.alert); if (it) { it.alert = inp.value ? +inp.value : null; await N.markets.setWatchlist(list); } });
+}
+async function checkAlerts(symbol, price) {
+  const wl = await N.markets.watchlist();
+  const it = wl.find((w) => w.symbol === symbol);
+  if (it && it.alert != null) {
+    const key = '__alerted_' + symbol;
+    if (!window[key] && ((it._last != null && ((it._last < it.alert && price >= it.alert) || (it._last > it.alert && price <= it.alert))) || Math.abs(price - it.alert) / it.alert < 0.001)) {
+      toast('🔔 ' + symbol, `${t('mk.alertHit')} ${it.alert} (${price.toFixed(2)})`, 'ok');
+      window[key] = true; setTimeout(() => { window[key] = false; }, 300000);
+    }
+    it._last = price;
+  }
+}
 
 /* ---------- Автоматизация: сценарии-конвейеры + наблюдатели ---------- */
 const STEP_TYPES = { agent: '🤖', tool: '🔧', notify: '🔔', speak: '🗣️', wait: '⏳' };

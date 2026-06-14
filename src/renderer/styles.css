@@ -248,6 +248,29 @@ body.artifact-open .content { margin-right: 42vw; }
 .tabs .tab.active { color: var(--text); border-bottom-color: var(--accent); }
 .tabs .tab:hover { color: var(--text); }
 
+/* ---------- Notifications center ---------- */
+.bell-btn { -webkit-app-region: no-drag; position: relative; background: transparent; border: 0; color: var(--text); font-size: 15px; cursor: pointer; padding: 2px 6px; }
+.bell-badge { position: absolute; top: -3px; right: -3px; background: var(--danger); color: #fff; font-size: 9px; min-width: 14px; height: 14px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; padding: 0 3px; font-weight: 700; }
+.notif-panel { position: fixed; top: 42px; right: 12px; width: 360px; max-height: 70vh; background: var(--bg-1); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 16px 48px rgba(0,0,0,.45); z-index: 60; flex-direction: column; overflow: hidden; }
+.notif-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.notif-list { overflow-y: auto; }
+.notif-item { display: flex; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.notif-item.unread { background: rgba(124,92,255,.06); }
+.notif-ico { font-size: 16px; flex: 0 0 auto; }
+.notif-body { min-width: 0; }
+.notif-msg { font-size: 12px; color: var(--muted); margin-top: 2px; word-break: break-word; }
+.notif-time { font-size: 10px; color: var(--muted); margin-top: 3px; opacity: .7; }
+
+/* ---------- Backtest / sparkline / telemetry ---------- */
+.bt-stats { display: flex; flex-wrap: wrap; gap: 10px; }
+.bt-stat { background: var(--bg-2); border: 1px solid var(--border); border-radius: 9px; padding: 7px 12px; display: flex; flex-direction: column; min-width: 90px; }
+.bt-stat span { font-size: 11px; color: var(--muted); }
+.bt-stat b { font-size: 16px; margin-top: 2px; }
+.bt-chart-wrap { width: 100%; height: 160px; margin-top: 12px; }
+#bt-canvas { width: 100%; height: 100%; }
+.mk-spark { width: 80px; height: 22px; }
+.mk-wl-q { font-size: 12px; font-family: 'Consolas', monospace; min-width: 96px; text-align: right; }
+
 /* ---------- Trading ---------- */
 .tr-safe { border: 1px solid rgba(38,166,154,.4); background: rgba(38,166,154,.07); }
 .tr-live { border: 1px solid rgba(239,83,80,.5); background: rgba(239,83,80,.08); }

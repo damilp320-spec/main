@@ -255,6 +255,25 @@ contextBridge.exposeInMainWorld('mythera', {
     panic: () => invoke('trade:panic'),
     log: () => invoke('trade:log')
   },
+  // Бэктест стратегий
+  backtest: {
+    run: (o) => invoke('backtest:run', o),
+    strategies: () => invoke('backtest:strategies')
+  },
+  // Центр уведомлений
+  notif: {
+    list: () => invoke('notif:list'),
+    unread: () => invoke('notif:unread'),
+    add: (e) => invoke('notif:add', e),
+    markRead: (id) => invoke('notif:markRead', id),
+    markAllRead: () => invoke('notif:markAllRead'),
+    clear: () => invoke('notif:clear')
+  },
+  // Отчёты / телеметрия
+  reports: {
+    telemetry: () => invoke('reports:telemetry'),
+    telemetryClear: () => invoke('reports:telemetryClear')
+  },
   // Рынки (акции/фьючерсы/крипта)
   markets: {
     candles: (o) => invoke('markets:candles', o),

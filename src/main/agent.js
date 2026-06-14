@@ -395,6 +395,8 @@ async function chat({ agentId, sessionId, message, history, effort }, sendToUI) 
   const ms = Date.now() - t0;
   const tokens = Math.round(tel.chars / 4); // грубая оценка
   const telemetry = { ms, steps: tel.steps, toolCalls: tel.toolCalls, chars: tel.chars, tokens, tokPerSec: ms > 0 ? +(tokens / (ms / 1000)).toFixed(1) : 0, model: activeModel };
+  // Сохраняем телеметрию для сводки/дашборда (последние 200).
+  try { const tl = store.get('telemetryLog', []); tl.push({ at: Date.now(), agentId, agentName: agent.name, ...telemetry }); store.set('telemetryLog', tl.slice(-200)); } catch {}
   pushHistory({ agentId, agentName: agent.name, at: Date.now(), user: message, assistant: finalText });
   sendToUI && sendToUI('agents:done', { sessionId, text: finalText, telemetry });
   // В фоне выделяем важные факты в долговременную память (не блокирует ответ).

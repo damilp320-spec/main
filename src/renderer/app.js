@@ -179,11 +179,70 @@ async function viewDashboard() {
         <h3>📦 ${esc(t('dash.installed'))}</h3>
         ${models.length ? models.map(m => `<span class="tag accent">${esc(m.name)}</span>`).join('') : `<p class="muted" style="margin-top:8px">${esc(t('dash.noModels'))}</p>`}
       </div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <h3>📊 ${esc(t('rep.telemetry'))}</h3>
+        <div class="row" style="gap:6px">
+          <button class="btn ghost sm" id="rep-chats">⬇ ${esc(t('rep.expChats'))}</button>
+          <button class="btn ghost sm" id="rep-trades">⬇ ${esc(t('rep.expTrades'))}</button>
+          <button class="btn ghost sm" id="rep-tel">⬇ ${esc(t('rep.expTel'))}</button>
+        </div>
+      </div>
+      <div id="dash-tel" class="muted" style="margin-top:8px">…</div>
     </div>`;
 
   $('#qs').onclick = quickSetup;
   $('#goagents').onclick = () => navigate('agents');
   $('#dl-latest').onclick = () => N.system.openExternal('https://github.com/damilp320-spec/main/releases/latest');
+  renderTelemetryCard();
+  $('#rep-chats').onclick = exportChatsReport;
+  $('#rep-trades').onclick = exportTradesReport;
+  $('#rep-tel').onclick = exportTelemetryReport;
+}
+
+async function renderTelemetryCard() {
+  const box = $('#dash-tel'); if (!box) return;
+  const s = await N.reports.telemetry();
+  if (!s.count) { box.textContent = t('rep.noTel'); return; }
+  box.innerHTML = `
+    <div class="bt-stats">
+      <div class="bt-stat"><span>${esc(t('rep.runs'))}</span><b>${s.count}</b></div>
+      <div class="bt-stat"><span>${esc(t('rep.totalTok'))}</span><b>${s.totalTokens.toLocaleString()}</b></div>
+      <div class="bt-stat"><span>${esc(t('rep.avgTps'))}</span><b>${s.avgTps}</b></div>
+      <div class="bt-stat"><span>${esc(t('rep.avgMs'))}</span><b>${(s.avgMs / 1000).toFixed(1)}с</b></div>
+      <div class="bt-stat"><span>${esc(t('rep.toolCalls'))}</span><b>${s.totalToolCalls}</b></div>
+    </div>
+    <div style="margin-top:10px">${s.byModel.map((m) => `<div class="row between" style="padding:4px 0;font-size:13px"><span>${esc(m.model)}</span><span class="muted">${m.count} · ${m.tokens.toLocaleString()} ток · ${m.avgTps} ток/с</span></div>`).join('')}</div>`;
+}
+
+// Скачать текст как файл (Blob + временная ссылка).
+function downloadText(filename, text, mime) {
+  const blob = new Blob([text], { type: mime || 'text/markdown;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = filename; document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
+}
+async function exportChatsReport() {
+  const h = await N.agents.history();
+  if (!h.length) return toast('—', t('rep.noData'), 'err');
+  let md = `# Отчёт по диалогам\n\n_${new Date().toLocaleString()}_\n\n`;
+  for (const e of h) md += `## ${e.agentName || e.agentId} · ${new Date(e.at).toLocaleString()}\n\n**Запрос:** ${e.user}\n\n**Ответ:** ${e.assistant}\n\n---\n\n`;
+  downloadText('mythera-chats.md', md); toast('⬇', t('rep.saved'), 'ok');
+}
+async function exportTradesReport() {
+  const log = await N.trade.log();
+  if (!log.length) return toast('—', t('rep.noData'), 'err');
+  let md = `# Журнал сделок\n\n_${new Date().toLocaleString()}_\n\n| Время | Среда | Событие | Сделка | Примечание |\n|---|---|---|---|---|\n`;
+  for (const e of log) { const o = e.order || {}; md += `| ${new Date(e.at).toLocaleString()} | ${e.env || ''} | ${e.kind} | ${o.direction || ''} ${o.lots || ''} ${o.ticker || o.figi || ''} | ${e.reason || ''} |\n`; }
+  downloadText('mythera-trades.md', md); toast('⬇', t('rep.saved'), 'ok');
+}
+async function exportTelemetryReport() {
+  const s = await N.reports.telemetry();
+  if (!s.count) return toast('—', t('rep.noData'), 'err');
+  let md = `# Сводка телеметрии агентов\n\n_${new Date().toLocaleString()}_\n\n- Запусков: ${s.count}\n- Всего токенов: ${s.totalTokens}\n- Средняя скорость: ${s.avgTps} ток/с\n- Среднее время: ${(s.avgMs / 1000).toFixed(1)} с\n- Вызовов инструментов: ${s.totalToolCalls}\n\n## По моделям\n\n| Модель | Запусков | Токенов | ток/с |\n|---|---|---|---|\n`;
+  for (const m of s.byModel) md += `| ${m.model} | ${m.count} | ${m.tokens} | ${m.avgTps} |\n`;
+  downloadText('mythera-telemetry.md', md); toast('⬇', t('rep.saved'), 'ok');
 }
 
 async function quickSetup() {
@@ -1963,6 +2022,32 @@ N.on('operator:done', ({ ok, summary, error }) => {
   if (summary) toast('🦾 ' + t('op.title'), String(summary).slice(0, 80), ok ? 'ok' : 'err');
 });
 
+/* ---------- Центр уведомлений ---------- */
+const NOTIF_ICON = { watcher: '👁', flow: '🪄', trade: '💹', alert: '🔔', skill: '🎓', error: '⚠️', info: 'ℹ️' };
+async function updateBellBadge() {
+  const n = await N.notif.unread();
+  const b = $('#bell-badge'); if (!b) return;
+  if (n > 0) { b.textContent = n > 99 ? '99+' : n; b.style.display = ''; } else b.style.display = 'none';
+}
+async function toggleNotifPanel() {
+  const p = $('#notif-panel'); if (!p) return;
+  if (p.style.display === 'none' || !p.style.display) { await renderNotifPanel(); p.style.display = 'flex'; await N.notif.markAllRead(); updateBellBadge(); }
+  else p.style.display = 'none';
+}
+async function renderNotifPanel() {
+  const box = $('#notif-list'); if (!box) return;
+  const items = (await N.notif.list()).slice(-60).reverse();
+  box.innerHTML = items.length ? items.map((nt) => `
+    <div class="notif-item ${nt.read ? '' : 'unread'}">
+      <span class="notif-ico">${NOTIF_ICON[nt.kind] || 'ℹ️'}</span>
+      <div class="notif-body"><b>${esc(nt.title)}</b><div class="notif-msg">${esc(nt.message)}</div><div class="notif-time">${new Date(nt.at).toLocaleString()}</div></div>
+    </div>`).join('') : `<p class="muted" style="padding:14px">${esc(t('notif.empty'))}</p>`;
+}
+N.on('notif:new', ({ unread }) => {
+  const b = $('#bell-badge'); if (b) { if (unread > 0) { b.textContent = unread > 99 ? '99+' : unread; b.style.display = ''; } }
+  if ($('#notif-panel') && $('#notif-panel').style.display === 'flex') renderNotifPanel();
+});
+
 /* ---------- Торговля: брокер (Tinkoff Invest) + безопасная автоторговля ---------- */
 async function viewTrading() {
   const c = await N.trade.cfg();
@@ -2140,6 +2225,16 @@ async function viewMarkets() {
       </div>
       <div class="mk-chart-wrap"><canvas id="mk-canvas"></canvas><div id="mk-loading" class="mk-loading">${esc(t('mk.loading'))}</div></div>
     </div>
+    <div class="card">
+      <h3>🧪 ${esc(t('bt.title'))}</h3>
+      <div class="row" style="gap:8px;flex-wrap:wrap;align-items:flex-end">
+        <label class="field" style="max-width:200px"><span>${esc(t('bt.strategy'))}</span><select id="bt-strat"></select></label>
+        <div id="bt-params" class="row" style="gap:8px;flex-wrap:wrap"></div>
+        <button class="btn primary" id="bt-run">▶ ${esc(t('bt.run'))}</button>
+      </div>
+      <div id="bt-result" style="margin-top:12px"></div>
+      <p class="muted" style="font-size:11px;margin-top:8px">${esc(t('bt.note'))}</p>
+    </div>
     <div class="grid cols-2">
       <div class="card"><h3>⭐ ${esc(t('mk.watchlist'))}</h3><div id="mk-wl"></div></div>
       <div class="card"><h3>🧠 ${esc(t('mk.aiTitle'))}</h3><div id="mk-ai" class="mk-ai muted">${esc(t('mk.aiHint'))}</div></div>
@@ -2157,10 +2252,65 @@ async function viewMarkets() {
   $('#mk-analyze').onclick = analyzeMarket;
   window.addEventListener('resize', drawMarket);
   await renderWatchlist();
+  await initBacktest();
   await loadMarket();
   // Авто-обновление текущего тикера.
   if (window.__marketTimer) clearInterval(window.__marketTimer);
   window.__marketTimer = setInterval(() => { if (state.view === 'markets') loadMarket(true); }, 45000);
+}
+
+async function initBacktest() {
+  const strats = await N.backtest.strategies();
+  const sel = $('#bt-strat'); if (!sel) return;
+  sel.innerHTML = strats.map((s) => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('');
+  const renderParams = () => {
+    const s = strats.find((x) => x.id === sel.value) || strats[0];
+    $('#bt-params').innerHTML = s.params.map(([key, label, def]) => `<label class="field" style="max-width:120px"><span>${esc(label)}</span><input type="number" data-bp="${esc(key)}" value="${def}"></label>`).join('');
+  };
+  sel.onchange = renderParams; renderParams();
+  $('#bt-run').onclick = runBacktest;
+}
+async function runBacktest() {
+  const mk = state.market;
+  const params = {}; $$('#bt-params [data-bp]').forEach((i) => params[i.dataset.bp] = +i.value);
+  const box = $('#bt-result'); box.innerHTML = '<span class="spin">⏳</span> ' + esc(t('bt.running'));
+  const r = await N.backtest.run({ symbol: mk.symbol, interval: mk.interval, range: mk.range, strategy: $('#bt-strat').value, params });
+  if (!r.ok) { box.innerHTML = `<span class="mk-down">⚠️ ${esc(r.error)}</span>`; return; }
+  const better = r.return >= r.buyHold;
+  box.innerHTML = `
+    <div class="bt-stats">
+      <div class="bt-stat"><span>${esc(t('bt.return'))}</span><b class="${r.return >= 0 ? 'mk-up' : 'mk-down'}">${r.return}%</b></div>
+      <div class="bt-stat"><span>Buy&Hold</span><b class="${r.buyHold >= 0 ? 'mk-up' : 'mk-down'}">${r.buyHold}%</b></div>
+      <div class="bt-stat"><span>${esc(t('bt.vsHold'))}</span><b class="${better ? 'mk-up' : 'mk-down'}">${better ? '▲' : '▼'} ${(r.return - r.buyHold).toFixed(2)}%</b></div>
+      <div class="bt-stat"><span>${esc(t('bt.trades'))}</span><b>${r.trades}</b></div>
+      <div class="bt-stat"><span>${esc(t('bt.winRate'))}</span><b>${r.winRate}%</b></div>
+      <div class="bt-stat"><span>${esc(t('bt.maxDD'))}</span><b class="mk-down">-${r.maxDrawdown}%</b></div>
+    </div>
+    <div class="bt-chart-wrap"><canvas id="bt-canvas"></canvas></div>`;
+  drawEquity(r);
+}
+function drawEquity(r) {
+  const cv = $('#bt-canvas'); if (!cv) return;
+  const wrap = cv.parentElement; const W = wrap.clientWidth; const H = 160; const dpr = window.devicePixelRatio || 1;
+  cv.width = W * dpr; cv.height = H * dpr; cv.style.width = W + 'px'; cv.style.height = H + 'px';
+  const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+  const eq = r.equity; const base = r.closes; const n = eq.length;
+  const padL = 4, padR = 50, padT = 8, padB = 8; const cw = W - padL - padR, ch = H - padT - padB;
+  // Нормируем кривую стратегии и buy&hold от стартового капитала.
+  const start = eq[0]; const stratPct = eq.map((e) => (e / start - 1) * 100);
+  const holdPct = base.map((c) => (c / base[0] - 1) * 100);
+  let lo = Infinity, hi = -Infinity; for (const v of stratPct.concat(holdPct)) { if (v < lo) lo = v; if (v > hi) hi = v; }
+  const pad = (hi - lo) * 0.1 || 1; lo -= pad; hi += pad;
+  const x = (i) => padL + (i / (n - 1)) * cw; const y = (v) => padT + (1 - (v - lo) / (hi - lo)) * ch;
+  const css = getComputedStyle(document.body); const txt = css.getPropertyValue('--muted') || '#8b93a7';
+  // Нулевая линия.
+  ctx.strokeStyle = 'rgba(140,150,170,.2)'; ctx.beginPath(); ctx.moveTo(padL, y(0)); ctx.lineTo(padL + cw, y(0)); ctx.stroke();
+  const line = (vals, color, w) => { ctx.strokeStyle = color; ctx.lineWidth = w; ctx.beginPath(); vals.forEach((v, i) => i ? ctx.lineTo(x(i), y(v)) : ctx.moveTo(x(i), y(v))); ctx.stroke(); };
+  line(holdPct, 'rgba(140,150,170,.5)', 1);
+  line(stratPct, r.return >= 0 ? '#26a69a' : '#ef5350', 1.8);
+  ctx.fillStyle = txt; ctx.font = '10px Consolas, monospace';
+  ctx.fillText(hi.toFixed(0) + '%', padL + cw + 4, y(hi) + 4);
+  ctx.fillText(lo.toFixed(0) + '%', padL + cw + 4, y(lo) + 4);
 }
 
 async function loadMarket(silent) {
@@ -2255,15 +2405,35 @@ async function addToWatchlist() {
 async function renderWatchlist() {
   const box = $('#mk-wl'); if (!box) return;
   const wl = await N.markets.watchlist();
-  box.innerHTML = wl.length ? wl.map((w) => `
+  box.innerHTML = wl.length ? wl.map((w, idx) => `
     <div class="mk-wl-item">
       <span class="mk-wl-sym" data-load="${esc(w.symbol)}">${esc(w.symbol)}</span>
-      <input class="mk-alert" data-alert="${esc(w.symbol)}" type="number" placeholder="🔔 цена" value="${w.alert != null ? esc(w.alert) : ''}" title="${esc(t('mk.alertHint'))}">
+      <canvas class="mk-spark" id="spark-${idx}" width="80" height="22"></canvas>
+      <span class="mk-wl-q" id="wlq-${idx}">…</span>
+      <input class="mk-alert" data-alert="${esc(w.symbol)}" type="number" placeholder="🔔" value="${w.alert != null ? esc(w.alert) : ''}" title="${esc(t('mk.alertHint'))}">
       <button class="btn ghost sm" data-rm="${esc(w.symbol)}">✕</button>
     </div>`).join('') : `<p class="muted">${esc(t('mk.wlEmpty'))}</p>`;
   $$('#mk-wl [data-load]').forEach((s) => s.onclick = () => { state.market.symbol = s.dataset.load; $('#mk-sym').value = s.dataset.load; loadMarket(); });
   $$('#mk-wl [data-rm]').forEach((b) => b.onclick = async () => { await N.markets.setWatchlist((await N.markets.watchlist()).filter((w) => w.symbol !== b.dataset.rm)); renderWatchlist(); });
   $$('#mk-wl [data-alert]').forEach((inp) => inp.onchange = async () => { const list = await N.markets.watchlist(); const it = list.find((w) => w.symbol === inp.dataset.alert); if (it) { it.alert = inp.value ? +inp.value : null; await N.markets.setWatchlist(list); } });
+  // Живые котировки + мини-график (последовательно, чтобы не перегружать API).
+  for (let i = 0; i < wl.length; i++) {
+    if (state.view !== 'markets') break;
+    const d = await N.markets.candles({ symbol: wl[i].symbol, interval: '1d', range: '1mo' });
+    const ql = $('#wlq-' + i); if (!ql) continue;
+    if (!d.ok || !d.candles.length) { ql.textContent = '—'; continue; }
+    const cl = d.candles.map((x) => x.c); const last = cl[cl.length - 1]; const chg = (last / cl[0] - 1) * 100;
+    ql.innerHTML = `<span class="${chg >= 0 ? 'mk-up' : 'mk-down'}">${last.toFixed(2)} ${chg >= 0 ? '+' : ''}${chg.toFixed(1)}%</span>`;
+    drawSparkline($('#spark-' + i), cl, chg >= 0);
+  }
+}
+function drawSparkline(cv, vals, up) {
+  if (!cv) return; const dpr = window.devicePixelRatio || 1; const W = 80, H = 22;
+  cv.width = W * dpr; cv.height = H * dpr; const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  let lo = Math.min(...vals), hi = Math.max(...vals); const pad = (hi - lo) * 0.1 || 1; lo -= pad; hi += pad;
+  ctx.strokeStyle = up ? '#26a69a' : '#ef5350'; ctx.lineWidth = 1.2; ctx.beginPath();
+  vals.forEach((v, i) => { const x = (i / (vals.length - 1)) * (W - 2) + 1; const y = (1 - (v - lo) / (hi - lo)) * (H - 4) + 2; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+  ctx.stroke();
 }
 async function checkAlerts(symbol, price) {
   const wl = await N.markets.watchlist();
@@ -2272,6 +2442,7 @@ async function checkAlerts(symbol, price) {
     const key = '__alerted_' + symbol;
     if (!window[key] && ((it._last != null && ((it._last < it.alert && price >= it.alert) || (it._last > it.alert && price <= it.alert))) || Math.abs(price - it.alert) / it.alert < 0.001)) {
       toast('🔔 ' + symbol, `${t('mk.alertHit')} ${it.alert} (${price.toFixed(2)})`, 'ok');
+      N.notif.add({ kind: 'alert', title: '🔔 ' + symbol, message: `${t('mk.alertHit')} ${it.alert} (${price.toFixed(2)})` });
       window[key] = true; setTimeout(() => { window[key] = false; }, 300000);
     }
     it._last = price;
@@ -3034,6 +3205,12 @@ async function pollOllama() {
   // Панель артефактов: кнопки управления.
   const ac = $('#artifact-close'); if (ac) ac.onclick = closeArtifact;
   const ar = $('#artifact-refresh'); if (ar) ar.onclick = () => { if (window.__lastArtifact) openArtifact(window.__lastArtifact); };
+  // Центр уведомлений.
+  const bell = $('#bell-btn'); if (bell) bell.onclick = toggleNotifPanel;
+  const nra = $('#notif-readall'); if (nra) nra.onclick = async () => { await N.notif.markAllRead(); renderNotifPanel(); updateBellBadge(); };
+  const ncl = $('#notif-clear'); if (ncl) ncl.onclick = async () => { await N.notif.clear(); renderNotifPanel(); updateBellBadge(); };
+  document.addEventListener('click', (e) => { const p = $('#notif-panel'); if (p && p.style.display === 'flex' && !p.contains(e.target) && e.target.id !== 'bell-btn' && !$('#bell-btn').contains(e.target)) p.style.display = 'none'; });
+  updateBellBadge();
   render();
   pollStats(); pollOllama();
   setInterval(pollStats, 3000);

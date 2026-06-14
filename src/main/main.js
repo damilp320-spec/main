@@ -39,6 +39,9 @@ const flows = require('./flows');
 const analysis = require('./analysis');
 const markets = require('./markets');
 const trading = require('./trading');
+const backtest = require('./backtest');
+const notifications = require('./notifications');
+const reports = require('./reports');
 
 let win = null;
 let tray = null;
@@ -110,7 +113,20 @@ function createTray() {
   tray.on('double-click', () => { win.show(); win.focus(); });
 }
 
+// Каналы, которые попадают в центр уведомлений (история событий).
+function recordNotification(channel, p) {
+  try {
+    if (channel === 'watcher:fired') return notifications.add({ kind: 'watcher', title: p.title || 'Наблюдатель', message: p.message || '' });
+    if (channel === 'scheduler:fired') return notifications.add({ kind: 'flow', title: p.title || p.name || 'Сценарий', message: p.message || '' });
+    if (channel === 'learner:skill') return notifications.add({ kind: 'skill', title: 'Новый скил предложен', message: (p.skill && p.skill.label) || '' });
+    if (channel === 'trade:log' && p && ['executed', 'simulated', 'blocked', 'failed', 'panic'].includes(p.kind)) {
+      const o = p.order || {};
+      return notifications.add({ kind: 'trade', title: 'Сделка: ' + p.kind, message: `${o.direction || ''} ${o.lots || ''} ${o.ticker || o.figi || ''} ${p.reason || ''}`.trim() });
+    }
+  } catch { /* notifications best effort */ }
+}
 function sendToUI(channel, payload) {
+  recordNotification(channel, payload);
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
 }
 
@@ -159,6 +175,8 @@ app.whenReady().then(async () => {
   analysis.setUISender(sendToUI);
   // Брокер/торговля: подтверждения и аудит-события в UI.
   trading.setUISender(sendToUI);
+  // Центр уведомлений.
+  notifications.setUISender(sendToUI);
 
   // Глобальный быстрый запуск (Spotlight для ИИ) + горячая клавиша.
   quickask.init({ getMainWin: () => win });
@@ -437,6 +455,22 @@ ipcMain.handle('trade:confirm', (_e, id) => trading.confirmOrder(id));
 ipcMain.handle('trade:reject', (_e, id) => trading.rejectOrder(id));
 ipcMain.handle('trade:panic', () => trading.panic());
 ipcMain.handle('trade:log', () => trading.getLog());
+
+/* ---------------- IPC: backtesting ---------------- */
+ipcMain.handle('backtest:run', (_e, opts) => backtest.run(opts));
+ipcMain.handle('backtest:strategies', () => backtest.STRATEGIES);
+
+/* ---------------- IPC: notifications center ---------------- */
+ipcMain.handle('notif:list', () => notifications.list());
+ipcMain.handle('notif:unread', () => notifications.unread());
+ipcMain.handle('notif:add', (_e, e) => notifications.add(e));
+ipcMain.handle('notif:markRead', (_e, id) => notifications.markRead(id));
+ipcMain.handle('notif:markAllRead', () => notifications.markAllRead());
+ipcMain.handle('notif:clear', () => notifications.clear());
+
+/* ---------------- IPC: reports / telemetry ---------------- */
+ipcMain.handle('reports:telemetry', () => reports.telemetrySummary());
+ipcMain.handle('reports:telemetryClear', () => reports.telemetryClear());
 
 /* ---------------- IPC: markets (stocks/futures/crypto) ---------------- */
 ipcMain.handle('markets:candles', (_e, opts) => markets.candles(opts));

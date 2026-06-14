@@ -126,7 +126,7 @@ async function render() {
   content.className = 'content fade-in';
   // Останавливаем авто-обновление рынков при уходе с раздела.
   if (state.view !== 'markets' && window.__marketTimer) { clearInterval(window.__marketTimer); window.__marketTimer = null; }
-  const map = { dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scenarios: viewScenarios, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, smarthome: viewSmartHome, knowledge: viewKnowledge, swarm: viewSwarm, queue: viewQueue, skills: viewSkills, dispatch: viewDispatch, prompts: viewPrompts, voice: viewVoice, operator: viewOperator, automation: viewAutomation, markets: viewMarkets, trading: viewTrading, code: viewCode, images: viewImages, notes: viewNotes, data: viewData, rss: viewRss, playground: viewPlayground, diagnostics: viewDiagnostics, developer: viewDeveloper, settings: viewSettings };
+  const map = { dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scenarios: viewScenarios, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, smarthome: viewSmartHome, knowledge: viewKnowledge, swarm: viewSwarm, queue: viewQueue, skills: viewSkills, dispatch: viewDispatch, prompts: viewPrompts, voice: viewVoice, operator: viewOperator, automation: viewAutomation, markets: viewMarkets, trading: viewTrading, code: viewCode, images: viewImages, notes: viewNotes, data: viewData, rss: viewRss, calendar: viewCalendar, email: viewEmail, connections: viewConnections, playground: viewPlayground, diagnostics: viewDiagnostics, developer: viewDeveloper, settings: viewSettings };
   const fn = map[state.view] || viewDashboard;
   // Граница ошибок: сбой одной вкладки не «вешает» весь интерфейс.
   try {
@@ -292,8 +292,10 @@ async function viewMarketplace() {
     ${!ollama.running ? `<div class="card" style="margin-bottom:16px;border-color:var(--warn)">
       <div class="row between"><div><h3>⚠️ Ollama не запущена</h3><p class="muted">Ollama — движок для локальных моделей. Установите его одной кнопкой.</p></div>
       <button class="btn primary" id="install-ollama">Установить / запустить Ollama</button></div></div>` : ''}
+    <div class="card" style="margin-bottom:16px"><div class="row between" style="align-items:center"><div><h3>🛠️ ${esc(t('mb.title'))}</h3><p class="muted">${esc(t('mb.sub'))}</p></div><button class="btn primary" id="mb-open">${esc(t('mb.create'))}</button></div></div>
     <div class="grid cols-3" id="cat"></div>`;
 
+  if ($('#mb-open')) $('#mb-open').onclick = modelBuilderModal;
   if ($('#install-ollama')) $('#install-ollama').onclick = async (e) => {
     e.target.disabled = true; e.target.innerHTML = '<span class="spin"></span> Установка…';
     const st = await N.installer.ollamaStatus();
@@ -1475,11 +1477,31 @@ async function viewVoice() {
       </div>
     </div>
     <div class="card" style="margin-top:16px">
+      <h3>🎧 ${esc(t('tr2.title'))}</h3>
+      <p class="muted" style="margin-bottom:8px">${esc(t('tr2.sub'))}</p>
+      <div class="row" style="gap:8px"><input id="tr2-file" type="file" accept="audio/*,video/*" style="flex:1"><button class="btn primary" id="tr2-go">${esc(t('tr2.run'))}</button></div>
+      <div id="tr2-out" class="muted" style="margin-top:10px;white-space:pre-wrap;font-size:13px;line-height:1.5"></div>
+      <div id="tr2-actions" style="margin-top:8px;display:none"><button class="btn ghost sm" id="tr2-note">📓 ${esc(t('tr2.toNote'))}</button><button class="btn ghost sm" id="tr2-kb">📚 ${esc(t('tr2.toKb'))}</button></div>
+    </div>
+    <div class="card" style="margin-top:16px">
       <h3>💡 Примеры команд</h3>
       <div style="margin-top:8px">
         ${['Включи Imagine Dragons на YouTube Music', 'Сделай громкость 30%', 'Выключи свет на кухне', 'Открой YouTube', 'Сделай скриншот и опиши экран', 'Какая загрузка системы?'].map(c => `<span class="tag accent">«${esc(c)}»</span>`).join('')}
       </div>
     </div>`;
+  let transcript = '';
+  $('#tr2-go').onclick = async () => {
+    const f = $('#tr2-file').files[0]; if (!f) return toast('🎧', t('tr2.pick'), 'err');
+    const out = $('#tr2-out'); out.classList.remove('muted'); out.innerHTML = '<span class="spin">⏳</span> ' + esc(t('tr2.running'));
+    try {
+      const buf = new Uint8Array(await f.arrayBuffer()); let bin = ''; for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i]);
+      const r = await N.speech.transcribe(btoa(bin), f.type || 'audio/wav');
+      if (r && r.ok && r.text) { transcript = r.text; out.textContent = r.text; $('#tr2-actions').style.display = ''; }
+      else { out.innerHTML = `<span class="mk-down">⚠️ ${esc((r && (r.error || r.hint)) || t('tr2.fail'))}</span>`; }
+    } catch (e) { out.innerHTML = `<span class="mk-down">⚠️ ${esc(e.message)}</span>`; }
+  };
+  $('#tr2-note').onclick = async () => { if (!transcript) return; await N.notes.save({ title: 'Транскрипция ' + new Date().toLocaleDateString(), body: transcript, tags: ['транскрипция'] }); toast('📓', t('notes.saved'), 'ok'); };
+  $('#tr2-kb').onclick = async () => { if (!transcript) return; const r = await N.rag.add('kb', transcript, 'транскрипция'); toast('📚', r.ok ? 'OK' : r.error, r.ok ? 'ok' : 'err'); };
   $('#voice-toggle').onclick = toggleVoice;
   $('#voice-test').onclick = () => speakOut('Mythera voice assistant is ready.');
   $('#vreplies').onchange = (e) => N.store.set('settings.voiceReplies', e.target.checked);
@@ -2358,6 +2380,177 @@ async function viewRss() {
   $$('#rss-items [data-link]').forEach((a) => a.onclick = () => N.system.openExternal(a.dataset.link));
 }
 
+/* ---------- Календарь и напоминания ---------- */
+async function viewCalendar() {
+  const now = Date.now();
+  const events = await N.cal.list(now - 86400000, now + 60 * 86400000);
+  content.innerHTML = `
+    <div class="view-head"><h1>📅 ${esc(t('cal.title'))}</h1><p>${esc(t('cal.sub'))}</p></div>
+    <div class="grid cols-2">
+      <div class="card">
+        <h3>➕ ${esc(t('cal.add'))}</h3>
+        <label class="field"><span>${esc(t('cal.evTitle'))}</span><input id="cal-title"></label>
+        <div class="row" style="gap:8px">
+          <label class="field"><span>${esc(t('cal.start'))}</span><input id="cal-start" type="datetime-local"></label>
+          <label class="field" style="max-width:120px"><span>${esc(t('cal.dur'))}</span><input id="cal-dur" type="number" value="60"></label>
+          <label class="field" style="max-width:120px"><span>${esc(t('cal.remind'))}</span><input id="cal-remind" type="number" value="10"></label>
+        </div>
+        <label class="field"><span>${esc(t('cal.notes'))}</span><textarea id="cal-notes" rows="2"></textarea></label>
+        <div class="row" style="gap:6px"><button class="btn primary" id="cal-save">${esc(t('cal.saveEv'))}</button>
+          <button class="btn ghost" id="cal-export">⬇ ICS</button><button class="btn ghost" id="cal-import">⬆ ICS</button></div>
+      </div>
+      <div class="card">
+        <h3>🗓 ${esc(t('cal.upcoming'))}</h3>
+        <div id="cal-list" class="cal-list"></div>
+      </div>
+    </div>`;
+  const renderList = () => {
+    const box = $('#cal-list');
+    box.innerHTML = events.length ? events.map((e) => {
+      const soon = e.start - now < 86400000 && e.start > now;
+      return `<div class="cal-item ${soon ? 'soon' : ''}"><div><b>${esc(e.title)}</b><div class="muted" style="font-size:12px">${new Date(e.start).toLocaleString()}${e.notes ? ' · ' + esc(e.notes.slice(0, 40)) : ''}</div></div><button class="btn ghost sm" data-del="${esc(e.id)}">🗑</button></div>`;
+    }).join('') : `<p class="muted">${esc(t('cal.empty'))}</p>`;
+    $$('#cal-list [data-del]').forEach((b) => b.onclick = async () => { await N.cal.remove(b.dataset.del); viewCalendar(); });
+  };
+  renderList();
+  $('#cal-save').onclick = async () => {
+    const title = $('#cal-title').value.trim(); const startV = $('#cal-start').value;
+    if (!title || !startV) return toast('📅', t('cal.needTitle'), 'err');
+    const start = new Date(startV).getTime();
+    await N.cal.save({ title, start, end: start + (+$('#cal-dur').value || 60) * 60000, notes: $('#cal-notes').value.trim(), remindMin: +$('#cal-remind').value || 0 });
+    toast('📅', t('cal.added'), 'ok'); viewCalendar();
+  };
+  $('#cal-export').onclick = async () => { const ics = await N.cal.exportICS(); downloadText('mythera-calendar.ics', ics, 'text/calendar'); };
+  $('#cal-import').onclick = () => {
+    const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.ics';
+    inp.onchange = async () => { const f = inp.files[0]; if (!f) return; const r = await N.cal.importICS(await f.text()); toast('📅', t('cal.imported') + ': ' + r.added, 'ok'); viewCalendar(); };
+    inp.click();
+  };
+}
+
+/* ---------- Email-ассистент ---------- */
+async function viewEmail() {
+  const c = await N.email.cfg();
+  const enabled = await N.store.get('settings.emailEnabled', false);
+  content.innerHTML = `
+    <div class="view-head"><h1>✉️ ${esc(t('em.title'))}</h1><p>${esc(t('em.sub'))}</p></div>
+    <div class="grid cols-2">
+      <div class="card">
+        <h3>🔌 ${esc(t('em.setup'))}</h3>
+        <div class="row" style="gap:8px"><label class="field"><span>IMAP ${esc(t('em.host'))}</span><input id="em-imap" value="${esc(c.imapHost)}" placeholder="imap.gmail.com"></label><label class="field" style="max-width:90px"><span>${esc(t('em.port'))}</span><input id="em-imapport" value="${esc(c.imapPort)}"></label></div>
+        <div class="row" style="gap:8px"><label class="field"><span>SMTP ${esc(t('em.host'))}</span><input id="em-smtp" value="${esc(c.smtpHost)}" placeholder="smtp.gmail.com"></label><label class="field" style="max-width:90px"><span>${esc(t('em.port'))}</span><input id="em-smtpport" value="${esc(c.smtpPort)}"></label></div>
+        <label class="field"><span>${esc(t('em.user'))}</span><input id="em-user" value="${esc(c.user)}" placeholder="you@example.com"></label>
+        <label class="field"><span>${esc(t('em.pass'))}</span><input id="em-pass" type="password" placeholder="${c.hasPassword ? '•••••• (сохранён)' : esc(t('em.appPass'))}"></label>
+        <div class="row" style="gap:6px"><button class="btn primary" id="em-savecfg">${esc(t('em.save'))}</button>${toggleRow('em-enable', t('em.aiTools'), enabled)}</div>
+        <p class="muted" style="font-size:11px;margin-top:6px">${esc(t('em.note'))}</p>
+      </div>
+      <div class="card">
+        <h3>📥 ${esc(t('em.inbox'))} <button class="btn ghost sm" id="em-refresh" style="float:right">↻</button></h3>
+        <div id="em-list" class="muted">${esc(t('em.loadHint'))}</div>
+      </div>
+      <div class="card" style="grid-column:1/-1">
+        <h3>✍️ ${esc(t('em.compose'))}</h3>
+        <label class="field"><span>${esc(t('em.to'))}</span><input id="em-to" placeholder="recipient@example.com"></label>
+        <label class="field"><span>${esc(t('em.subject'))}</span><input id="em-subj"></label>
+        <label class="field"><span>${esc(t('em.body'))}</span><textarea id="em-body" rows="4"></textarea></label>
+        <div class="row" style="gap:6px"><button class="btn primary" id="em-send">${esc(t('em.sendBtn'))}</button><button class="btn ghost" id="em-draft">🤖 ${esc(t('em.aiDraft'))}</button></div>
+      </div>
+    </div>`;
+  $('#em-savecfg').onclick = async () => {
+    await N.email.setCfg({ imapHost: $('#em-imap').value.trim(), imapPort: +$('#em-imapport').value || 993, smtpHost: $('#em-smtp').value.trim(), smtpPort: +$('#em-smtpport').value || 465, user: $('#em-user').value.trim(), from: $('#em-user').value.trim() });
+    const p = $('#em-pass').value.trim(); if (p) await N.email.setPass(p);
+    toast('✉️', t('em.saved'), 'ok');
+  };
+  bindToggle('em-enable', (v) => N.store.set('settings.emailEnabled', v));
+  const loadInbox = async () => { const box = $('#em-list'); box.innerHTML = '<span class="spin">⏳</span>'; const r = await N.email.fetch(12); box.innerHTML = r.ok ? (r.messages.length ? r.messages.map((m) => `<div class="em-item ${m.seen ? '' : 'unread'}"><b>${esc(m.subject)}</b><div class="muted" style="font-size:12px">${esc(m.from)} · ${esc(m.date)}</div></div>`).join('') : `<p class="muted">${esc(t('em.noMail'))}</p>`) : `<span class="mk-down">⚠️ ${esc(r.error)}</span>`; };
+  $('#em-refresh').onclick = loadInbox;
+  $('#em-send').onclick = async () => {
+    const to = $('#em-to').value.trim(); if (!to) return toast('✉️', t('em.needTo'), 'err');
+    if (!await confirmModal(t('em.sendConfirm'), to + ' · ' + ($('#em-subj').value || '(без темы)'))) return;
+    const r = await N.email.send({ to, subject: $('#em-subj').value, body: $('#em-body').value });
+    toast(r.ok ? '✅' : '⚠️', r.ok ? t('em.sent') : r.error, r.ok ? 'ok' : 'err');
+  };
+  $('#em-draft').onclick = async () => {
+    const ctx = $('#em-body').value.trim() || $('#em-subj').value.trim(); if (!ctx) return toast('🤖', t('em.draftHint'), 'err');
+    $('#em-body').value = '⏳…';
+    const agents = await N.agents.list();
+    const r = await N.agents.chat({ agentId: (agents[0] && agents[0].id) || 'tpl-assistant', message: 'Напиши вежливый деловой email на основе: ' + ctx + '. Только текст письма, без пояснений.', history: [], effort: 'fast' });
+    $('#em-body').value = r.text || '';
+  };
+}
+
+/* ---------- Подключения (GitHub / Telegram / вебхуки) ---------- */
+async function viewConnections() {
+  const st = await N.conn.status();
+  content.innerHTML = `
+    <div class="view-head"><h1>🔗 ${esc(t('conn.title'))}</h1><p>${esc(t('conn.sub'))}</p></div>
+    <div class="grid cols-2">
+      <div class="card">
+        <h3>🐙 GitHub ${st.github ? '<span class="mk-up" style="font-size:12px">● ' + esc(t('conn.connected')) + '</span>' : ''}</h3>
+        <label class="field"><span>${esc(t('conn.token'))}</span><input id="gh-token" type="password" placeholder="${st.github ? '•••••• (сохранён)' : 'ghp_…'}"></label>
+        <div class="row" style="gap:6px"><button class="btn primary" id="gh-save">${esc(t('conn.saveToken'))}</button><button class="btn ghost" id="gh-load">${esc(t('conn.loadRepos'))}</button></div>
+        <p class="muted" style="font-size:11px;margin-top:6px">${esc(t('conn.ghHint'))}</p>
+        <div id="gh-result" style="margin-top:10px"></div>
+      </div>
+      <div class="card">
+        <h3>✈️ Telegram ${st.telegram ? '<span class="mk-up" style="font-size:12px">●</span>' : ''}</h3>
+        <label class="field"><span>${esc(t('conn.botToken'))}</span><input id="tg-token" type="password" placeholder="123456:ABC…"></label>
+        <label class="field"><span>Chat ID</span><input id="tg-chat" value="${esc(st.telegramChat || '')}" placeholder="123456789"></label>
+        <div class="row" style="gap:6px"><button class="btn primary" id="tg-save">${esc(t('conn.saveToken'))}</button><button class="btn ghost" id="tg-test">${esc(t('conn.test'))}</button></div>
+      </div>
+      <div class="card" style="grid-column:1/-1">
+        <h3>🪝 ${esc(t('conn.webhook'))}</h3>
+        <div class="row" style="gap:8px"><input id="wh-url" placeholder="https://hooks.example.com/..." style="flex:2"><input id="wh-msg" placeholder="${esc(t('conn.message'))}" style="flex:1"><button class="btn" id="wh-send">${esc(t('conn.sendWh'))}</button></div>
+        <p class="muted" style="font-size:11px;margin-top:6px">${esc(t('conn.whHint'))}</p>
+      </div>
+    </div>`;
+  $('#gh-save').onclick = async () => { const tk = $('#gh-token').value.trim(); if (tk) await N.conn.setToken('github', tk); $('#gh-token').value = ''; const u = await N.conn.githubUser(); toast(u.ok ? '✅ GitHub' : '⚠️', u.ok ? '@' + u.login : u.error, u.ok ? 'ok' : 'err'); viewConnections(); };
+  $('#gh-load').onclick = async () => {
+    const box = $('#gh-result'); box.innerHTML = '<span class="spin">⏳</span>';
+    const r = await N.conn.githubRepos();
+    if (!r.ok) { box.innerHTML = `<span class="mk-down">⚠️ ${esc(r.error)}</span>`; return; }
+    box.innerHTML = r.repos.map((x) => `<div class="gh-repo"><a data-link="${esc(x.url)}"><b>${esc(x.full)}</b></a> ⭐${x.stars} ${esc(x.lang || '')} <span class="muted">· ${x.open_issues} issues</span><div class="muted" style="font-size:12px">${esc(x.desc || '')}</div></div>`).join('');
+    $$('#gh-result [data-link]').forEach((a) => a.onclick = () => N.system.openExternal(a.dataset.link));
+  };
+  $('#tg-save').onclick = async () => { const tk = $('#tg-token').value.trim(); if (tk) await N.conn.setToken('telegram', tk); await N.conn.set('telegramChat', $('#tg-chat').value.trim()); $('#tg-token').value = ''; toast('✈️', t('em.saved'), 'ok'); };
+  $('#tg-test').onclick = async () => { const r = await N.conn.telegramTest(); toast(r.ok ? '✅' : '⚠️', r.ok ? t('conn.tgSent') : r.error, r.ok ? 'ok' : 'err'); };
+  $('#wh-send').onclick = async () => { const url = $('#wh-url').value.trim(); if (!url) return; const r = await N.conn.webhook(url, $('#wh-msg').value.trim()); toast(r.ok ? '✅' : '⚠️', r.ok ? 'OK ' + r.status : r.error, r.ok ? 'ok' : 'err'); };
+}
+
+/* ---------- Конструктор моделей (Modelfile) ---------- */
+async function modelBuilderModal() {
+  const models = await N.installer.listModels();
+  const opts = (models.length ? models.map((m) => m.name) : ['qwen2.5:7b', 'llama3.2:3b']).map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
+  modal(`<h2>🛠️ ${esc(t('mb.title'))}</h2>
+    <label class="field"><span>${esc(t('mb.name'))}</span><input id="mb-name" placeholder="my-assistant"></label>
+    <label class="field"><span>${esc(t('mb.base'))}</span><select id="mb-base">${opts}</select></label>
+    <label class="field"><span>${esc(t('mb.system'))}</span><textarea id="mb-system" rows="3" placeholder="Ты — ..."></textarea></label>
+    <div class="row" style="gap:8px">
+      <label class="field" style="max-width:130px"><span>temperature</span><input id="mb-temp" type="number" step="0.1" value="0.7"></label>
+      <label class="field" style="max-width:130px"><span>num_ctx</span><input id="mb-ctx" type="number" value="4096"></label>
+    </div>
+    <details style="margin:6px 0"><summary class="muted" style="cursor:pointer">${esc(t('mb.preview'))}</summary><pre id="mb-prev" class="code-out" style="margin-top:6px"></pre></details>
+    <pre id="mb-log" class="code-out" style="display:none;max-height:160px"></pre>
+    <div class="modal-actions"><button class="btn ghost" id="mb-cancel">${esc(t('btn.cancel'))}</button><button class="btn primary" id="mb-go">${esc(t('mb.build'))}</button></div>`,
+    (m, close) => {
+      const opt = () => ({ name: $('#mb-name', m).value, base: $('#mb-base', m).value, system: $('#mb-system', m).value, params: { temperature: $('#mb-temp', m).value, num_ctx: $('#mb-ctx', m).value } });
+      const upd = async () => { $('#mb-prev', m).textContent = await N.mb.preview(opt()); };
+      ['#mb-name', '#mb-base', '#mb-system', '#mb-temp', '#mb-ctx'].forEach((s) => { const el2 = $(s, m); if (el2) el2.oninput = upd; }); upd();
+      $('#mb-cancel', m).onclick = close;
+      $('#mb-go', m).onclick = async () => {
+        const o = opt(); if (!o.name.trim()) return toast('🛠️', t('mb.needName'), 'err');
+        const log = $('#mb-log', m); log.style.display = 'block'; log.textContent = '⏳ ' + t('mb.building') + '\n';
+        window.__mbLog = log;
+        $('#mb-go', m).disabled = true;
+        const r = await N.mb.create(o);
+        $('#mb-go', m).disabled = false;
+        if (r.ok) { toast('✅', t('mb.done') + ': ' + r.name, 'ok'); close(); render(); }
+        else { log.textContent += '\n❌ ' + r.error; }
+      };
+    });
+}
+N.on('mb:log', ({ line }) => { if (window.__mbLog) { window.__mbLog.textContent += line; window.__mbLog.scrollTop = window.__mbLog.scrollHeight; } });
+
 /* ---------- Плейграунд моделей (A/B сравнение) ---------- */
 async function viewPlayground() {
   const models = await N.installer.listModels();
@@ -2548,7 +2741,7 @@ async function viewMarkets() {
   const mk = state.market;
   const presetHTML = MARKET_PRESETS.map((g) => `<div class="mk-preset-group"><span class="mk-preset-label">${esc(g.label)}</span>${g.items.map(([s, n]) => `<button class="mk-chip" data-sym="${esc(s)}" title="${esc(n)}">${esc(s)}</button>`).join('')}</div>`).join('');
   content.innerHTML = `
-    <div class="view-head"><h1>📈 ${esc(t('mk.title'))}</h1><p>${esc(t('mk.sub'))}</p></div>
+    <div class="view-head"><h1>📈 ${esc(t('mkt.title'))}</h1><p>${esc(t('mkt.sub'))}</p></div>
     <div class="card">
       <div class="row" style="gap:8px;flex-wrap:wrap;align-items:flex-end">
         <label class="field" style="flex:1;min-width:180px"><span>${esc(t('mk.symbol'))}</span>
@@ -3201,6 +3394,9 @@ function buildCommands() {
     nav('images', '🎨', t('nav.images')),
     nav('data', '🗃️', t('nav.data')),
     nav('rss', '📰', t('nav.rss')),
+    nav('calendar', '📅', t('nav.calendar')),
+    nav('email', '✉️', t('nav.email')),
+    nav('connections', '🔗', t('nav.connections')),
     nav('automation', '🔗', t('nav.automation')),
     nav('markets', '📈', t('nav.markets')),
     nav('trading', '💹', t('nav.trading')),

@@ -31,6 +31,9 @@ const crawler = require('./crawler');
 const notes = require('./notes');
 const datastudio = require('./datastudio');
 const rss = require('./rss');
+const connections = require('./connections');
+const calendar = require('./calendar');
+const email = require('./email');
 
 const activeSessions = new Map(); // sessionId -> { stop: bool }
 
@@ -60,6 +63,9 @@ function allToolSchemas() {
     ...notes.toolSchemas,
     ...datastudio.toolSchemas,
     ...rss.toolSchemas,
+    ...connections.toolSchemas,
+    ...calendar.toolSchemas,
+    ...(store.get('settings.emailEnabled', false) ? email.toolSchemas : []),
     ...imagegen.toolSchemas,
     ...(store.get('settings.tradingEnabled', false) ? trading.toolSchemas : []),
     ...(store.get('settings.webAutomation', false) ? webagent.toolSchemas : []),
@@ -73,7 +79,7 @@ function allToolSchemas() {
   return disabled.length ? all.filter((t) => !disabled.includes(t.function.name)) : all;
 }
 
-const extraHandlers = { ...minecraft.toolHandlers, ...remote.toolHandlers, ...translator.toolHandlers, ...browser.toolHandlers, ...audio.toolHandlers, ...smarthome.toolHandlers, ...appcontrol.toolHandlers, ...webagent.toolHandlers, ...gui.toolHandlers, ...docs.toolHandlers, ...analysis.toolHandlers, ...markets.toolHandlers, ...news.toolHandlers, ...crawler.toolHandlers, ...notes.toolHandlers, ...datastudio.toolHandlers, ...rss.toolHandlers, ...imagegen.toolHandlers, ...trading.toolHandlers };
+const extraHandlers = { ...minecraft.toolHandlers, ...remote.toolHandlers, ...translator.toolHandlers, ...browser.toolHandlers, ...audio.toolHandlers, ...smarthome.toolHandlers, ...appcontrol.toolHandlers, ...webagent.toolHandlers, ...gui.toolHandlers, ...docs.toolHandlers, ...analysis.toolHandlers, ...markets.toolHandlers, ...news.toolHandlers, ...crawler.toolHandlers, ...notes.toolHandlers, ...datastudio.toolHandlers, ...rss.toolHandlers, ...connections.toolHandlers, ...calendar.toolHandlers, ...email.toolHandlers, ...imagegen.toolHandlers, ...trading.toolHandlers };
 
 async function dispatchTool(name, args) {
   if (mcp.isMcpTool(name)) {

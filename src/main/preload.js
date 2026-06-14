@@ -305,6 +305,39 @@ contextBridge.exposeInMainWorld('mythera', {
   },
   // Экспорт в PDF
   pdf: { export: (html, title) => invoke('pdf:export', html, title) },
+  // Внешние подключения (GitHub/Telegram/webhook)
+  conn: {
+    status: () => invoke('conn:status'),
+    setToken: (key, val) => invoke('conn:setToken', key, val),
+    set: (k, v) => invoke('conn:set', k, v),
+    githubUser: () => invoke('conn:githubUser'),
+    githubRepos: () => invoke('conn:githubRepos'),
+    githubIssues: (repo) => invoke('conn:githubIssues', repo),
+    githubCreateIssue: (repo, title, body) => invoke('conn:githubCreateIssue', repo, title, body),
+    telegramTest: () => invoke('conn:telegramTest'),
+    webhook: (url, payload) => invoke('conn:webhook', url, payload)
+  },
+  // Календарь
+  cal: {
+    list: (from, to) => invoke('cal:list', from, to),
+    save: (ev) => invoke('cal:save', ev),
+    remove: (id) => invoke('cal:remove', id),
+    exportICS: () => invoke('cal:exportICS'),
+    importICS: (text) => invoke('cal:importICS', text)
+  },
+  // Email
+  email: {
+    cfg: () => invoke('email:cfg'),
+    setCfg: (p) => invoke('email:setCfg', p),
+    setPass: (p) => invoke('email:setPass', p),
+    fetch: (n) => invoke('email:fetch', n),
+    send: (m) => invoke('email:send', m)
+  },
+  // Конструктор моделей
+  mb: {
+    preview: (o) => invoke('mb:preview', o),
+    create: (o) => invoke('mb:create', o)
+  },
   // Плейграунд моделей
   playground: { ask: (model, prompt, opts) => invoke('playground:ask', model, prompt, opts) },
   // Бэктест стратегий

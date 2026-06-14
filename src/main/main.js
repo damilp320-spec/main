@@ -50,6 +50,10 @@ const diagnostics = require('./diagnostics');
 const notes = require('./notes');
 const datastudio = require('./datastudio');
 const rss = require('./rss');
+const connections = require('./connections');
+const calendar = require('./calendar');
+const email = require('./email');
+const modelbuilder = require('./modelbuilder');
 const fs = require('fs');
 
 let win = null;
@@ -205,6 +209,9 @@ app.whenReady().then(async () => {
   });
   flows.startupRun(sendToUI);
 
+  // Календарь: напоминания о событиях.
+  calendar.init({ notify: (p) => sendToUI('watcher:fired', p) });
+
   // Очередь задач: пробрасываем события в UI и возобновляем незавершённые.
   taskQueue.load();
   ['task:added', 'task:started', 'task:progress', 'task:finished', 'queue:update'].forEach((ev) =>
@@ -219,7 +226,7 @@ app.whenReady().then(async () => {
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 
-app.on('before-quit', () => { isQuitting = true; voice.stop(); scheduler.shutdown(); try { mcp.disconnectAll(); } catch {} try { webagent.close(); } catch {} try { watchers.stopAll(); } catch {} try { quickask.destroy(); } catch {} });
+app.on('before-quit', () => { isQuitting = true; voice.stop(); scheduler.shutdown(); try { mcp.disconnectAll(); } catch {} try { webagent.close(); } catch {} try { watchers.stopAll(); } catch {} try { quickask.destroy(); } catch {} try { calendar.shutdown(); } catch {} });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 
 /* ---------------- IPC: window controls ---------------- */
@@ -488,6 +495,35 @@ ipcMain.handle('crawler:learn', (_e, opts) => crawler.learn(opts, (p) => sendToU
 
 /* ---------------- IPC: diagnostics ---------------- */
 ipcMain.handle('diag:run', () => diagnostics.run());
+
+/* ---------------- IPC: connections (GitHub/Telegram/webhook) ---------------- */
+ipcMain.handle('conn:status', () => connections.status());
+ipcMain.handle('conn:setToken', (_e, key, val) => connections.setTok(key, val));
+ipcMain.handle('conn:set', (_e, k, v) => { store.set('settings.' + k, v); return true; });
+ipcMain.handle('conn:githubUser', () => connections.githubUser());
+ipcMain.handle('conn:githubRepos', () => connections.githubRepos());
+ipcMain.handle('conn:githubIssues', (_e, repo) => connections.githubIssues(repo));
+ipcMain.handle('conn:githubCreateIssue', (_e, repo, title, body) => connections.githubCreateIssue(repo, title, body));
+ipcMain.handle('conn:telegramTest', () => connections.telegramTest());
+ipcMain.handle('conn:webhook', (_e, url, payload) => connections.webhookPost(url, payload));
+
+/* ---------------- IPC: calendar ---------------- */
+ipcMain.handle('cal:list', (_e, from, to) => calendar.list(from, to));
+ipcMain.handle('cal:save', (_e, ev) => calendar.save(ev));
+ipcMain.handle('cal:remove', (_e, id) => calendar.remove(id));
+ipcMain.handle('cal:exportICS', () => calendar.exportICS());
+ipcMain.handle('cal:importICS', (_e, text) => calendar.importICS(text));
+
+/* ---------------- IPC: email ---------------- */
+ipcMain.handle('email:cfg', () => email.publicCfg());
+ipcMain.handle('email:setCfg', (_e, patch) => email.setCfg(patch));
+ipcMain.handle('email:setPass', (_e, p) => email.setPass(p));
+ipcMain.handle('email:fetch', (_e, n) => email.imapFetch(n));
+ipcMain.handle('email:send', (_e, msg) => email.smtpSend(msg));
+
+/* ---------------- IPC: model builder ---------------- */
+ipcMain.handle('mb:preview', (_e, opts) => modelbuilder.preview(opts));
+ipcMain.handle('mb:create', (_e, opts) => modelbuilder.create(opts, (line) => sendToUI('mb:log', { line })));
 
 /* ---------------- IPC: notes (second brain) ---------------- */
 ipcMain.handle('notes:list', () => notes.list());

@@ -248,6 +248,21 @@ body.artifact-open .content { margin-right: 42vw; }
 .tabs .tab.active { color: var(--text); border-bottom-color: var(--accent); }
 .tabs .tab:hover { color: var(--text); }
 
+/* ---------- Calendar ---------- */
+.cal-list { display: flex; flex-direction: column; gap: 6px; max-height: 64vh; overflow: auto; }
+.cal-item { display: flex; justify-content: space-between; align-items: center; padding: 9px 10px; border: 1px solid var(--border); border-radius: 8px; }
+.cal-item.soon { border-left: 3px solid var(--accent); }
+
+/* ---------- Email ---------- */
+.em-item { padding: 8px 0; border-bottom: 1px solid var(--border); }
+.em-item.unread b { color: var(--accent); }
+.em-item.unread::before { content: '● '; color: var(--accent); }
+
+/* ---------- Connections ---------- */
+.gh-repo { padding: 8px 0; border-bottom: 1px solid var(--border); }
+.gh-repo a { cursor: pointer; }
+.gh-repo a:hover b { color: var(--accent); }
+
 /* ---------- Notes (second brain) ---------- */
 .notes-layout { display: grid; grid-template-columns: 280px 1fr; gap: 14px; align-items: start; }
 .notes-list-card { max-height: 74vh; overflow: auto; }

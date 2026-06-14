@@ -495,12 +495,49 @@ function renderChat() {
     return;
   }
   body.innerHTML = '';
-  chat.forEach((m) => {
+  chat.forEach((m, idx) => {
+    // Видимое мышление: структурный план агента.
+    if (m.role === 'plan' && Array.isArray(m.plan)) {
+      const p = el('div', 'msg-plan');
+      p.innerHTML = `<div class="plan-h">🧭 ${esc(t('think.plan'))}</div>` +
+        m.plan.map((s, i) => `<div class="plan-step"><span class="plan-n">${i + 1}</span>${esc(s)}</div>`).join('');
+      body.appendChild(p);
+      return;
+    }
     const d = el('div', 'msg ' + m.role);
     d.textContent = m.text;
     body.appendChild(d);
+    // Телеметрия + оценка ответа на финальных сообщениях бота.
+    if (m.role === 'bot' && m.text) {
+      if (m.tel) {
+        const f = el('div', 'msg-tel');
+        f.textContent = `⏱ ${(m.tel.ms / 1000).toFixed(1)}${t('tel.sec')} · ${m.tel.tokens} ${t('tel.tok')} · ${m.tel.tokPerSec} ${t('tel.tps')} · ${m.tel.steps} ${t('tel.steps')}` +
+          (m.tel.toolCalls ? ` · ${m.tel.toolCalls} 🔧` : '') + (m.tel.model ? ` · ${m.tel.model}` : '');
+        body.appendChild(f);
+      }
+      if (m.id && !m.rated && (idx === chat.length - 1 || m.tel)) {
+        const fb = el('div', 'msg-fb');
+        fb.innerHTML = `<button class="fb-btn" data-r="up" title="${esc(t('fb.up'))}">👍</button><button class="fb-btn" data-r="down" title="${esc(t('fb.down'))}">👎</button>`;
+        fb.querySelectorAll('.fb-btn').forEach((b) => b.onclick = () => rateMessage(m, b.dataset.r, fb));
+        body.appendChild(fb);
+      } else if (m.rated) {
+        const r = el('div', 'msg-fb rated');
+        r.textContent = m.rated === 'up' ? '👍' : '👎';
+        body.appendChild(r);
+      }
+    }
   });
   body.scrollTop = body.scrollHeight;
+}
+
+// Оценка ответа агента (обратная связь — основа для будущих предпочтений).
+async function rateMessage(m, rating, node) {
+  m.rated = rating;
+  try {
+    await N.feedback.rate({ agentId: state.activeAgentId, rating, text: String(m.text || '').slice(0, 500) });
+  } catch { /* best effort */ }
+  if (node) { node.innerHTML = rating === 'up' ? '👍' : '👎'; node.classList.add('rated'); }
+  persistChat(state.activeAgentId);
 }
 
 // Единое ядро отправки сообщения агенту (используется одиночным чатом и сеткой).
@@ -520,7 +557,7 @@ async function sendToAgent(agentId, rawText, attachment) {
   chat.push({ role: 'user', text: userDisplay });
   const history = chat.filter(m => m.role === 'user' || m.role === 'bot').slice(0, -1)
     .map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text }));
-  chat.push({ role: 'bot', text: '' });
+  chat.push({ role: 'bot', text: '', id: 'm-' + Date.now() });
   const sid = 'sess-' + agentId + '-' + Date.now();
   state.sessions[sid] = agentId;
   state.sessionId = sid;
@@ -1371,8 +1408,22 @@ async function viewSettings() {
     appControl: await g('appControl', true),
     temperature: await g('temperature', 0.7),
     maxSteps: await g('maxSteps', 0),
-    defaultModel: await g('defaultModel', '')
+    defaultModel: await g('defaultModel', ''),
+    toolRouting: await g('toolRouting', false),
+    modelRouting: await g('modelRouting', false),
+    selfVerify: await g('selfVerify', true),
+    visibleThinking: await g('visibleThinking', true),
+    webAutomation: await g('webAutomation', false),
+    guiAutomation: await g('guiAutomation', false),
+    mcpEnabled: await g('mcpEnabled', false),
+    cloudEnabled: await g('cloudEnabled', false),
+    cloudProvider: await g('cloudProvider', 'openai'),
+    cloudModel: await g('cloudModel', 'gpt-4o-mini'),
+    cloudBaseUrl: await g('cloudBaseUrl', '')
   };
+  const docCaps = await N.docs.capabilities();
+  const cloudKey = await N.cloud.hasKey();
+  const mcpServers = await N.mcp.servers();
   const info = await N.system.info();
   const theme = await N.store.get('settings.theme', { mode: 'dark', accent: 'violet' });
   const lang = getLangCode();
@@ -1448,6 +1499,54 @@ async function viewSettings() {
         ${toggleRow('set-appctl', t('set.appControl'), s.appControl)}
         <p class="muted" style="margin:8px 0">${esc(t('set.appControlNote'))}</p>
       </div>
+      <div class="card">
+        <h3>✨ ${esc(t('set.intelligence'))}</h3>
+        ${toggleRow('set-toolrouting', t('set.toolRouting'), s.toolRouting)}
+        <p class="muted" style="margin:6px 0">${esc(t('set.toolRoutingNote'))}</p>
+        ${toggleRow('set-modelrouting', t('set.modelRouting'), s.modelRouting)}
+        <p class="muted" style="margin:6px 0">${esc(t('set.modelRoutingNote'))}</p>
+        ${toggleRow('set-selfverify', t('set.selfVerify'), s.selfVerify)}
+        <p class="muted" style="margin:6px 0">${esc(t('set.selfVerifyNote'))}</p>
+        ${toggleRow('set-visiblethink', t('set.visibleThinking'), s.visibleThinking)}
+        <p class="muted" style="margin:6px 0">${esc(t('set.visibleThinkingNote'))}</p>
+      </div>
+      <div class="card">
+        <h3>🦾 ${esc(t('set.capabilities'))}</h3>
+        ${toggleRow('set-webauto', t('set.webAutomation'), s.webAutomation)}
+        <p class="muted" style="margin:6px 0">${esc(t('set.webAutomationNote'))}</p>
+        ${toggleRow('set-guiauto', t('set.guiAutomation'), s.guiAutomation)}
+        <p class="muted" style="margin:6px 0">${esc(t('set.guiAutomationNote'))}</p>
+        <p class="muted" style="margin:10px 0 4px"><b>${esc(t('set.docs'))}</b></p>
+        <p class="muted" style="margin:4px 0">${esc(t('set.docsNote'))}</p>
+        <p class="muted" style="margin:4px 0;font-family:monospace;font-size:11px">PDF ${docCaps.pdftotext ? '✅' : '⚪'} · Office ${docCaps.soffice ? '✅' : '⚪'} · OCR ${docCaps.tesseract ? '✅' : '⚪'}</p>
+      </div>
+      <div class="card">
+        <h3>🔌 ${esc(t('set.mcp'))}</h3>
+        ${toggleRow('set-mcp', t('set.mcpEnabled'), s.mcpEnabled)}
+        <p class="muted" style="margin:6px 0">${esc(t('set.mcpNote'))}</p>
+        <div id="mcp-list" style="margin:8px 0">${mcpServers.map((m) => `<div class="row" style="justify-content:space-between;align-items:center;margin:4px 0"><span>🔧 ${esc(m.name || m.id)} <small class="muted">${esc(m.command || '')}</small></span><button class="btn ghost sm" data-mcpdel="${esc(m.id)}">✕</button></div>`).join('') || `<small class="muted">—</small>`}</div>
+        <div class="row" style="gap:6px;flex-wrap:wrap">
+          <input id="mcp-name" placeholder="${esc(t('set.mcpName'))}" style="flex:1;min-width:90px">
+          <input id="mcp-cmd" placeholder="${esc(t('set.mcpCmd'))}" style="flex:1;min-width:110px">
+          <input id="mcp-args" placeholder="${esc(t('set.mcpArgs'))}" style="flex:2;min-width:120px">
+          <button class="btn sm" id="mcp-add">${esc(t('set.mcpAdd'))}</button>
+        </div>
+        <button class="btn ghost sm" id="mcp-connect" style="margin-top:8px">🔌 ${esc(t('set.mcpConnect'))}</button>
+        <span id="mcp-status" class="muted" style="margin-left:8px;font-size:12px"></span>
+      </div>
+      <div class="card">
+        <h3>☁️ ${esc(t('set.cloud'))}</h3>
+        ${toggleRow('set-cloud', t('set.cloudEnabled'), s.cloudEnabled)}
+        <p class="muted" style="margin:6px 0">${esc(t('set.cloudNote'))}</p>
+        <label class="field"><span>${esc(t('set.cloudProvider'))}</span><select id="set-cloudprov">
+          <option value="openai" ${s.cloudProvider === 'openai' ? 'selected' : ''}>OpenAI-совместимый</option>
+          <option value="anthropic" ${s.cloudProvider === 'anthropic' ? 'selected' : ''}>Anthropic</option>
+        </select></label>
+        <label class="field"><span>${esc(t('set.cloudModel'))}</span><input id="set-cloudmodel" value="${esc(s.cloudModel)}"></label>
+        <label class="field"><span>${esc(t('set.cloudBaseUrl'))}</span><input id="set-cloudurl" value="${esc(s.cloudBaseUrl)}" placeholder="https://api.openai.com/v1"></label>
+        <label class="field"><span>${esc(t('set.cloudKey'))}</span><input id="set-cloudkey" type="password" placeholder="${cloudKey.hasKey ? '•••••• (сохранён)' : 'sk-…'}"></label>
+        <div class="row" style="gap:6px"><button class="btn sm" id="cloud-savekey">${esc(t('set.cloudSaveKey'))}</button><button class="btn ghost sm" id="cloud-test">${esc(t('set.cloudTest'))}</button><span id="cloud-status" class="muted" style="font-size:12px"></span></div>
+      </div>
       <div class="card" style="grid-column:1/-1">
         <h3>ℹ️ ${esc(t('set.about'))}</h3>
         <p class="muted">Mythera AI Hub v${esc(info.appVersion)} · ${esc(info.platform)} ${esc(info.release)} · ${info.cpus} ${'ядер/cores'}</p>
@@ -1473,6 +1572,43 @@ async function viewSettings() {
   bindToggle('set-mem', (v) => N.store.set('settings.longMemory', v));
   bindToggle('set-const', (v) => N.store.set('settings.constitution', v));
   bindToggle('set-appctl', (v) => N.store.set('settings.appControl', v));
+  // Интеллект агентов.
+  bindToggle('set-toolrouting', (v) => N.store.set('settings.toolRouting', v));
+  bindToggle('set-modelrouting', (v) => N.store.set('settings.modelRouting', v));
+  bindToggle('set-selfverify', (v) => N.store.set('settings.selfVerify', v));
+  bindToggle('set-visiblethink', (v) => N.store.set('settings.visibleThinking', v));
+  // Возможности.
+  bindToggle('set-webauto', async (v) => {
+    if (v) { const ok = await confirmModal('🌐 ' + t('set.webAutomation'), t('set.webAutomationNote')); if (!ok) return viewSettings(); }
+    N.store.set('settings.webAutomation', v);
+  });
+  bindToggle('set-guiauto', async (v) => {
+    if (v) { const ok = await confirmModal('🖱️ ' + t('set.guiAutomation'), t('set.guiAutomationNote')); if (!ok) return viewSettings(); }
+    N.store.set('settings.guiAutomation', v);
+  });
+  // MCP.
+  bindToggle('set-mcp', (v) => N.store.set('settings.mcpEnabled', v));
+  $('#mcp-add').onclick = async () => {
+    const name = $('#mcp-name').value.trim(), cmd = $('#mcp-cmd').value.trim();
+    if (!cmd) return toast(t('set.mcpCmd'), '—', 'err');
+    const args = $('#mcp-args').value.trim().split(/\s+/).filter(Boolean);
+    await N.mcp.save({ name: name || cmd, command: cmd, args });
+    viewSettings();
+  };
+  $$('#mcp-list [data-mcpdel]').forEach((b) => b.onclick = async () => { await N.mcp.delete(b.dataset.mcpdel); viewSettings(); });
+  $('#mcp-connect').onclick = async () => {
+    $('#mcp-status').textContent = '…';
+    const r = await N.mcp.connect();
+    const okN = r.filter((x) => !x.error).length;
+    $('#mcp-status').textContent = `${t('set.mcpConnected')}: ${okN}/${r.length}`;
+  };
+  // Облако.
+  bindToggle('set-cloud', (v) => N.store.set('settings.cloudEnabled', v));
+  $('#set-cloudprov').onchange = (e) => N.store.set('settings.cloudProvider', e.target.value);
+  $('#set-cloudmodel').onchange = (e) => N.store.set('settings.cloudModel', e.target.value.trim());
+  $('#set-cloudurl').onchange = (e) => N.store.set('settings.cloudBaseUrl', e.target.value.trim());
+  $('#cloud-savekey').onclick = async () => { const k = $('#set-cloudkey').value.trim(); if (!k) return; const r = await N.cloud.setKey(k); $('#set-cloudkey').value = ''; toast('☁️', r.encrypted ? 'OK (зашифрован)' : 'OK', 'ok'); };
+  $('#cloud-test').onclick = async () => { $('#cloud-status').textContent = '…'; const r = await N.cloud.test(); $('#cloud-status').textContent = r.ok ? ('✅ ' + (r.model || '')) : ('❌ ' + (r.error || '')); };
   $('#set-viewconst').onclick = showConstitution;
   bindToggle('set-light', async (v) => { const th = await N.store.get('settings.theme', { mode: 'dark', accent: 'violet' }); th.mode = v ? 'light' : 'dark'; await N.store.set('settings.theme', th); applyTheme(); });
   $('#set-rate').oninput = (e) => { $('#rate-val').textContent = (+e.target.value).toFixed(1) + '×'; N.store.set('settings.voiceRate', +e.target.value); };
@@ -2059,9 +2195,34 @@ N.on('agents:toolResult', ({ sessionId, name, result }) => {
   renderAgentEverywhere(agentId);
 });
 N.on('agents:notify', async ({ title, message }) => { if (await N.store.get('settings.notifications', true)) toast(title || 'Агент', message); });
-N.on('agents:done', ({ sessionId, text }) => {
+// Видимое мышление: показываем план агента перед действиями.
+N.on('agents:plan', ({ sessionId, plan }) => {
+  const agentId = sessAgent(sessionId); if (!agentId || !Array.isArray(plan) || !plan.length) return;
+  const c = chatFor(agentId);
+  const bot = c.pop();
+  c.push({ role: 'plan', plan, text: '🧭 ' + plan.join(' · ') });
+  if (bot) c.push(bot);
+  renderAgentEverywhere(agentId);
+});
+// Самопроверка: ненавязчивый индикатор фазы проверки.
+N.on('agents:verify', ({ sessionId, stage }) => {
+  const agentId = sessAgent(sessionId); if (!agentId || stage !== 'start') return;
+  const c = chatFor(agentId);
+  const bot = c.pop();
+  c.push({ role: 'tool', text: '🔎 ' + t('think.verify') });
+  if (bot) c.push(bot);
+  renderAgentEverywhere(agentId);
+});
+N.on('agents:done', ({ sessionId, text, telemetry }) => {
   const agentId = sessAgent(sessionId);
-  if (agentId) { persistChat(agentId); delete state.sessions[sessionId]; renderAgentEverywhere(agentId); }
+  if (agentId) {
+    // Привязываем телеметрию к последнему ответу бота.
+    if (telemetry) {
+      const c = chatFor(agentId);
+      for (let i = c.length - 1; i >= 0; i--) { if (c[i].role === 'bot') { c[i].tel = telemetry; break; } }
+    }
+    persistChat(agentId); delete state.sessions[sessionId]; renderAgentEverywhere(agentId);
+  }
   if (!Object.keys(state.sessions).length) state.busy = false;
 });
 

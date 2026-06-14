@@ -25,6 +25,12 @@ const smarthome = require('./smarthome');
 const tooling = require('./tooling');
 const taskQueue = require('./taskQueue');
 const constitution = require('./constitution');
+const webagent = require('./webagent');
+const gui = require('./gui');
+const mcp = require('./mcp');
+const docs = require('./docs');
+const cloud = require('./cloud');
+const modelrouter = require('./modelrouter');
 
 let win = null;
 let tray = null;
@@ -133,6 +139,14 @@ app.whenReady().then(async () => {
   // Бесшовное управление приложением агентами: даём модулю отправлять события в UI.
   require('./appcontrol').setUISender(sendToUI);
 
+  // Веб-автоматизация: даём модулю доступ к главному окну (BrowserView).
+  webagent.init({ getWin: () => win });
+
+  // MCP: подключаем настроенные внешние серверы инструментов (если включено).
+  if (store.get('settings.mcpEnabled', false)) {
+    mcp.connectAll().then((r) => sendToUI('mcp:connected', r)).catch(() => {});
+  }
+
   // Очередь задач: пробрасываем события в UI и возобновляем незавершённые.
   taskQueue.load();
   ['task:added', 'task:started', 'task:progress', 'task:finished', 'queue:update'].forEach((ev) =>
@@ -147,7 +161,7 @@ app.whenReady().then(async () => {
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 
-app.on('before-quit', () => { isQuitting = true; voice.stop(); scheduler.shutdown(); });
+app.on('before-quit', () => { isQuitting = true; voice.stop(); scheduler.shutdown(); try { mcp.disconnectAll(); } catch {} try { webagent.close(); } catch {} });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 
 /* ---------------- IPC: window controls ---------------- */
@@ -328,3 +342,41 @@ ipcMain.handle('dispatch:start', () => { store.set('dispatch.enabled', true); re
 ipcMain.handle('dispatch:stop', () => { store.set('dispatch.enabled', false); return dispatch.stop(); });
 ipcMain.handle('dispatch:regenToken', () => { dispatch.regenToken(); return dispatch.status(); });
 ipcMain.handle('dispatch:setOption', (_e, key, value) => { store.set('dispatch.' + key, value); return dispatch.status(); });
+
+/* ---------------- IPC: MCP (external tool servers) ---------------- */
+ipcMain.handle('mcp:list', () => mcp.listConnected());
+ipcMain.handle('mcp:servers', () => mcp.cfg());
+ipcMain.handle('mcp:save', (_e, c) => mcp.saveServer(c));
+ipcMain.handle('mcp:delete', (_e, id) => mcp.deleteServer(id));
+ipcMain.handle('mcp:connect', async () => { const r = await mcp.connectAll(); sendToUI('mcp:connected', r); return r; });
+ipcMain.handle('mcp:disconnect', () => { mcp.disconnectAll(); return { ok: true }; });
+
+/* ---------------- IPC: web automation ---------------- */
+ipcMain.handle('web:goto', (_e, url) => webagent.goto(url));
+ipcMain.handle('web:read', () => webagent.readPage());
+ipcMain.handle('web:show', (_e, v) => { webagent.setVisible(!!v); return { ok: true }; });
+ipcMain.handle('web:close', () => { webagent.close(); return { ok: true }; });
+
+/* ---------------- IPC: document understanding ---------------- */
+ipcMain.handle('docs:capabilities', () => docs.capabilities());
+ipcMain.handle('docs:read', (_e, p) => docs.readDocument(p));
+ipcMain.handle('docs:ingest', (_e, p, scope) => docs.ingestDocument(p, scope));
+
+/* ---------------- IPC: cloud bridge ---------------- */
+ipcMain.handle('cloud:test', () => cloud.test());
+ipcMain.handle('cloud:setKey', (_e, key) => cloud.setKey(key));
+ipcMain.handle('cloud:hasKey', () => ({ hasKey: cloud.hasKey(), enabled: cloud.enabled() }));
+ipcMain.handle('cloud:ask', (_e, messages, opts) => cloud.ask(messages, opts));
+
+/* ---------------- IPC: model routing ---------------- */
+ipcMain.handle('models:installed', () => modelrouter.installed());
+ipcMain.handle('models:pick', (_e, kind, fallback) => modelrouter.pick(kind, fallback));
+
+/* ---------------- IPC: feedback ratings ---------------- */
+ipcMain.handle('feedback:rate', (_e, entry) => {
+  const list = store.get('feedback', []);
+  list.push({ ...entry, at: Date.now() });
+  store.set('feedback', list.slice(-500));
+  return { ok: true };
+});
+ipcMain.handle('feedback:list', () => store.get('feedback', []));

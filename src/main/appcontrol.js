@@ -8,7 +8,7 @@ let uiSend = null; // (channel, payload) -> renderer
 function setUISender(fn) { uiSend = fn; }
 function enabled() { return cfg.get('settings.appControl', true); }
 
-const SETTABLE = new Set(['effort', 'defaultModel', 'temperature', 'maxSteps', 'rag', 'constitution', 'voiceReplies', 'autoListen', 'notifications', 'taskConcurrency', 'musicService']);
+const SETTABLE = new Set(['effort', 'defaultModel', 'temperature', 'maxSteps', 'rag', 'constitution', 'voiceReplies', 'autoListen', 'notifications', 'taskConcurrency', 'musicService', 'toolRouting', 'modelRouting', 'selfVerify', 'visibleThinking', 'webAutomation', 'guiAutomation']);
 const VIEWS = new Set(['dashboard', 'agents', 'marketplace', 'scenarios', 'scheduler', 'minecraft', 'servers', 'translator', 'smarthome', 'knowledge', 'swarm', 'queue', 'skills', 'dispatch', 'prompts', 'voice', 'developer', 'settings']);
 
 const toolSchemas = [

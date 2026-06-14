@@ -167,6 +167,45 @@ contextBridge.exposeInMainWorld('mythera', {
   },
   // Конституция агентов
   constitution: () => invoke('constitution:text'),
+  // MCP — внешние серверы инструментов
+  mcp: {
+    list: () => invoke('mcp:list'),
+    servers: () => invoke('mcp:servers'),
+    save: (c) => invoke('mcp:save', c),
+    delete: (id) => invoke('mcp:delete', id),
+    connect: () => invoke('mcp:connect'),
+    disconnect: () => invoke('mcp:disconnect')
+  },
+  // Веб-автоматизация (встроенный браузер)
+  web: {
+    goto: (url) => invoke('web:goto', url),
+    read: () => invoke('web:read'),
+    show: (v) => invoke('web:show', v),
+    close: () => invoke('web:close')
+  },
+  // Понимание документов
+  docs: {
+    capabilities: () => invoke('docs:capabilities'),
+    read: (p) => invoke('docs:read', p),
+    ingest: (p, scope) => invoke('docs:ingest', p, scope)
+  },
+  // Облачный мост
+  cloud: {
+    test: () => invoke('cloud:test'),
+    setKey: (k) => invoke('cloud:setKey', k),
+    hasKey: () => invoke('cloud:hasKey'),
+    ask: (m, o) => invoke('cloud:ask', m, o)
+  },
+  // Маршрутизация моделей
+  models: {
+    installed: () => invoke('models:installed'),
+    pick: (kind, fb) => invoke('models:pick', kind, fb)
+  },
+  // Обратная связь (оценки ответов)
+  feedback: {
+    rate: (e) => invoke('feedback:rate', e),
+    list: () => invoke('feedback:list')
+  },
   // Удалённый доступ (dispatch)
   dispatch: {
     status: () => invoke('dispatch:status'),

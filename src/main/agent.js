@@ -15,6 +15,12 @@ const audio = require('./audio');
 const smarthome = require('./smarthome');
 const constitution = require('./constitution');
 const appcontrol = require('./appcontrol');
+const router = require('./router');
+const modelrouter = require('./modelrouter');
+const webagent = require('./webagent');
+const gui = require('./gui');
+const mcp = require('./mcp');
+const docs = require('./docs');
 
 const activeSessions = new Map(); // sessionId -> { stop: bool }
 
@@ -25,6 +31,7 @@ const visionToolSchema = {
 };
 
 // Полный набор инструментов = базовые + расширения + скилы + зрение.
+// Новые возможности (веб/GUI-автоматизация, MCP) подключаются по настройкам.
 function allToolSchemas() {
   const disabled = store.get('settings.disabledTools', []);
   const all = [
@@ -35,6 +42,10 @@ function allToolSchemas() {
     ...browser.toolSchemas,
     ...audio.toolSchemas,
     ...smarthome.toolSchemas,
+    ...docs.toolSchemas,
+    ...(store.get('settings.webAutomation', false) ? webagent.toolSchemas : []),
+    ...(store.get('settings.guiAutomation', false) ? gui.toolSchemas : []),
+    ...(store.get('settings.mcpEnabled', false) ? mcp.toolSchemas() : []),
     ...(store.get('settings.appControl', true) ? appcontrol.toolSchemas : []),
     ...skills.toolSchemas(),
     visionToolSchema
@@ -43,9 +54,13 @@ function allToolSchemas() {
   return disabled.length ? all.filter((t) => !disabled.includes(t.function.name)) : all;
 }
 
-const extraHandlers = { ...minecraft.toolHandlers, ...remote.toolHandlers, ...translator.toolHandlers, ...browser.toolHandlers, ...audio.toolHandlers, ...smarthome.toolHandlers, ...appcontrol.toolHandlers };
+const extraHandlers = { ...minecraft.toolHandlers, ...remote.toolHandlers, ...translator.toolHandlers, ...browser.toolHandlers, ...audio.toolHandlers, ...smarthome.toolHandlers, ...appcontrol.toolHandlers, ...webagent.toolHandlers, ...gui.toolHandlers, ...docs.toolHandlers };
 
 async function dispatchTool(name, args) {
+  if (mcp.isMcpTool(name)) {
+    try { return await mcp.callTool(name, args || {}); }
+    catch (e) { return `Ошибка MCP ${name}: ${e.message}`; }
+  }
   if (skills.isSkillTool(name)) {
     try { return await skills.runSkill(name, args || {}); }
     catch (e) { return `Ошибка скила ${name}: ${e.message}`; }
@@ -55,6 +70,14 @@ async function dispatchTool(name, args) {
     catch (e) { return `Ошибка инструмента ${name}: ${e.message}`; }
   }
   return system.callTool(name, args);
+}
+
+// Определить тип задачи по тексту/агенту — для маршрутизации модели.
+function taskKind(message, agent, effort) {
+  const s = (((agent && agent.system) || '') + ' ' + String(message || '')).toLowerCase();
+  if (/код|програм|python|java|script|debug|компил|тест|sql|repo|git\b/.test(s) || /coder|debug|review|devops/.test((agent && agent.id) || '')) return 'code';
+  if (effort === 'fast') return 'fast';
+  return 'chat';
 }
 
 // Агенты, создаваемые при первом запуске.
@@ -217,10 +240,18 @@ async function chat({ agentId, sessionId, message, history, effort }, sendToUI) 
   const sess = { stop: false };
   activeSessions.set(sessionId, sess);
 
-  const model = agent.model || store.get('settings.defaultModel', '') || 'qwen2.5:7b';
+  let model = agent.model || store.get('settings.defaultModel', '') || 'qwen2.5:7b';
   const eff = EFFORT[effort] || EFFORT.balanced;
+  // Маршрутизация модели: под кодовые задачи — кодер, под быстрые — лёгкая.
+  let visionModel = model;
+  if (store.get('settings.modelRouting', false)) {
+    try {
+      model = await modelrouter.pick(taskKind(message, agent, effort), model);
+      visionModel = await modelrouter.pick('vision', model);
+    } catch { /* роутер best effort */ }
+  }
   // Инжектируем долговременную память (факты) + RAG-знания под конкретный запрос.
-  const memCtx = memory.buildContext(agent.id);
+  const memCtx = memory.buildContext(agent.id, message);
   let ragCtx = '';
   try { ragCtx = await rag.buildContext(agent.id, message); } catch { /* RAG best effort */ }
   const messages = [{ role: 'system', content: agent.system + constitution.build() + HONESTY + eff.note + memCtx + ragCtx }];
@@ -231,6 +262,15 @@ async function chat({ agentId, sessionId, message, history, effort }, sendToUI) 
   messages.push({ role: 'user', content: message });
 
   const useTools = agent.autonomy !== 'chat-only';
+  // Маршрутизация инструментов: вместо всех 40+ подбираем релевантное
+  // подмножество под запрос и роль — точнее вызовы на локальных моделях.
+  let toolset = null;
+  if (useTools) {
+    const full = allToolSchemas();
+    toolset = store.get('settings.toolRouting', false)
+      ? router.selectTools(full, message, agent, parseInt(store.get('settings.toolRoutingCap', 16), 10) || 16)
+      : full;
+  }
   // Многошаговые задачи: база 40 шагов в автономном режиме; effort и настройки переопределяют.
   const baseSteps = agent.autonomy === 'autonomous' ? 40 : 8;
   const override = parseInt(store.get('settings.maxSteps', 0), 10);
@@ -246,21 +286,43 @@ async function chat({ agentId, sessionId, message, history, effort }, sendToUI) 
     if (adv.stop) options.stop = String(adv.stop).split(',').map((s) => s.trim()).filter(Boolean);
   }
   let finalText = '';
+  let activeModel = model;
+  // Телеметрия: время, шаги, объём ответа, вызовы инструментов.
+  const t0 = Date.now();
+  const tel = { steps: 0, toolCalls: 0, chars: 0 };
 
-  try {
-    for (let step = 0; step < maxSteps; step++) {
+  // Видимое мышление: для серьёзных режимов сначала набрасываем короткий план
+  // и показываем его пользователю (структурно, не «спам инструментов»).
+  const wantPlan = store.get('settings.visibleThinking', true) && (agent.autonomy === 'autonomous' || effort === 'thorough' || effort === 'max');
+  if (wantPlan && !sess.stop) {
+    try {
+      const pr = await ollama.chatStream({ model, messages: [
+        { role: 'system', content: 'Ты планировщик. Составь КОРОТКИЙ план выполнения задачи: 3–6 пунктов, каждый с новой строки, без вступления и нумерации.' },
+        { role: 'user', content: message }
+      ], options: { temperature: 0.3 } }, null);
+      const plan = (pr.content || '').split('\n').map((s) => s.replace(/^[-*\d.\s]+/, '').trim()).filter(Boolean).slice(0, 6);
+      if (plan.length) {
+        sendToUI && sendToUI('agents:plan', { sessionId, plan });
+        messages[0].content += '\n\nТвой план действий:\n' + plan.map((p, i) => `${i + 1}. ${p}`).join('\n');
+      }
+    } catch { /* план best effort */ }
+  }
+
+  // Один прогон агентного цикла на заданный бюджет шагов.
+  async function runSteps(budget) {
+    for (let step = 0; step < budget; step++) {
       if (sess.stop) { finalText += '\n[остановлено пользователем]'; break; }
-
+      tel.steps++;
       const res = await ollama.chatStream(
-        { model, messages, tools: useTools ? allToolSchemas() : null, options },
-        (chunk) => sendToUI && sendToUI('agents:stream', { sessionId, chunk })
+        { model: activeModel, messages, tools: toolset, options },
+        (chunk) => { tel.chars += chunk.length; sendToUI && sendToUI('agents:stream', { sessionId, chunk }); }
       );
-
       finalText = res.content;
 
       if (res.toolCalls && res.toolCalls.length) {
         messages.push({ role: 'assistant', content: res.content || '', tool_calls: res.toolCalls });
         for (const tc of res.toolCalls) {
+          tel.toolCalls++;
           const fname = tc.function && tc.function.name;
           let args = tc.function && tc.function.arguments;
           if (typeof args === 'string') { try { args = JSON.parse(args); } catch { args = {}; } }
@@ -273,6 +335,8 @@ async function chat({ agentId, sessionId, message, history, effort }, sendToUI) 
               sendToUI && sendToUI('agents:toolResult', { sessionId, name: fname, result: 'Скриншот сделан' + (shot.file ? ': ' + shot.file : '') });
               messages.push({ role: 'tool', content: 'Скриншот экрана получен и прикреплён ниже.' });
               messages.push({ role: 'user', content: 'Вот текущий экран:', images: [shot.base64] });
+              // Если есть мультимодальная модель — переключаемся на неё, чтобы реально «увидеть».
+              if (visionModel && visionModel !== activeModel && modelrouter.isVision(visionModel)) activeModel = visionModel;
             } catch (e) {
               messages.push({ role: 'tool', content: 'Не удалось сделать скриншот: ' + e.message });
             }
@@ -290,20 +354,47 @@ async function chat({ agentId, sessionId, message, history, effort }, sendToUI) 
         }
         continue; // даём модели обработать результаты инструментов
       }
-      break; // нет вызовов инструментов — финальный ответ готов
+      return true; // нет вызовов инструментов — ответ готов
+    }
+    return false;
+  }
+
+  try {
+    await runSteps(maxSteps);
+
+    // Цикл самопроверки: для серьёзных режимов агент критикует свой результат
+    // и при необходимости доводит задачу до конца (structured self-verify).
+    const wantVerify = store.get('settings.selfVerify', true) && useTools && !sess.stop && finalText &&
+      (agent.autonomy === 'autonomous' || effort === 'thorough' || effort === 'max');
+    if (wantVerify) {
+      sendToUI && sendToUI('agents:verify', { sessionId, stage: 'start' });
+      messages.push({ role: 'user', content: 'Самопроверка. Внимательно перепроверь: задача выполнена ПОЛНОСТЬЮ и корректно? Все утверждения подтверждены результатами инструментов (созданные файлы существуют, код запущен, ошибок нет)? Если всё в порядке — ответь РОВНО словом «ГОТОВО» без пояснений. Если есть недочёты — кратко назови их, ИСПРАВЬ (вызови нужные инструменты) и доведи до конца.' });
+      const verifyBudget = Math.min(20, Math.max(4, Math.round(maxSteps / 3)));
+      await runSteps(verifyBudget);
+      // Если модель просто подтвердила «ГОТОВО» — оставляем прежний содержательный ответ.
+      if (/^\s*готово\b/i.test(finalText) || /^\s*done\b/i.test(finalText)) {
+        // ищем последний осмысленный ответ ассистента до самопроверки
+        const prior = [...messages].reverse().find((m) => m.role === 'assistant' && m.content && !/^\s*готово/i.test(m.content) && !m.tool_calls);
+        if (prior) finalText = prior.content;
+      }
+      sendToUI && sendToUI('agents:verify', { sessionId, stage: 'done' });
     }
   } catch (e) {
     finalText = 'Ошибка агента: ' + e.message + '\n\nУбедитесь, что Ollama запущена и модель установлена.';
   }
 
   activeSessions.delete(sessionId);
+  // Итоговая телеметрия.
+  const ms = Date.now() - t0;
+  const tokens = Math.round(tel.chars / 4); // грубая оценка
+  const telemetry = { ms, steps: tel.steps, toolCalls: tel.toolCalls, chars: tel.chars, tokens, tokPerSec: ms > 0 ? +(tokens / (ms / 1000)).toFixed(1) : 0, model: activeModel };
   pushHistory({ agentId, agentName: agent.name, at: Date.now(), user: message, assistant: finalText });
-  sendToUI && sendToUI('agents:done', { sessionId, text: finalText });
+  sendToUI && sendToUI('agents:done', { sessionId, text: finalText, telemetry });
   // В фоне выделяем важные факты в долговременную память (не блокирует ответ).
   if (store.get('settings.longMemory', true)) {
     memory.remember(agent.id, model, message, finalText).catch(() => {});
   }
-  return { sessionId, text: finalText };
+  return { sessionId, text: finalText, telemetry };
 }
 
 // Быстрый вопрос без UI-сессии (используется голосовым ассистентом).

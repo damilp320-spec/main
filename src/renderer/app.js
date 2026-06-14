@@ -124,7 +124,7 @@ const content = $('#content');
 async function render() {
   content.scrollTop = 0;
   content.className = 'content fade-in';
-  const map = { dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scenarios: viewScenarios, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, smarthome: viewSmartHome, knowledge: viewKnowledge, swarm: viewSwarm, queue: viewQueue, skills: viewSkills, dispatch: viewDispatch, prompts: viewPrompts, voice: viewVoice, operator: viewOperator, developer: viewDeveloper, settings: viewSettings };
+  const map = { dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scenarios: viewScenarios, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, smarthome: viewSmartHome, knowledge: viewKnowledge, swarm: viewSwarm, queue: viewQueue, skills: viewSkills, dispatch: viewDispatch, prompts: viewPrompts, voice: viewVoice, operator: viewOperator, automation: viewAutomation, developer: viewDeveloper, settings: viewSettings };
   const fn = map[state.view] || viewDashboard;
   // Граница ошибок: сбой одной вкладки не «вешает» весь интерфейс.
   try {
@@ -1433,7 +1433,8 @@ async function viewSettings() {
     operator: await g('operator', false),
     autoLearnSkills: await g('autoLearnSkills', false),
     duplexVoice: await g('duplexVoice', false),
-    artifacts: await g('artifacts', true)
+    artifacts: await g('artifacts', true),
+    quickAsk: await g('quickAsk', true)
   };
   const docCaps = await N.docs.capabilities();
   const cloudKey = await N.cloud.hasKey();
@@ -1538,6 +1539,8 @@ async function viewSettings() {
         <p class="muted" style="margin:6px 0">${esc(t('set.guiAutomationNote'))}</p>
         ${toggleRow('set-operator', t('set.operator'), s.operator)}
         <p class="muted" style="margin:6px 0">${esc(t('set.operatorNote'))}</p>
+        ${toggleRow('set-quickask', t('set.quickAsk'), s.quickAsk)}
+        <p class="muted" style="margin:6px 0">${esc(t('set.quickAskNote'))}</p>
         <p class="muted" style="margin:10px 0 4px"><b>${esc(t('set.docs'))}</b></p>
         <p class="muted" style="margin:4px 0">${esc(t('set.docsNote'))}</p>
         <p class="muted" style="margin:4px 0;font-family:monospace;font-size:11px">PDF ${docCaps.pdftotext ? '✅' : '⚪'} · Office ${docCaps.soffice ? '✅' : '⚪'} · OCR ${docCaps.tesseract ? '✅' : '⚪'}</p>
@@ -1602,6 +1605,7 @@ async function viewSettings() {
   bindToggle('set-autolearn', (v) => N.store.set('settings.autoLearnSkills', v));
   bindToggle('set-artifacts', (v) => { N.store.set('settings.artifacts', v); window.__artifactsOn = v; });
   bindToggle('set-duplex', (v) => N.store.set('settings.duplexVoice', v));
+  bindToggle('set-quickask', (v) => N.store.set('settings.quickAsk', v));
   bindToggle('set-operator', async (v) => {
     if (v) { const ok = await confirmModal('🦾 ' + t('set.operator'), t('set.operatorNote')); if (!ok) return viewSettings(); N.store.set('settings.guiAutomation', true); }
     N.store.set('settings.operator', v);
@@ -1953,6 +1957,161 @@ N.on('operator:done', ({ ok, summary, error }) => {
   if (summary) toast('🦾 ' + t('op.title'), String(summary).slice(0, 80), ok ? 'ok' : 'err');
 });
 
+/* ---------- Автоматизация: сценарии-конвейеры + наблюдатели ---------- */
+const STEP_TYPES = { agent: '🤖', tool: '🔧', notify: '🔔', speak: '🗣️', wait: '⏳' };
+async function viewAutomation() {
+  const tab = state.autoTab || 'flows';
+  content.innerHTML = `
+    <div class="view-head"><h1>🔗 ${esc(t('auto.title'))}</h1><p>${esc(t('auto.sub'))}</p></div>
+    <div class="tabs"><button class="tab ${tab === 'flows' ? 'active' : ''}" data-tab="flows">🪄 ${esc(t('auto.flows'))}</button>
+      <button class="tab ${tab === 'watchers' ? 'active' : ''}" data-tab="watchers">👁 ${esc(t('auto.watchers'))}</button></div>
+    <div id="auto-body"></div>`;
+  $$('.tabs .tab').forEach((b) => b.onclick = () => { state.autoTab = b.dataset.tab; viewAutomation(); });
+  if (tab === 'flows') await renderFlows(); else await renderWatchers();
+}
+
+async function renderFlows() {
+  const box = $('#auto-body');
+  const flows = await N.flows.list();
+  box.innerHTML = `<div class="row" style="justify-content:flex-end;margin-bottom:10px"><button class="btn primary" id="flow-new">＋ ${esc(t('auto.newFlow'))}</button></div>
+    ${flows.length ? flows.map((f) => `
+      <div class="card flow-card">
+        <div class="row" style="justify-content:space-between;align-items:center">
+          <b>🪄 ${esc(f.name || 'Сценарий')}</b>
+          <span class="muted" style="font-size:12px">${esc(t('auto.trigger'))}: ${esc(triggerLabel(f.trigger))}</span>
+        </div>
+        <div class="flow-steps">${(f.steps || []).map((s) => `<span class="flow-pill">${STEP_TYPES[s.type] || '•'} ${esc(s.type)}</span>`).join('<span class="flow-arrow">→</span>') || '<span class="muted">нет шагов</span>'}</div>
+        <div class="row" style="gap:6px;margin-top:8px">
+          <button class="btn sm" data-run="${esc(f.id)}">▶ ${esc(t('auto.run'))}</button>
+          <button class="btn ghost sm" data-edit="${esc(f.id)}">✎</button>
+          <button class="btn ghost sm" data-del="${esc(f.id)}">🗑</button>
+          <span class="flow-status" id="flowst-${esc(f.id)}"></span>
+        </div>
+      </div>`).join('') : `<div class="card muted">${esc(t('auto.noFlows'))}</div>`}`;
+  $('#flow-new').onclick = () => flowEditor(null);
+  $$('#auto-body [data-run]').forEach((b) => b.onclick = () => { $('#flowst-' + b.dataset.run).textContent = '⏳'; N.flows.run(b.dataset.run); });
+  $$('#auto-body [data-edit]').forEach((b) => b.onclick = async () => flowEditor((await N.flows.list()).find((f) => f.id === b.dataset.edit)));
+  $$('#auto-body [data-del]').forEach((b) => b.onclick = async () => { if (await confirmModal(t('auto.delFlow'), t('auto.delConfirm'))) { await N.flows.remove(b.dataset.del); renderFlows(); } });
+}
+function triggerLabel(tr) { tr = tr || {}; if (tr.type === 'interval') return `каждые ${tr.intervalSec || 3600}с`; if (tr.type === 'startup') return 'при запуске'; return 'вручную'; }
+
+async function flowEditor(flow) {
+  const agents = await N.agents.list();
+  flow = flow ? JSON.parse(JSON.stringify(flow)) : { name: '', trigger: { type: 'manual' }, steps: [], enabled: true };
+  const agentOpts = (sel) => agents.map((a) => `<option value="${esc(a.id)}" ${a.id === sel ? 'selected' : ''}>${esc(a.icon || '')} ${esc(a.name)}</option>`).join('');
+  const renderSteps = () => flow.steps.map((s, i) => `
+    <div class="card step-card" style="margin:6px 0">
+      <div class="row" style="justify-content:space-between"><b>${STEP_TYPES[s.type] || '•'} ${esc(s.type)}</b>
+        <span><button class="btn ghost sm" data-up="${i}">↑</button><button class="btn ghost sm" data-down="${i}">↓</button><button class="btn ghost sm" data-rm="${i}">✕</button></span></div>
+      ${s.type === 'agent' ? `<label class="field"><span>Агент</span><select data-f="agentId" data-i="${i}">${agentOpts(s.agentId)}</select></label>
+        <label class="field"><span>Промпт (исп. {input})</span><textarea data-f="prompt" data-i="${i}" rows="2">${esc(s.prompt || '')}</textarea></label>` : ''}
+      ${s.type === 'tool' ? `<label class="field"><span>Инструмент/скил</span><input data-f="tool" data-i="${i}" value="${esc(s.tool || '')}" placeholder="web_search"></label>
+        <label class="field"><span>Аргументы (JSON, {input})</span><input data-f="args" data-i="${i}" value="${esc(typeof s.args === 'string' ? s.args : JSON.stringify(s.args || {}))}"></label>` : ''}
+      ${s.type === 'notify' ? `<label class="field"><span>Заголовок</span><input data-f="title" data-i="${i}" value="${esc(s.title || '')}"></label>
+        <label class="field"><span>Текст ({input})</span><input data-f="message" data-i="${i}" value="${esc(s.message || '')}"></label>` : ''}
+      ${s.type === 'speak' ? `<label class="field"><span>Текст ({input})</span><input data-f="text" data-i="${i}" value="${esc(s.text || '')}"></label>` : ''}
+      ${s.type === 'wait' ? `<label class="field"><span>Секунд</span><input type="number" data-f="seconds" data-i="${i}" value="${esc(s.seconds || 2)}"></label>` : ''}
+    </div>`).join('');
+  modal(`<h2>${esc(t('auto.flowEdit'))}</h2>
+    <label class="field"><span>${esc(t('auto.name'))}</span><input id="fe-name" value="${esc(flow.name)}"></label>
+    <label class="field"><span>${esc(t('auto.trigger'))}</span><select id="fe-trig">
+      <option value="manual" ${flow.trigger.type === 'manual' ? 'selected' : ''}>Вручную</option>
+      <option value="startup" ${flow.trigger.type === 'startup' ? 'selected' : ''}>При запуске</option>
+      <option value="interval" ${flow.trigger.type === 'interval' ? 'selected' : ''}>По интервалу</option>
+    </select></label>
+    <label class="field" id="fe-int-wrap" style="${flow.trigger.type === 'interval' ? '' : 'display:none'}"><span>Интервал, сек</span><input type="number" id="fe-int" value="${esc(flow.trigger.intervalSec || 3600)}"></label>
+    <div id="fe-steps">${renderSteps()}</div>
+    <div class="row" style="gap:6px;flex-wrap:wrap;margin:8px 0">${Object.keys(STEP_TYPES).map((k) => `<button class="btn ghost sm" data-add="${k}">＋ ${STEP_TYPES[k]} ${k}</button>`).join('')}</div>
+    <div class="modal-actions"><button class="btn ghost" id="fe-cancel">${esc(t('btn.cancel'))}</button><button class="btn primary" id="fe-save">${esc(t('btn.save'))}</button></div>`,
+    (m, close) => {
+      const reRender = () => { $('#fe-steps', m).innerHTML = renderSteps(); wire(); };
+      const wire = () => {
+        $$('[data-add]', m).forEach((b) => b.onclick = () => { flow.steps.push({ type: b.dataset.add }); reRender(); });
+        $$('[data-rm]', m).forEach((b) => b.onclick = () => { flow.steps.splice(+b.dataset.rm, 1); reRender(); });
+        $$('[data-up]', m).forEach((b) => b.onclick = () => { const i = +b.dataset.up; if (i > 0) { [flow.steps[i - 1], flow.steps[i]] = [flow.steps[i], flow.steps[i - 1]]; reRender(); } });
+        $$('[data-down]', m).forEach((b) => b.onclick = () => { const i = +b.dataset.down; if (i < flow.steps.length - 1) { [flow.steps[i + 1], flow.steps[i]] = [flow.steps[i], flow.steps[i + 1]]; reRender(); } });
+        $$('[data-f]', m).forEach((inp) => inp.onchange = () => { flow.steps[+inp.dataset.i][inp.dataset.f] = inp.value; });
+      };
+      wire();
+      $('#fe-trig', m).onchange = (e) => { $('#fe-int-wrap', m).style.display = e.target.value === 'interval' ? '' : 'none'; };
+      $('#fe-cancel', m).onclick = close;
+      $('#fe-save', m).onclick = async () => {
+        flow.name = $('#fe-name', m).value.trim() || 'Сценарий';
+        const tt = $('#fe-trig', m).value;
+        flow.trigger = tt === 'interval' ? { type: 'interval', intervalSec: +$('#fe-int', m).value || 3600 } : { type: tt };
+        await N.flows.save(flow); close(); renderFlows();
+      };
+    });
+}
+N.on('flow:start', ({ flowId, name }) => { const s = $('#flowst-' + flowId); if (s) s.textContent = '⏳ ' + (name || ''); });
+N.on('flow:step', ({ flowId, index, state: st }) => { const s = $('#flowst-' + flowId); if (s) s.textContent = `шаг ${index + 1}: ${st}`; });
+N.on('flow:done', ({ flowId, ok }) => { const s = $('#flowst-' + flowId); if (s) s.textContent = ok ? '✅ готово' : '❌ ошибка'; });
+
+async function renderWatchers() {
+  const box = $('#auto-body');
+  const ws = await N.watchers.list();
+  const agents = await N.agents.list();
+  box.innerHTML = `<div class="row" style="justify-content:flex-end;margin-bottom:10px"><button class="btn primary" id="w-new">＋ ${esc(t('auto.newWatcher'))}</button></div>
+    ${ws.length ? ws.map((w) => `
+      <div class="card">
+        <div class="row" style="justify-content:space-between;align-items:center">
+          <b>👁 ${esc(w.name || 'Наблюдатель')}</b>
+          <label class="switch"><input type="checkbox" data-tg="${esc(w.id)}" ${w.enabled !== false ? 'checked' : ''}><span class="slider"></span></label>
+        </div>
+        <p class="muted" style="font-size:12px;margin:6px 0">${esc(watcherLabel(w))}</p>
+        <div class="row" style="gap:6px"><button class="btn sm" data-fire="${esc(w.id)}">▶ ${esc(t('auto.runNow'))}</button>
+          <button class="btn ghost sm" data-edit="${esc(w.id)}">✎</button><button class="btn ghost sm" data-del="${esc(w.id)}">🗑</button></div>
+      </div>`).join('') : `<div class="card muted">${esc(t('auto.noWatchers'))}</div>`}`;
+  $('#w-new').onclick = () => watcherEditor(null, agents);
+  $$('#auto-body [data-tg]').forEach((c) => c.onchange = () => N.watchers.toggle(c.dataset.tg, c.checked));
+  $$('#auto-body [data-fire]').forEach((b) => b.onclick = () => { N.watchers.fireNow(b.dataset.fire); toast('👁', t('auto.fired'), 'ok'); });
+  $$('#auto-body [data-edit]').forEach((b) => b.onclick = async () => watcherEditor(ws.find((w) => w.id === b.dataset.edit), agents));
+  $$('#auto-body [data-del]').forEach((b) => b.onclick = async () => { if (await confirmModal(t('auto.delWatcher'), t('auto.delConfirm'))) { await N.watchers.remove(b.dataset.del); renderWatchers(); } });
+}
+function watcherLabel(w) {
+  if (w.type === 'folder') return `📁 Папка: ${w.path || '?'} → агент при изменении`;
+  if (w.type === 'interval') return `⏱ Каждые ${w.intervalSec || 3600}с → агент`;
+  if (w.type === 'disk') return `💽 Диск ${w.path || '~'}: тревога ниже ${w.thresholdPct || 10}%`;
+  return w.type;
+}
+async function watcherEditor(w, agents) {
+  w = w ? JSON.parse(JSON.stringify(w)) : { name: '', type: 'folder', enabled: true, agentId: 'tpl-assistant', prompt: '', intervalSec: 3600, thresholdPct: 10 };
+  const agentOpts = agents.map((a) => `<option value="${esc(a.id)}" ${a.id === w.agentId ? 'selected' : ''}>${esc(a.icon || '')} ${esc(a.name)}</option>`).join('');
+  modal(`<h2>${esc(t('auto.watcherEdit'))}</h2>
+    <label class="field"><span>${esc(t('auto.name'))}</span><input id="we-name" value="${esc(w.name)}"></label>
+    <label class="field"><span>${esc(t('auto.type'))}</span><select id="we-type">
+      <option value="folder" ${w.type === 'folder' ? 'selected' : ''}>📁 Папка</option>
+      <option value="interval" ${w.type === 'interval' ? 'selected' : ''}>⏱ Интервал</option>
+      <option value="disk" ${w.type === 'disk' ? 'selected' : ''}>💽 Свободное место</option>
+    </select></label>
+    <label class="field we-path" style="${w.type === 'disk' || w.type === 'folder' ? '' : 'display:none'}"><span>${esc(t('auto.path'))}</span><div class="row"><input id="we-path" value="${esc(w.path || '')}" placeholder="C:\\Users\\...\\Downloads"><button class="btn ghost" id="we-pick">📂</button></div></label>
+    <label class="field we-int" style="${w.type === 'interval' || w.type === 'disk' ? '' : 'display:none'}"><span>Интервал, сек</span><input type="number" id="we-int" value="${esc(w.intervalSec || 3600)}"></label>
+    <label class="field we-thr" style="${w.type === 'disk' ? '' : 'display:none'}"><span>Порог, %</span><input type="number" id="we-thr" value="${esc(w.thresholdPct || 10)}"></label>
+    <label class="field"><span>${esc(t('auto.agent'))}</span><select id="we-agent">${agentOpts}</select></label>
+    <label class="field"><span>${esc(t('auto.prompt'))} ({event})</span><textarea id="we-prompt" rows="2">${esc(w.prompt || '')}</textarea></label>
+    <div class="modal-actions"><button class="btn ghost" id="we-cancel">${esc(t('btn.cancel'))}</button><button class="btn primary" id="we-save">${esc(t('btn.save'))}</button></div>`,
+    (m, close) => {
+      $('#we-type', m).onchange = (e) => {
+        const v = e.target.value;
+        $('.we-path', m).style.display = (v === 'folder' || v === 'disk') ? '' : 'none';
+        $('.we-int', m).style.display = (v === 'interval' || v === 'disk') ? '' : 'none';
+        $('.we-thr', m).style.display = v === 'disk' ? '' : 'none';
+      };
+      $('#we-pick', m).onclick = async () => { const d = await N.system.pickFolder({ title: 'Папка для наблюдения' }); if (d) $('#we-path', m).value = d; };
+      $('#we-cancel', m).onclick = close;
+      $('#we-save', m).onclick = async () => {
+        w.name = $('#we-name', m).value.trim() || 'Наблюдатель';
+        w.type = $('#we-type', m).value;
+        w.path = $('#we-path', m).value.trim();
+        w.intervalSec = +$('#we-int', m).value || 3600;
+        w.thresholdPct = +$('#we-thr', m).value || 10;
+        w.agentId = $('#we-agent', m).value;
+        w.prompt = $('#we-prompt', m).value.trim();
+        await N.watchers.save(w); close(); renderWatchers();
+      };
+    });
+}
+
 /* ---------- Проектные рабочие пространства ---------- */
 async function initProjectSelector() {
   const sel = $('#proj-select'); if (!sel) return;
@@ -1979,6 +2138,10 @@ async function initProjectSelector() {
   };
 }
 N.on('learner:skill', ({ skill }) => { toast('🎓 ' + t('learn.new'), (skill && skill.label) || '', 'ok'); });
+// График из анализа данных → панель артефактов.
+N.on('artifact:image', ({ title, base64 }) => { openArtifact({ kind: 'image', titleText: title, base64 }); });
+// Проактивный наблюдатель сработал.
+N.on('watcher:fired', ({ title, message }) => toast(title || '👁', String(message || '').slice(0, 100), 'ok'));
 
 /* ---------- Артефакты (живой превью) ---------- */
 const ARTIFACT_RE = /```(\w+)?\n([\s\S]*?)```/g;
@@ -1999,7 +2162,12 @@ function openArtifact(art) {
   if (!pane) return;
   title.textContent = (art.kind === 'html' ? '🖼 ' : '📄 ') + (art.lang || 'artifact');
   body.innerHTML = '';
-  if (art.kind === 'html') {
+  if (art.kind === 'image') {
+    title.textContent = '📊 ' + (art.titleText || 'График');
+    const img = el('img', 'artifact-img');
+    img.src = 'data:image/png;base64,' + art.base64;
+    body.appendChild(img);
+  } else if (art.kind === 'html') {
     const frame = el('iframe', 'artifact-frame');
     frame.setAttribute('sandbox', 'allow-scripts'); // изоляция: без доступа к родителю/сети cookies
     frame.srcdoc = art.lang === 'svg' ? `<body style="margin:0;display:grid;place-items:center;background:#fff">${art.code}</body>` : art.code;

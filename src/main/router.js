@@ -35,7 +35,9 @@ const BUNDLES = [
   { name: 'web-automation', tools: ['web_goto', 'web_read', 'web_click', 'web_type', 'web_screenshot', 'web_back'],
     kw: ['зайди на', 'кликни', 'нажми кнопк', 'заполни форм', 'браузер', 'browse', 'navigate', 'авторизуй', 'логин на сайт'] },
   { name: 'gui', tools: ['gui_click', 'gui_move', 'gui_type', 'gui_key', 'gui_screenshot'],
-    kw: ['мышк', 'мышь', 'курсор', 'клик по', 'нажми клавиш', 'набери текст', 'mouse', 'keyboard', 'горяч клавиш'] }
+    kw: ['мышк', 'мышь', 'курсор', 'клик по', 'нажми клавиш', 'набери текст', 'mouse', 'keyboard', 'горяч клавиш'] },
+  { name: 'data', tools: ['read_table', 'run_chart', 'read_document', 'run_python', 'read_file'],
+    kw: ['данны', 'таблиц', 'csv', 'excel', 'xlsx', 'график', 'диаграмм', 'chart', 'plot', 'статист', 'метрик', 'анализ', 'pandas', 'matplotlib', 'визуализ', 'документ', 'pdf'] }
 ];
 
 // Роль агента → бандлы, которые всегда полезны для него (даже без слов-триггеров).

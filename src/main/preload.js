@@ -220,6 +220,27 @@ contextBridge.exposeInMainWorld('mythera', {
     remove: (id) => invoke('projects:remove', id),
     setActive: (id) => invoke('projects:setActive', id)
   },
+  // Быстрый запуск (мини-окно)
+  quickask: {
+    context: () => invoke('quickask:context'),
+    hide: () => invoke('quickask:hide'),
+    show: () => invoke('quickask:show')
+  },
+  // Проактивные наблюдатели
+  watchers: {
+    list: () => invoke('watchers:list'),
+    save: (w) => invoke('watchers:save', w),
+    remove: (id) => invoke('watchers:remove', id),
+    toggle: (id, on) => invoke('watchers:toggle', id, on),
+    fireNow: (id) => invoke('watchers:fireNow', id)
+  },
+  // Сценарии-конвейеры
+  flows: {
+    list: () => invoke('flows:list'),
+    save: (f) => invoke('flows:save', f),
+    remove: (id) => invoke('flows:remove', id),
+    run: (id) => invoke('flows:run', id)
+  },
   // Удалённый доступ (dispatch)
   dispatch: {
     status: () => invoke('dispatch:status'),

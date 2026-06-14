@@ -22,6 +22,7 @@ const gui = require('./gui');
 const mcp = require('./mcp');
 const docs = require('./docs');
 const learner = require('./learner');
+const analysis = require('./analysis');
 
 const activeSessions = new Map(); // sessionId -> { stop: bool }
 
@@ -44,6 +45,7 @@ function allToolSchemas() {
     ...audio.toolSchemas,
     ...smarthome.toolSchemas,
     ...docs.toolSchemas,
+    ...analysis.toolSchemas,
     ...(store.get('settings.webAutomation', false) ? webagent.toolSchemas : []),
     ...(store.get('settings.guiAutomation', false) ? gui.toolSchemas : []),
     ...(store.get('settings.mcpEnabled', false) ? mcp.toolSchemas() : []),
@@ -55,7 +57,7 @@ function allToolSchemas() {
   return disabled.length ? all.filter((t) => !disabled.includes(t.function.name)) : all;
 }
 
-const extraHandlers = { ...minecraft.toolHandlers, ...remote.toolHandlers, ...translator.toolHandlers, ...browser.toolHandlers, ...audio.toolHandlers, ...smarthome.toolHandlers, ...appcontrol.toolHandlers, ...webagent.toolHandlers, ...gui.toolHandlers, ...docs.toolHandlers };
+const extraHandlers = { ...minecraft.toolHandlers, ...remote.toolHandlers, ...translator.toolHandlers, ...browser.toolHandlers, ...audio.toolHandlers, ...smarthome.toolHandlers, ...appcontrol.toolHandlers, ...webagent.toolHandlers, ...gui.toolHandlers, ...docs.toolHandlers, ...analysis.toolHandlers };
 
 async function dispatchTool(name, args) {
   if (mcp.isMcpTool(name)) {
@@ -417,5 +419,5 @@ async function runScheduledTask(task, sendToUI) {
 module.exports = {
   getTemplates, listAgents, saveAgent, deleteAgent, exportAgent, importAgent, addFromTemplate,
   getHistory, clearHistory, stopSession,
-  chat, quickAsk, runScheduledTask
+  chat, quickAsk, runScheduledTask, dispatchTool
 };

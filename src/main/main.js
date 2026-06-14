@@ -33,6 +33,10 @@ const cloud = require('./cloud');
 const modelrouter = require('./modelrouter');
 const operator = require('./operator');
 const projects = require('./projects');
+const quickask = require('./quickask');
+const watchers = require('./watchers');
+const flows = require('./flows');
+const analysis = require('./analysis');
 
 let win = null;
 let tray = null;
@@ -149,6 +153,25 @@ app.whenReady().then(async () => {
     mcp.connectAll().then((r) => sendToUI('mcp:connected', r)).catch(() => {});
   }
 
+  // Анализ данных: модуль шлёт построенные графики в панель артефактов.
+  analysis.setUISender(sendToUI);
+
+  // Глобальный быстрый запуск (Spotlight для ИИ) + горячая клавиша.
+  quickask.init({ getMainWin: () => win });
+  try { globalShortcut.register('CommandOrControl+Shift+A', () => quickask.toggle()); } catch { /* hotkey may be taken */ }
+
+  // Проактивные наблюдатели + сценарии-конвейеры.
+  const runAgent = async (agentId, prompt) => (await agent.chat({ agentId, message: prompt, history: [] }, sendToUI)).text;
+  watchers.init({ runAgent, notify: (p) => sendToUI('watcher:fired', p) });
+  watchers.startAll();
+  flows.init({
+    runAgent,
+    runTool: (name, args) => agent.dispatchTool(name, args),
+    speak: (text) => voice.speak(text),
+    notify: (p) => sendToUI('scheduler:fired', p)
+  });
+  flows.startupRun(sendToUI);
+
   // Очередь задач: пробрасываем события в UI и возобновляем незавершённые.
   taskQueue.load();
   ['task:added', 'task:started', 'task:progress', 'task:finished', 'queue:update'].forEach((ev) =>
@@ -163,7 +186,7 @@ app.whenReady().then(async () => {
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 
-app.on('before-quit', () => { isQuitting = true; voice.stop(); scheduler.shutdown(); try { mcp.disconnectAll(); } catch {} try { webagent.close(); } catch {} });
+app.on('before-quit', () => { isQuitting = true; voice.stop(); scheduler.shutdown(); try { mcp.disconnectAll(); } catch {} try { webagent.close(); } catch {} try { watchers.stopAll(); } catch {} try { quickask.destroy(); } catch {} });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 
 /* ---------------- IPC: window controls ---------------- */
@@ -385,6 +408,24 @@ ipcMain.handle('projects:create', (_e, name) => projects.create(name));
 ipcMain.handle('projects:rename', (_e, id, name) => projects.rename(id, name));
 ipcMain.handle('projects:remove', (_e, id) => projects.remove(id));
 ipcMain.handle('projects:setActive', (_e, id) => projects.setActive(id));
+
+/* ---------------- IPC: quick-ask launcher ---------------- */
+ipcMain.handle('quickask:context', () => quickask.getContext());
+ipcMain.handle('quickask:hide', () => { quickask.hide(); return true; });
+ipcMain.handle('quickask:show', () => { quickask.show(); return true; });
+
+/* ---------------- IPC: proactive watchers ---------------- */
+ipcMain.handle('watchers:list', () => watchers.list());
+ipcMain.handle('watchers:save', (_e, w) => watchers.save(w));
+ipcMain.handle('watchers:remove', (_e, id) => watchers.remove(id));
+ipcMain.handle('watchers:toggle', (_e, id, on) => watchers.toggle(id, on));
+ipcMain.handle('watchers:fireNow', (_e, id) => watchers.fireNow(id));
+
+/* ---------------- IPC: workflow flows ---------------- */
+ipcMain.handle('flows:list', () => flows.list());
+ipcMain.handle('flows:save', (_e, f) => flows.save(f));
+ipcMain.handle('flows:remove', (_e, id) => flows.remove(id));
+ipcMain.handle('flows:run', (_e, id) => flows.run(id, sendToUI));
 
 /* ---------------- IPC: feedback ratings ---------------- */
 ipcMain.handle('feedback:rate', (_e, entry) => {

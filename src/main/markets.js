@@ -127,6 +127,22 @@ async function trend({ symbol, interval, range }) {
   return { ok: true, trend: up ? 'up' : down ? 'down' : 'flat', price, sma20: +last.toFixed(2) };
 }
 
+// Матрица корреляций дневных доходностей между активами (для риска концентрации).
+async function correlation(symbols) {
+  symbols = (symbols || []).slice(0, 8);
+  if (symbols.length < 2) return { ok: false, error: 'Нужно минимум 2 тикера.' };
+  const series = {};
+  for (const s of symbols) {
+    const d = await candles({ symbol: s, interval: '1d', range: '6mo' });
+    if (d.ok && d.candles.length > 20) { const c = d.candles.map((x) => x.c); series[s] = c.slice(1).map((v, i) => v / c[i] - 1); }
+  }
+  const have = Object.keys(series);
+  if (have.length < 2) return { ok: false, error: 'Недостаточно данных.' };
+  const corr = (a, b) => { const n = Math.min(a.length, b.length); const xa = a.slice(-n), xb = b.slice(-n); const ma = xa.reduce((s, v) => s + v, 0) / n, mb = xb.reduce((s, v) => s + v, 0) / n; let num = 0, da = 0, db = 0; for (let i = 0; i < n; i++) { num += (xa[i] - ma) * (xb[i] - mb); da += (xa[i] - ma) ** 2; db += (xb[i] - mb) ** 2; } return da && db ? num / Math.sqrt(da * db) : 0; };
+  const matrix = have.map((r) => have.map((c) => +corr(series[r], series[c]).toFixed(2)));
+  return { ok: true, symbols: have, matrix };
+}
+
 // Инструмент агента: получить рыночные данные.
 async function marketDataTool({ symbol, interval, range }) {
   const d = await candles({ symbol, interval, range });
@@ -156,4 +172,4 @@ const toolSchemas = [
 ];
 const toolHandlers = { market_data: (a) => marketDataTool(a) };
 
-module.exports = { setUISender, candles, search, analyze, summarize, trend, getWatchlist, setWatchlist, toolSchemas, toolHandlers };
+module.exports = { setUISender, candles, search, analyze, summarize, trend, correlation, getWatchlist, setWatchlist, toolSchemas, toolHandlers };

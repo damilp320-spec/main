@@ -27,6 +27,7 @@ const markets = require('./markets');
 const trading = require('./trading');
 const analyst = require('./analyst');
 const portfolio = require('./portfolio');
+const journal = require('./journal');
 const imagegen = require('./imagegen');
 const news = require('./news');
 const crawler = require('./crawler');
@@ -62,6 +63,7 @@ function allToolSchemas() {
     ...markets.toolSchemas,
     ...analyst.toolSchemas,
     ...portfolio.toolSchemas,
+    ...journal.toolSchemas,
     ...news.toolSchemas,
     ...crawler.toolSchemas,
     ...notes.toolSchemas,
@@ -83,7 +85,7 @@ function allToolSchemas() {
   return disabled.length ? all.filter((t) => !disabled.includes(t.function.name)) : all;
 }
 
-const extraHandlers = { ...minecraft.toolHandlers, ...remote.toolHandlers, ...translator.toolHandlers, ...browser.toolHandlers, ...audio.toolHandlers, ...smarthome.toolHandlers, ...appcontrol.toolHandlers, ...webagent.toolHandlers, ...gui.toolHandlers, ...docs.toolHandlers, ...analysis.toolHandlers, ...markets.toolHandlers, ...analyst.toolHandlers, ...portfolio.toolHandlers, ...news.toolHandlers, ...crawler.toolHandlers, ...notes.toolHandlers, ...datastudio.toolHandlers, ...rss.toolHandlers, ...connections.toolHandlers, ...calendar.toolHandlers, ...email.toolHandlers, ...imagegen.toolHandlers, ...trading.toolHandlers };
+const extraHandlers = { ...minecraft.toolHandlers, ...remote.toolHandlers, ...translator.toolHandlers, ...browser.toolHandlers, ...audio.toolHandlers, ...smarthome.toolHandlers, ...appcontrol.toolHandlers, ...webagent.toolHandlers, ...gui.toolHandlers, ...docs.toolHandlers, ...analysis.toolHandlers, ...markets.toolHandlers, ...analyst.toolHandlers, ...portfolio.toolHandlers, ...journal.toolHandlers, ...news.toolHandlers, ...crawler.toolHandlers, ...notes.toolHandlers, ...datastudio.toolHandlers, ...rss.toolHandlers, ...connections.toolHandlers, ...calendar.toolHandlers, ...email.toolHandlers, ...imagegen.toolHandlers, ...trading.toolHandlers };
 
 async function dispatchTool(name, args) {
   if (mcp.isMcpTool(name)) {

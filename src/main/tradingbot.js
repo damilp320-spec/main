@@ -35,9 +35,11 @@ function cfg() {
     qty: Math.max(1, +c.qty || 10),
     useSentiment: c.useSentiment === true,
     confirmTf: c.confirmTf || '',           // мульти-таймфрейм подтверждение ('', '1d', '1wk')
-    stopLossPct: +c.stopLossPct || 0,        // стоп-лосс, % от входа
+    stopLossPct: +c.stopLossPct || 0,        // стоп-лосс, % от входа (или флаг вкл для ATR)
     takeProfitPct: +c.takeProfitPct || 0,    // тейк-профит, % от входа
-    trailingPct: +c.trailingPct || 0,        // трейлинг-стоп, % от пика
+    trailingPct: +c.trailingPct || 0,        // трейлинг-стоп, % от пика (или флаг вкл для ATR)
+    stopType: c.stopType === 'atr' ? 'atr' : 'percent', // тип стопа
+    atrMult: +c.atrMult || 2,                // множитель ATR
     _state: c._state || {}
   };
 }
@@ -80,13 +82,21 @@ async function evaluate() {
         if (!pos && st.side === 'buy') st = { side: null };
       }
 
-      // 1) Управление открытой позицией: трейлинг-стоп / тейк-профит / стоп-лосс.
+      // 1) Управление открытой позицией: тейк-профит / стоп-лосс / трейлинг-стоп.
+      //    Стоп — фиксированный % ИЛИ адаптивный по ATR (волатильности).
       if (st.side === 'buy' && st.entry) {
         st.peak = Math.max(st.peak || st.entry, price);
+        const av = c.stopType === 'atr' ? backtest.atr(d.candles, 14) : null;
         let exit = null;
         if (c.takeProfitPct && price >= st.entry * (1 + c.takeProfitPct / 100)) exit = 'take-profit';
-        else if (c.stopLossPct && price <= st.entry * (1 - c.stopLossPct / 100)) exit = 'stop-loss';
-        else if (c.trailingPct && price <= st.peak * (1 - c.trailingPct / 100)) exit = 'trailing-stop';
+        else if (c.stopLossPct) {
+          const lvl = (c.stopType === 'atr' && av) ? st.entry - c.atrMult * av : st.entry * (1 - c.stopLossPct / 100);
+          if (price <= lvl) exit = 'stop-loss' + (av ? ' (ATR)' : '');
+        }
+        if (!exit && c.trailingPct) {
+          const lvl = (c.stopType === 'atr' && av) ? st.peak - c.atrMult * av : st.peak * (1 - c.trailingPct / 100);
+          if (price <= lvl) exit = 'trailing-stop' + (av ? ' (ATR)' : '');
+        }
         if (exit) { await sell(c, symbol, price, exit); emit('exit', { symbol, reason: exit, price }); state[symbol] = { side: null }; continue; }
       }
 

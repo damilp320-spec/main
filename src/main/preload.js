@@ -361,6 +361,22 @@ contextBridge.exposeInMainWorld('mythera', {
     remove: (id) => invoke('alerts:remove', id),
     toggle: (id, on) => invoke('alerts:toggle', id, on)
   },
+  dca: {
+    list: () => invoke('dca:list'),
+    save: (p) => invoke('dca:save', p),
+    remove: (id) => invoke('dca:remove', id),
+    toggle: (id, on) => invoke('dca:toggle', id, on),
+    runNow: (id) => invoke('dca:runNow', id)
+  },
+  journal: {
+    list: () => invoke('journal:list'),
+    save: (e) => invoke('journal:save', e),
+    remove: (id) => invoke('journal:remove', id),
+    syncPaper: () => invoke('journal:syncPaper'),
+    stats: () => invoke('journal:stats'),
+    review: () => invoke('journal:review')
+  },
+  marketsCorrelation: (symbols) => invoke('markets:correlation', symbols),
   paper: {
     valuation: (q) => invoke('paper:valuation', q),
     history: () => invoke('paper:history'),

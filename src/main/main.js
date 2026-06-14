@@ -59,6 +59,8 @@ const tradingbot = require('./tradingbot');
 const analyst = require('./analyst');
 const portfolio = require('./portfolio');
 const alerts = require('./alerts');
+const dca = require('./dca');
+const journal = require('./journal');
 const fs = require('fs');
 
 let win = null;
@@ -220,6 +222,8 @@ app.whenReady().then(async () => {
   tradingbot.init({ sendToUI });
   // Алерты по индикаторам/ценам → уведомления.
   alerts.init({ notify: (p) => sendToUI('watcher:fired', p) });
+  // DCA-автопокупки по расписанию.
+  dca.init({ notify: (p) => sendToUI('watcher:fired', p) });
 
   // Очередь задач: пробрасываем события в UI и возобновляем незавершённые.
   taskQueue.load();
@@ -235,7 +239,7 @@ app.whenReady().then(async () => {
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 
-app.on('before-quit', () => { isQuitting = true; voice.stop(); scheduler.shutdown(); try { mcp.disconnectAll(); } catch {} try { webagent.close(); } catch {} try { watchers.stopAll(); } catch {} try { quickask.destroy(); } catch {} try { calendar.shutdown(); } catch {} try { alerts.shutdown(); } catch {} });
+app.on('before-quit', () => { isQuitting = true; voice.stop(); scheduler.shutdown(); try { mcp.disconnectAll(); } catch {} try { webagent.close(); } catch {} try { watchers.stopAll(); } catch {} try { quickask.destroy(); } catch {} try { calendar.shutdown(); } catch {} try { alerts.shutdown(); } catch {} try { dca.shutdown(); } catch {} });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 
 /* ---------------- IPC: window controls ---------------- */
@@ -603,6 +607,18 @@ ipcMain.handle('alerts:list', () => alerts.list());
 ipcMain.handle('alerts:save', (_e, a) => alerts.save(a));
 ipcMain.handle('alerts:remove', (_e, id) => alerts.remove(id));
 ipcMain.handle('alerts:toggle', (_e, id, on) => alerts.toggle(id, on));
+ipcMain.handle('dca:list', () => dca.list());
+ipcMain.handle('dca:save', (_e, p) => dca.save(p));
+ipcMain.handle('dca:remove', (_e, id) => dca.remove(id));
+ipcMain.handle('dca:toggle', (_e, id, on) => dca.toggle(id, on));
+ipcMain.handle('dca:runNow', (_e, id) => dca.runNow(id));
+ipcMain.handle('journal:list', () => journal.list());
+ipcMain.handle('journal:save', (_e, e) => journal.save(e));
+ipcMain.handle('journal:remove', (_e, id) => journal.remove(id));
+ipcMain.handle('journal:syncPaper', () => journal.syncPaper());
+ipcMain.handle('journal:stats', () => journal.stats());
+ipcMain.handle('journal:review', () => journal.review());
+ipcMain.handle('markets:correlation', (_e, symbols) => markets.correlation(symbols));
 ipcMain.handle('paper:valuation', (_e, quotes) => paper.valuation(quotes));
 ipcMain.handle('paper:history', () => paper.history());
 ipcMain.handle('paper:reset', (_e, cash) => paper.reset(cash));

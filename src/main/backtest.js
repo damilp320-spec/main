@@ -122,6 +122,17 @@ const STRATEGIES = [
   { id: 'golden_cross', name: 'Золотой крест (50/200)', params: [['fast', 'Быстрая SMA', 50], ['slow', 'Медленная SMA', 200]] }
 ];
 
+// Average True Range — для адаптивных (волатильностных) стопов.
+function atr(candles, n = 14) {
+  if (!candles || candles.length < n + 1) return null;
+  let sum = 0;
+  for (let i = candles.length - n; i < candles.length; i++) {
+    const tr = Math.max(candles[i].h - candles[i].l, Math.abs(candles[i].h - candles[i - 1].c), Math.abs(candles[i].l - candles[i - 1].c));
+    sum += tr;
+  }
+  return sum / n;
+}
+
 // Последний сигнал стратегии по свежим свечам (для ИИ-бота).
 function lastSignal(strategy, candles, params) {
   const sig = signals(strategy, candles, params || {});
@@ -157,5 +168,5 @@ async function optimize({ symbol, interval, range, strategy }) {
   return { ok: true, best, top: results.slice(0, 8) };
 }
 
-module.exports = { run, optimize, signals, lastSignal, STRATEGIES };
+module.exports = { run, optimize, signals, lastSignal, atr, STRATEGIES };
 

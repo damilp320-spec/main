@@ -2380,15 +2380,23 @@ async function renderBotCard() {
       <label class="field" style="max-width:100px"><span>${esc(t('bot.candle'))}</span><select id="bot-candle"><option value="1d" ${c.interval === '1d' ? 'selected' : ''}>1д</option><option value="1h" ${c.interval === '1h' ? 'selected' : ''}>1ч</option></select></label>
     </div>
     <label class="field"><span>${esc(t('bot.symbols'))}</span><input id="bot-syms" value="${esc(c.symbols.join(', '))}" placeholder="AAPL, BTC-USD"></label>
+    <div class="row" style="gap:8px">
+      <label class="field" style="max-width:150px"><span>${esc(t('bot.mtf'))}</span><select id="bot-mtf"><option value="" ${!c.confirmTf ? 'selected' : ''}>${esc(t('bot.mtfOff'))}</option><option value="1d" ${c.confirmTf === '1d' ? 'selected' : ''}>1д</option><option value="1wk" ${c.confirmTf === '1wk' ? 'selected' : ''}>1нед</option></select></label>
+    </div>
+    <div class="row" style="gap:8px">
+      <label class="field"><span>${esc(t('bot.sl'))} %</span><input id="bot-sl" type="number" value="${c.stopLossPct}"></label>
+      <label class="field"><span>${esc(t('bot.tp'))} %</span><input id="bot-tp" type="number" value="${c.takeProfitPct}"></label>
+      <label class="field"><span>${esc(t('bot.trail'))} %</span><input id="bot-trail" type="number" value="${c.trailingPct}"></label>
+    </div>
     ${toggleRow('bot-sent', t('bot.sentiment'), c.useSentiment)}
     ${c.mode === 'broker' && safe ? `<div class="card ${safe.live && !safe.dryRun ? 'tr-live' : 'tr-safe'}" style="margin:6px 0;font-size:12px"><b>${safe.live ? '🔴 LIVE' : '🟢 sandbox'}</b>${safe.dryRun ? ' · 🧪 dry-run' : ''} · ${safe.confirm ? '✅ ' + esc(t('bot.willConfirm')) : '⚠️ ' + esc(t('bot.willAuto'))}</div>` : ''}
     <div class="row" style="gap:6px"><button class="btn ghost sm" id="bot-once">▶ ${esc(t('bot.runOnce'))}</button><span id="bot-status" class="muted" style="font-size:12px">${c.running ? '🟢 ' + esc(t('bot.running')) : ''}</span></div>
     <div id="bot-log" class="op-log" style="max-height:150px;margin-top:8px"></div>
     <p class="muted" style="font-size:11px;margin-top:6px">${esc(t('bot.note'))}</p>`;
-  const saveCfg = () => N.bot.setCfg({ mode: $('#bot-mode').value, strategy: $('#bot-strat').value, qty: +$('#bot-qty').value || 1, intervalMin: +$('#bot-int').value || 15, interval: $('#bot-candle').value, symbols: $('#bot-syms').value.split(',').map((s) => s.trim()).filter(Boolean), useSentiment: $('#bot-sent').checked });
+  const saveCfg = () => N.bot.setCfg({ mode: $('#bot-mode').value, strategy: $('#bot-strat').value, qty: +$('#bot-qty').value || 1, intervalMin: +$('#bot-int').value || 15, interval: $('#bot-candle').value, symbols: $('#bot-syms').value.split(',').map((s) => s.trim()).filter(Boolean), useSentiment: $('#bot-sent').checked, confirmTf: $('#bot-mtf').value, stopLossPct: +$('#bot-sl').value || 0, takeProfitPct: +$('#bot-tp').value || 0, trailingPct: +$('#bot-trail').value || 0 });
   $$('#bot-body [data-prof]').forEach((b) => b.onclick = async () => { await N.bot.applyProfile(b.dataset.prof); toast('🤖', t('bot.profileSet') + ': ' + b.textContent.trim(), 'ok'); renderBotCard(); });
   bindToggle('bot-enable', async (v) => { if (v && !await confirmModal('🤖 ' + t('bot.title'), t('bot.enableWarn'))) return renderBotCard(); await N.bot.setCfg({ enabled: v }); renderBotCard(); });
-  ['#bot-mode', '#bot-strat', '#bot-qty', '#bot-int', '#bot-candle', '#bot-syms'].forEach((s) => { const e = $(s); if (e) e.onchange = async () => { await saveCfg(); if (s === '#bot-mode') renderBotCard(); }; });
+  ['#bot-mode', '#bot-strat', '#bot-qty', '#bot-int', '#bot-candle', '#bot-syms', '#bot-mtf', '#bot-sl', '#bot-tp', '#bot-trail'].forEach((s) => { const e = $(s); if (e) e.onchange = async () => { await saveCfg(); if (s === '#bot-mode') renderBotCard(); }; });
   bindToggle('bot-sent', () => saveCfg());
   $('#bot-once').onclick = async () => { $('#bot-status').textContent = '⏳'; await N.bot.runOnce(); $('#bot-status').textContent = '✓ ' + t('bot.evaluated'); renderPaperCard(); };
 }
@@ -2433,9 +2441,9 @@ async function renderPortfolioAnalytics() {
 N.on('bot:event', (e) => {
   const log = $('#bot-log');
   if (log && state.view === 'trading') {
-    const ic = { signal: '📊', trade: '✅', order: '📤', skip: '⤵️', error: '⚠️', status: '🔄' };
-    const msg = e.kind === 'signal' ? `${e.symbol}: ${e.signal} @ ${(e.price || 0).toFixed ? e.price.toFixed(2) : e.price}` : e.kind === 'trade' ? `${e.symbol}: ${e.side} ${e.qty} @ ${e.price.toFixed(2)}${e.pnl != null ? ' · P&L ' + e.pnl : ''}` : `${e.symbol || ''} ${e.message || ''}`;
-    const d = el('div', 'op-line op-' + (e.kind === 'trade' ? 'action' : e.kind === 'error' ? 'warn' : 'frame'));
+    const ic = { signal: '📊', trade: '✅', order: '📤', skip: '⤵️', error: '⚠️', status: '🔄', exit: '🚪', confirm: '🧭' };
+    const msg = e.kind === 'signal' ? `${e.symbol}: ${e.signal} @ ${(e.price || 0).toFixed ? e.price.toFixed(2) : e.price}` : e.kind === 'trade' ? `${e.symbol}: ${e.side} ${e.qty} @ ${e.price.toFixed(2)}${e.pnl != null ? ' · P&L ' + e.pnl : ''}` : e.kind === 'exit' ? `${e.symbol}: выход (${e.reason}) @ ${(e.price || 0).toFixed ? e.price.toFixed(2) : e.price}` : `${e.symbol || ''} ${e.message || ''}`;
+    const d = el('div', 'op-line op-' + (e.kind === 'trade' ? 'action' : e.kind === 'error' ? 'warn' : e.kind === 'exit' ? 'action' : 'frame'));
     d.textContent = `${ic[e.kind] || '•'} ${msg}`;
     log.appendChild(d); log.scrollTop = log.scrollHeight;
   }
@@ -3009,6 +3017,15 @@ async function viewMarkets() {
     <div class="grid cols-2">
       <div class="card"><h3>⭐ ${esc(t('mk.watchlist'))}</h3><div id="mk-wl"></div></div>
       <div class="card"><div class="row between"><h3>🧠 ${esc(t('mk.aiTitle'))}</h3><button class="btn ghost sm" id="mk-deep">🔬 ${esc(t('mk.deep'))}</button></div><div id="mk-ai" class="mk-ai muted">${esc(t('mk.aiHint'))}</div></div>
+      <div class="card" style="grid-column:1/-1"><h3>🔔 ${esc(t('al.title'))}</h3>
+        <div class="row" style="gap:6px;flex-wrap:wrap;align-items:flex-end">
+          <label class="field" style="max-width:120px"><span>${esc(t('al.ticker'))}</span><input id="al-sym" placeholder="AAPL"></label>
+          <label class="field" style="max-width:170px"><span>${esc(t('al.cond'))}</span><select id="al-type"><option value="price_above">${esc(t('al.priceAbove'))}</option><option value="price_below">${esc(t('al.priceBelow'))}</option><option value="rsi_above">RSI ≥</option><option value="rsi_below">RSI ≤</option></select></label>
+          <label class="field" style="max-width:100px"><span>${esc(t('al.value'))}</span><input id="al-val" type="number"></label>
+          <button class="btn" id="al-add">＋ ${esc(t('al.add'))}</button>
+        </div>
+        <div id="al-list" style="margin-top:10px"></div>
+      </div>
       <div class="card" style="grid-column:1/-1">
         <div class="row" style="justify-content:space-between;align-items:center"><h3>📰 ${esc(t('news.title'))}</h3><button class="btn ghost sm" id="mk-sentiment">🧠 ${esc(t('news.sentiment'))}</button></div>
         <div id="mk-sent" class="muted" style="margin:6px 0;font-size:13px"></div>
@@ -3028,6 +3045,14 @@ async function viewMarkets() {
   $('#mk-analyze').onclick = analyzeMarket;
   $('#mk-deep').onclick = deepAnalyzeMarket;
   $('#mk-sentiment').onclick = analyzeSentiment;
+  $('#al-add').onclick = async () => {
+    const sym = ($('#al-sym').value.trim() || mk.symbol); const val = +$('#al-val').value;
+    if (!sym || !val) return toast('🔔', t('al.need'), 'err');
+    await N.alerts.save({ symbol: sym, type: $('#al-type').value, value: val });
+    $('#al-val').value = ''; renderAlerts();
+  };
+  $('#al-sym').value = mk.symbol;
+  renderAlerts();
   window.addEventListener('resize', drawMarket);
   await renderWatchlist();
   await initBacktest();
@@ -3124,6 +3149,14 @@ async function loadNews() {
   if (!r.ok || !r.news.length) { box.innerHTML = `<span class="muted">${esc(t('news.none'))}</span>`; return; }
   box.innerHTML = r.news.slice(0, 8).map((n) => `<div class="news-item"><a data-link="${esc(n.link)}">${esc(n.title)}</a><span class="news-meta">${esc(n.publisher || '')}${n.time ? ' · ' + new Date(n.time).toLocaleDateString() : ''}</span></div>`).join('');
   $$('#mk-news [data-link]').forEach((a) => a.onclick = () => N.system.openExternal(a.dataset.link));
+}
+async function renderAlerts() {
+  const box = $('#al-list'); if (!box) return;
+  const all = await N.alerts.list();
+  const lbl = { price_above: t('al.priceAbove'), price_below: t('al.priceBelow'), rsi_above: 'RSI ≥', rsi_below: 'RSI ≤' };
+  box.innerHTML = all.length ? all.map((a) => `<div class="al-item"><label class="switch"><input type="checkbox" data-tg="${esc(a.id)}" ${a.enabled !== false ? 'checked' : ''}><span class="slider"></span></label><span><b>${esc(a.symbol)}</b> ${esc(lbl[a.type] || a.type)} <b>${a.value}</b></span>${a._fired ? '<span class="mk-up" style="font-size:11px">● сработал</span>' : ''}<button class="btn ghost sm" data-rm="${esc(a.id)}" style="margin-left:auto">✕</button></div>`).join('') : `<p class="muted">${esc(t('al.empty'))}</p>`;
+  $$('#al-list [data-tg]').forEach((c) => c.onchange = () => N.alerts.toggle(c.dataset.tg, c.checked));
+  $$('#al-list [data-rm]').forEach((b) => b.onclick = async () => { await N.alerts.remove(b.dataset.rm); renderAlerts(); });
 }
 async function analyzeSentiment() {
   const box = $('#mk-sent'); if (!box) return;

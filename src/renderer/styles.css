@@ -378,6 +378,9 @@ body.compact .view-head { margin-bottom: 10px; }
 .mk-spark { width: 80px; height: 22px; }
 .mk-wl-q { font-size: 12px; font-family: 'Consolas', monospace; min-width: 96px; text-align: right; }
 
+/* ---------- Alerts ---------- */
+.al-item { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+
 /* ---------- Portfolio analytics ---------- */
 .pa-bar { display: flex; height: 22px; border-radius: 6px; overflow: hidden; border: 1px solid var(--border); }
 .pa-bar span { height: 100%; }

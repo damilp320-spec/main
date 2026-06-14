@@ -112,6 +112,21 @@ function summarize(data) {
   return `Тикер: ${data.symbol} (${data.source})\nЦена: ${last != null ? last.toFixed(2) : '?'} ${data.currency || ''}\nИзменение за период: ${chg.toFixed(2)}%\nМакс/мин периода: ${hi.toFixed(2)} / ${lo.toFixed(2)}\nSMA20: ${sma20 ? sma20.toFixed(2) : 'н/д'}, SMA50: ${sma50 ? sma50.toFixed(2) : 'н/д'}\nRSI(14): ${r != null ? r : 'н/д'}\nПоследние закрытия: ${recent}`;
 }
 
+// Тренд по таймфрейму (для мульти-таймфрейм подтверждения и виджета).
+async function trend({ symbol, interval, range }) {
+  const def = interval === '1wk' ? '2y' : interval === '1h' ? '1mo' : '6mo';
+  const d = await candles({ symbol, interval: interval || '1d', range: range || def });
+  if (!d.ok || d.candles.length < 25) return { ok: false, trend: 'unknown' };
+  const closes = d.candles.map((c) => c.c);
+  const s = sma(closes, 20);
+  const last = s[s.length - 1], prev = s[s.length - 11] != null ? s[s.length - 11] : s[s.length - 6];
+  if (last == null) return { ok: false, trend: 'unknown' };
+  const price = closes[closes.length - 1];
+  const up = price > last && (prev == null || last >= prev);
+  const down = price < last && (prev == null || last <= prev);
+  return { ok: true, trend: up ? 'up' : down ? 'down' : 'flat', price, sma20: +last.toFixed(2) };
+}
+
 // Инструмент агента: получить рыночные данные.
 async function marketDataTool({ symbol, interval, range }) {
   const d = await candles({ symbol, interval, range });
@@ -141,4 +156,4 @@ const toolSchemas = [
 ];
 const toolHandlers = { market_data: (a) => marketDataTool(a) };
 
-module.exports = { setUISender, candles, search, analyze, summarize, getWatchlist, setWatchlist, toolSchemas, toolHandlers };
+module.exports = { setUISender, candles, search, analyze, summarize, trend, getWatchlist, setWatchlist, toolSchemas, toolHandlers };

@@ -355,6 +355,12 @@ contextBridge.exposeInMainWorld('mythera', {
   },
   analyst: { deep: (s, h) => invoke('analyst:deep', s, h) },
   portfolio: { analyze: (q) => invoke('portfolio:analyze', q) },
+  alerts: {
+    list: () => invoke('alerts:list'),
+    save: (a) => invoke('alerts:save', a),
+    remove: (id) => invoke('alerts:remove', id),
+    toggle: (id, on) => invoke('alerts:toggle', id, on)
+  },
   paper: {
     valuation: (q) => invoke('paper:valuation', q),
     history: () => invoke('paper:history'),

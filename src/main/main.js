@@ -56,6 +56,8 @@ const email = require('./email');
 const modelbuilder = require('./modelbuilder');
 const paper = require('./paper');
 const tradingbot = require('./tradingbot');
+const analyst = require('./analyst');
+const portfolio = require('./portfolio');
 const fs = require('fs');
 
 let win = null;
@@ -590,7 +592,10 @@ ipcMain.handle('backtest:optimize', (_e, opts) => backtest.optimize(opts));
 /* ---------------- IPC: AI trading bot + paper account ---------------- */
 ipcMain.handle('bot:cfg', () => tradingbot.publicCfg());
 ipcMain.handle('bot:setCfg', (_e, patch) => tradingbot.setCfg(patch));
+ipcMain.handle('bot:applyProfile', (_e, name) => tradingbot.applyProfile(name));
 ipcMain.handle('bot:runOnce', () => tradingbot.runOnce());
+ipcMain.handle('analyst:deep', (_e, symbol, horizon) => analyst.deepAnalysis(symbol, horizon));
+ipcMain.handle('portfolio:analyze', (_e, quotes) => portfolio.analyze(quotes));
 ipcMain.handle('paper:valuation', (_e, quotes) => paper.valuation(quotes));
 ipcMain.handle('paper:history', () => paper.history());
 ipcMain.handle('paper:reset', (_e, cash) => paper.reset(cash));

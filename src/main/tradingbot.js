@@ -13,13 +13,21 @@ let uiSender = null, timer = null;
 function setUISender(fn) { uiSender = fn; }
 function emit(kind, payload) { uiSender && uiSender('bot:event', { kind, ...payload }); }
 
+// Готовые торговые режимы (профили риска) — чтобы ИИ/пользователю было просто.
+const PROFILES = {
+  aggressive: { strategy: 'momentum', params: { period: 5, threshold: 4 }, interval: '1h', range: '1mo', intervalMin: 10, useSentiment: false },
+  moderate: { strategy: 'macd', params: { fast: 12, slow: 26, signal: 9 }, interval: '1d', range: '6mo', intervalMin: 30, useSentiment: true },
+  longterm: { strategy: 'golden_cross', params: { fast: 50, slow: 200 }, interval: '1d', range: '2y', intervalMin: 240, useSentiment: true }
+};
+
 function cfg() {
   const c = store.get('settings.bot', {}) || {};
   return {
     enabled: c.enabled === true,
+    profile: c.profile || 'moderate',
     mode: c.mode === 'broker' ? 'broker' : 'paper',
     symbols: Array.isArray(c.symbols) && c.symbols.length ? c.symbols : (store.get('marketWatchlist', []).map((w) => w.symbol)),
-    strategy: c.strategy || 'sma_cross',
+    strategy: c.strategy || 'macd',
     params: c.params || {},
     interval: c.interval || '1d',
     range: c.range || '6mo',
@@ -28,6 +36,12 @@ function cfg() {
     useSentiment: c.useSentiment === true,
     _state: c._state || {}
   };
+}
+
+// Применить профиль риска (агрессивный/умеренный/долгосрочный).
+function applyProfile(name) {
+  const p = PROFILES[name]; if (!p) return { ok: false, error: 'Неизвестный режим' };
+  return setCfg({ profile: name, strategy: p.strategy, params: p.params, interval: p.interval, range: p.range, intervalMin: p.intervalMin, useSentiment: p.useSentiment });
 }
 function setCfg(patch) {
   const c = Object.assign(cfg(), patch || {});
@@ -102,4 +116,4 @@ function restart() { stop(); start(); }
 function init(deps) { if (deps && deps.sendToUI) uiSender = deps.sendToUI; if (cfg().enabled) start(); }
 function runOnce() { return evaluate(); }
 
-module.exports = { init, setUISender, setCfg, publicCfg, start, stop, runOnce, evaluate };
+module.exports = { init, setUISender, setCfg, applyProfile, publicCfg, start, stop, runOnce, evaluate, PROFILES };

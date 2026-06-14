@@ -16,10 +16,15 @@ function rsiSeries(closes, n) {
   return out;
 }
 
+function emaArr(arr, n) { const k = 2 / (n + 1); const out = []; let prev = null; for (let i = 0; i < arr.length; i++) { prev = prev == null ? arr[i] : arr[i] * k + prev * (1 - k); out.push(i >= n - 1 ? prev : null); } return out; }
+function stdArr(arr, n) { const out = []; for (let i = 0; i < arr.length; i++) { if (i < n - 1) { out.push(null); continue; } let m = 0; for (let j = i - n + 1; j <= i; j++) m += arr[j]; m /= n; let v = 0; for (let j = i - n + 1; j <= i; j++) v += (arr[j] - m) ** 2; out.push(Math.sqrt(v / n)); } return out; }
+function macdArr(closes, fast, slow, signal) { const ef = emaArr(closes, fast), es = emaArr(closes, slow); const macd = closes.map((_, i) => (ef[i] != null && es[i] != null) ? ef[i] - es[i] : null); const valid = macd.map((x) => x == null ? 0 : x); const sigLine = emaArr(valid, signal).map((x, i) => macd[i] == null ? null : x); return { macd, signal: sigLine }; }
+
 // Возвращает массив сигналов 'buy'|'sell'|null по индексам свечей.
 function signals(strategy, c, p) {
   const closes = c.map((x) => x.c);
   const sig = new Array(closes.length).fill(null);
+  const cross = (a, b, i) => (a[i - 1] != null && b[i - 1] != null && a[i] != null && b[i] != null) ? (a[i - 1] <= b[i - 1] && a[i] > b[i] ? 'buy' : a[i - 1] >= b[i - 1] && a[i] < b[i] ? 'sell' : null) : null;
   if (strategy === 'sma_cross') {
     const f = sma(closes, p.fast || 10), s = sma(closes, p.slow || 30);
     for (let i = 1; i < closes.length; i++) {
@@ -41,6 +46,29 @@ function signals(strategy, c, p) {
       for (let j = i - lb; j < i; j++) { if (c[j].h > hh) hh = c[j].h; if (c[j].l < ll) ll = c[j].l; }
       if (c[i].c > hh) sig[i] = 'buy'; else if (c[i].c < ll) sig[i] = 'sell';
     }
+  } else if (strategy === 'ema_cross') {
+    const f = emaArr(closes, p.fast || 12), s = emaArr(closes, p.slow || 26);
+    for (let i = 1; i < closes.length; i++) sig[i] = cross(f, s, i);
+  } else if (strategy === 'macd') {
+    const m = macdArr(closes, p.fast || 12, p.slow || 26, p.signal || 9);
+    for (let i = 1; i < closes.length; i++) sig[i] = cross(m.macd, m.signal, i);
+  } else if (strategy === 'bollinger') {
+    const n = p.period || 20, mult = p.mult || 2; const ma = sma(closes, n), sd = stdArr(closes, n);
+    for (let i = 1; i < closes.length; i++) {
+      if (ma[i] == null || sd[i] == null) continue;
+      const lo = ma[i] - mult * sd[i], up = ma[i] + mult * sd[i], lo0 = ma[i - 1] - mult * sd[i - 1], up0 = ma[i - 1] + mult * sd[i - 1];
+      if (closes[i - 1] >= lo0 && closes[i] < lo) sig[i] = 'buy';        // отскок от нижней границы
+      else if (closes[i - 1] <= up0 && closes[i] > up) sig[i] = 'sell';
+    }
+  } else if (strategy === 'momentum') {
+    const n = p.period || 10, thr = p.threshold || 5;
+    for (let i = n + 1; i < closes.length; i++) {
+      const roc = (closes[i] / closes[i - n] - 1) * 100, roc0 = (closes[i - 1] / closes[i - 1 - n] - 1) * 100;
+      if (roc0 <= thr && roc > thr) sig[i] = 'buy'; else if (roc0 >= -thr && roc < -thr) sig[i] = 'sell';
+    }
+  } else if (strategy === 'golden_cross') {
+    const f = sma(closes, p.fast || 50), s = sma(closes, p.slow || 200);
+    for (let i = 1; i < closes.length; i++) sig[i] = cross(f, s, i);
   }
   return sig;
 }
@@ -85,8 +113,13 @@ async function run({ symbol, interval, range, strategy, params }) {
 
 const STRATEGIES = [
   { id: 'sma_cross', name: 'Пересечение SMA', params: [['fast', 'Быстрая SMA', 10], ['slow', 'Медленная SMA', 30]] },
+  { id: 'ema_cross', name: 'Пересечение EMA', params: [['fast', 'Быстрая EMA', 12], ['slow', 'Медленная EMA', 26]] },
+  { id: 'macd', name: 'MACD', params: [['fast', 'Быстрая', 12], ['slow', 'Медленная', 26], ['signal', 'Сигнальная', 9]] },
   { id: 'rsi', name: 'RSI пороги', params: [['period', 'Период RSI', 14], ['oversold', 'Перепроданность', 30], ['overbought', 'Перекупленность', 70]] },
-  { id: 'breakout', name: 'Пробой канала', params: [['lookback', 'Окно (свечей)', 20]] }
+  { id: 'bollinger', name: 'Полосы Боллинджера', params: [['period', 'Период', 20], ['mult', 'Множитель σ', 2]] },
+  { id: 'momentum', name: 'Моментум (ROC)', params: [['period', 'Период', 10], ['threshold', 'Порог %', 5]] },
+  { id: 'breakout', name: 'Пробой канала', params: [['lookback', 'Окно (свечей)', 20]] },
+  { id: 'golden_cross', name: 'Золотой крест (50/200)', params: [['fast', 'Быстрая SMA', 50], ['slow', 'Медленная SMA', 200]] }
 ];
 
 // Последний сигнал стратегии по свежим свечам (для ИИ-бота).
@@ -100,8 +133,13 @@ function lastSignal(strategy, candles, params) {
 async function optimize({ symbol, interval, range, strategy }) {
   const grids = {
     sma_cross: [{ k: 'fast', v: [5, 10, 15, 20] }, { k: 'slow', v: [30, 50, 100] }],
+    ema_cross: [{ k: 'fast', v: [8, 12, 20] }, { k: 'slow', v: [21, 26, 50] }],
+    macd: [{ k: 'fast', v: [8, 12] }, { k: 'slow', v: [21, 26] }, { k: 'signal', v: [7, 9] }],
     rsi: [{ k: 'period', v: [9, 14, 21] }, { k: 'oversold', v: [20, 30] }, { k: 'overbought', v: [70, 80] }],
-    breakout: [{ k: 'lookback', v: [10, 20, 30, 55] }]
+    bollinger: [{ k: 'period', v: [14, 20, 30] }, { k: 'mult', v: [1.5, 2, 2.5] }],
+    momentum: [{ k: 'period', v: [5, 10, 20] }, { k: 'threshold', v: [3, 5, 8] }],
+    breakout: [{ k: 'lookback', v: [10, 20, 30, 55] }],
+    golden_cross: [{ k: 'fast', v: [20, 50] }, { k: 'slow', v: [100, 200] }]
   }[strategy || 'sma_cross'];
   if (!grids) return { ok: false, error: 'Нет сетки для стратегии' };
   // Декартово произведение значений параметров.

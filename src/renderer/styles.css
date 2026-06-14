@@ -378,6 +378,16 @@ body.compact .view-head { margin-bottom: 10px; }
 .mk-spark { width: 80px; height: 22px; }
 .mk-wl-q { font-size: 12px; font-family: 'Consolas', monospace; min-width: 96px; text-align: right; }
 
+/* ---------- Portfolio analytics ---------- */
+.pa-bar { display: flex; height: 22px; border-radius: 6px; overflow: hidden; border: 1px solid var(--border); }
+.pa-bar span { height: 100%; }
+.pa-legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; font-size: 12px; }
+.pa-legend span { display: inline-flex; align-items: center; gap: 4px; }
+.pa-legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.pa-verdict { font-weight: 700; font-size: 16px; padding: 2px 10px; border-radius: 6px; background: var(--bg-3); }
+.pa-verdict.mk-up { background: rgba(38,166,154,.15); }
+.pa-verdict.mk-down { background: rgba(239,83,80,.15); }
+
 /* ---------- Trading ---------- */
 .tr-safe { border: 1px solid rgba(38,166,154,.4); background: rgba(38,166,154,.07); }
 .tr-live { border: 1px solid rgba(239,83,80,.5); background: rgba(239,83,80,.08); }

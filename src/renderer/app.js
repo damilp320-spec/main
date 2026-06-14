@@ -2281,6 +2281,7 @@ async function viewTrading() {
       </div>
       <div class="card" id="bot-card"><h3>🤖 ${esc(t('bot.title'))}</h3><div id="bot-body"></div></div>
       <div class="card" id="paper-card"><h3>🧪 ${esc(t('bot.paper'))}</h3><div id="paper-body"></div></div>
+      <div class="card" id="pa-card" style="grid-column:1/-1"><div class="row between"><h3>📊 ${esc(t('pa.title'))}</h3><button class="btn ghost sm" id="pa-refresh">↻</button></div><div id="pa-body" class="muted"></div></div>
       <div class="card">
         <h3>🧮 ${esc(t('rk.title'))}</h3>
         <div class="row" style="gap:8px"><label class="field"><span>${esc(t('rk.account'))}</span><input id="rk-acc" type="number" value="10000"></label><label class="field"><span>${esc(t('rk.risk'))}</span><input id="rk-risk" type="number" value="1"></label></div>
@@ -2294,6 +2295,8 @@ async function viewTrading() {
     </div>`;
   renderBotCard();
   renderPaperCard();
+  renderPortfolioAnalytics();
+  $('#pa-refresh').onclick = renderPortfolioAnalytics;
   const rk = () => {
     const acc = +$('#rk-acc').value, risk = +$('#rk-risk').value, e = +$('#rk-entry').value, s = +$('#rk-stop').value;
     const out = $('#rk-out'); if (!acc || !risk || !e || !s || e === s) { out.textContent = t('rk.hint'); return; }
@@ -2363,6 +2366,10 @@ async function renderBotCard() {
   const safe = c.brokerSafe;
   box.innerHTML = `
     ${toggleRow('bot-enable', t('bot.enable'), c.enabled)}
+    <p class="muted" style="font-size:12px;margin:4px 0">${esc(t('bot.profile'))}:</p>
+    <div class="row" style="gap:6px;flex-wrap:wrap;margin-bottom:8px">
+      ${[['aggressive', '⚡', t('bot.aggressive')], ['moderate', '⚖️', t('bot.moderate')], ['longterm', '🏔️', t('bot.longterm')]].map(([id, ic, lbl]) => `<button class="btn ${c.profile === id ? 'primary' : 'ghost'} sm" data-prof="${id}">${ic} ${esc(lbl)}</button>`).join('')}
+    </div>
     <div class="row" style="gap:8px">
       <label class="field"><span>${esc(t('bot.mode'))}</span><select id="bot-mode"><option value="paper" ${c.mode === 'paper' ? 'selected' : ''}>🧪 ${esc(t('bot.modePaper'))}</option><option value="broker" ${c.mode === 'broker' ? 'selected' : ''}>💹 ${esc(t('bot.modeBroker'))}</option></select></label>
       <label class="field"><span>${esc(t('bot.strategy'))}</span><select id="bot-strat">${strats.map((s) => `<option value="${s.id}" ${s.id === c.strategy ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>
@@ -2379,6 +2386,7 @@ async function renderBotCard() {
     <div id="bot-log" class="op-log" style="max-height:150px;margin-top:8px"></div>
     <p class="muted" style="font-size:11px;margin-top:6px">${esc(t('bot.note'))}</p>`;
   const saveCfg = () => N.bot.setCfg({ mode: $('#bot-mode').value, strategy: $('#bot-strat').value, qty: +$('#bot-qty').value || 1, intervalMin: +$('#bot-int').value || 15, interval: $('#bot-candle').value, symbols: $('#bot-syms').value.split(',').map((s) => s.trim()).filter(Boolean), useSentiment: $('#bot-sent').checked });
+  $$('#bot-body [data-prof]').forEach((b) => b.onclick = async () => { await N.bot.applyProfile(b.dataset.prof); toast('🤖', t('bot.profileSet') + ': ' + b.textContent.trim(), 'ok'); renderBotCard(); });
   bindToggle('bot-enable', async (v) => { if (v && !await confirmModal('🤖 ' + t('bot.title'), t('bot.enableWarn'))) return renderBotCard(); await N.bot.setCfg({ enabled: v }); renderBotCard(); });
   ['#bot-mode', '#bot-strat', '#bot-qty', '#bot-int', '#bot-candle', '#bot-syms'].forEach((s) => { const e = $(s); if (e) e.onchange = async () => { await saveCfg(); if (s === '#bot-mode') renderBotCard(); }; });
   bindToggle('bot-sent', () => saveCfg());
@@ -2399,7 +2407,28 @@ async function renderPaperCard() {
     </div>
     ${v.positions.length ? `<table class="tr-pf-tbl"><tr><th>Тикер</th><th>Кол-во</th><th>Ср.</th><th>Тек.</th><th>P&L</th></tr>${v.positions.map((p) => `<tr><td>${esc(p.symbol)}</td><td>${p.qty}</td><td>${p.avg.toFixed(2)}</td><td>${p.price.toFixed(2)}</td><td class="${p.pnl >= 0 ? 'mk-up' : 'mk-down'}">${p.pnl} (${p.pnlPct}%)</td></tr>`).join('')}</table>` : `<p class="muted">${esc(t('bot.noPos'))}</p>`}
     <button class="btn ghost sm" id="paper-reset" style="margin-top:8px">↺ ${esc(t('bot.reset'))}</button>`;
-  $('#paper-reset').onclick = async () => { if (await confirmModal(t('bot.reset'), t('bot.resetConfirm'))) { await N.paper.reset(100000); renderPaperCard(); } };
+  $('#paper-reset').onclick = async () => { if (await confirmModal(t('bot.reset'), t('bot.resetConfirm'))) { await N.paper.reset(100000); renderPaperCard(); renderPortfolioAnalytics(); } };
+}
+async function renderPortfolioAnalytics() {
+  const box = $('#pa-body'); if (!box) return;
+  box.innerHTML = '<span class="spin">⏳</span>';
+  const v0 = await N.paper.valuation();
+  const quotes = {};
+  for (const p of v0.positions) { if (state.view !== 'trading') return; const d = await N.markets.candles({ symbol: p.symbol, interval: '1d', range: '5d' }); if (d.ok && d.candles.length) quotes[p.symbol] = d.candles[d.candles.length - 1].c; }
+  const a = await N.portfolio.analyze(quotes);
+  if (!box || state.view !== 'trading') return;
+  const colors = ['#7c5cff', '#29d3c2', '#ff7c5c', '#ffb547', '#3ddc84', '#ff5c9d', '#80a4ff', '#f7b733'];
+  const bar = a.positions.length ? `<div class="pa-bar">${a.positions.map((p, i) => `<span style="width:${p.pct}%;background:${colors[i % colors.length]}" title="${esc(p.symbol)} ${p.pct}%"></span>`).join('')}${a.cashPct > 0 ? `<span style="width:${a.cashPct}%;background:var(--bg-3)" title="Кэш ${a.cashPct}%"></span>` : ''}</div>
+    <div class="pa-legend">${a.positions.map((p, i) => `<span><i style="background:${colors[i % colors.length]}"></i>${esc(p.symbol)} ${p.pct}%</span>`).join('')}<span><i style="background:var(--bg-3)"></i>${esc(t('pa.cash'))} ${a.cashPct}%</span></div>` : `<p class="muted">${esc(t('bot.noPos'))}</p>`;
+  box.innerHTML = bar + `<div class="bt-stats" style="margin-top:10px">
+      <div class="bt-stat"><span>${esc(t('pa.diversification'))}</span><b>${esc(a.diversification)}</b></div>
+      <div class="bt-stat"><span>${esc(t('pa.concentration'))}</span><b>${a.concentration}</b></div>
+      <div class="bt-stat"><span>${esc(t('pa.positions'))}</span><b>${a.positionsCount}</b></div>
+      <div class="bt-stat"><span>${esc(t('pa.realized'))}</span><b class="${a.realizedPnl >= 0 ? 'mk-up' : 'mk-down'}">${a.realizedPnl}</b></div>
+      <div class="bt-stat"><span>${esc(t('pa.winRate'))}</span><b>${a.winRate}%</b></div>
+      ${a.best ? `<div class="bt-stat"><span>${esc(t('pa.best'))}</span><b class="mk-up">${esc(a.best.symbol)} +${a.best.pnlPct}%</b></div>` : ''}
+      ${a.worst ? `<div class="bt-stat"><span>${esc(t('pa.worst'))}</span><b class="mk-down">${esc(a.worst.symbol)} ${a.worst.pnlPct}%</b></div>` : ''}
+    </div>`;
 }
 N.on('bot:event', (e) => {
   const log = $('#bot-log');
@@ -2979,7 +3008,7 @@ async function viewMarkets() {
     </div>
     <div class="grid cols-2">
       <div class="card"><h3>⭐ ${esc(t('mk.watchlist'))}</h3><div id="mk-wl"></div></div>
-      <div class="card"><h3>🧠 ${esc(t('mk.aiTitle'))}</h3><div id="mk-ai" class="mk-ai muted">${esc(t('mk.aiHint'))}</div></div>
+      <div class="card"><div class="row between"><h3>🧠 ${esc(t('mk.aiTitle'))}</h3><button class="btn ghost sm" id="mk-deep">🔬 ${esc(t('mk.deep'))}</button></div><div id="mk-ai" class="mk-ai muted">${esc(t('mk.aiHint'))}</div></div>
       <div class="card" style="grid-column:1/-1">
         <div class="row" style="justify-content:space-between;align-items:center"><h3>📰 ${esc(t('news.title'))}</h3><button class="btn ghost sm" id="mk-sentiment">🧠 ${esc(t('news.sentiment'))}</button></div>
         <div id="mk-sent" class="muted" style="margin:6px 0;font-size:13px"></div>
@@ -2997,6 +3026,7 @@ async function viewMarkets() {
   $('#mk-sma50').onchange = (e) => { mk.sma50 = e.target.checked; drawMarket(); };
   $('#mk-watch').onclick = addToWatchlist;
   $('#mk-analyze').onclick = analyzeMarket;
+  $('#mk-deep').onclick = deepAnalyzeMarket;
   $('#mk-sentiment').onclick = analyzeSentiment;
   window.addEventListener('resize', drawMarket);
   await renderWatchlist();
@@ -3169,6 +3199,14 @@ async function analyzeMarket() {
   ai.classList.remove('muted'); ai.innerHTML = '<span class="spin">⏳</span> ' + esc(t('mk.analyzing'));
   const r = await N.markets.analyze({ symbol: mk.symbol, interval: mk.interval, range: mk.range });
   ai.textContent = r.ok ? r.text : ('⚠️ ' + (r.error || 'ошибка'));
+}
+async function deepAnalyzeMarket() {
+  const mk = state.market; const ai = $('#mk-ai'); if (!ai) return;
+  ai.classList.remove('muted'); ai.innerHTML = '<span class="spin">⏳</span> ' + esc(t('mk.deepRun'));
+  const r = await N.analyst.deep(mk.symbol, 'moderate');
+  if (!r.ok) { ai.innerHTML = `<span class="mk-down">⚠️ ${esc(r.error)}</span>`; return; }
+  const vc = r.verdict === 'BUY' ? 'mk-up' : r.verdict === 'SELL' ? 'mk-down' : 'muted';
+  ai.innerHTML = `<div style="margin-bottom:8px"><span class="pa-verdict ${vc}">${esc(r.verdict)}</span> <span class="muted">${esc(t('mk.confidence'))} ${r.confidence}% · ${esc(t('mk.assetNews'))} ${r.assetSentiment != null ? r.assetSentiment : 'н/д'} · ${esc(t('mk.macro'))} ${r.macroSentiment != null ? r.macroSentiment : 'н/д'}${r.context && r.context.country ? ' (' + esc(r.context.country) + ')' : ''}</span></div><div style="white-space:pre-wrap;line-height:1.5">${esc(r.text)}</div>`;
 }
 
 async function addToWatchlist() {

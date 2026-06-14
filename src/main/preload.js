@@ -350,8 +350,11 @@ contextBridge.exposeInMainWorld('mythera', {
   bot: {
     cfg: () => invoke('bot:cfg'),
     setCfg: (p) => invoke('bot:setCfg', p),
+    applyProfile: (n) => invoke('bot:applyProfile', n),
     runOnce: () => invoke('bot:runOnce')
   },
+  analyst: { deep: (s, h) => invoke('analyst:deep', s, h) },
+  portfolio: { analyze: (q) => invoke('portfolio:analyze', q) },
   paper: {
     valuation: (q) => invoke('paper:valuation', q),
     history: () => invoke('paper:history'),

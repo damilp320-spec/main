@@ -343,7 +343,20 @@ contextBridge.exposeInMainWorld('mythera', {
   // Бэктест стратегий
   backtest: {
     run: (o) => invoke('backtest:run', o),
-    strategies: () => invoke('backtest:strategies')
+    strategies: () => invoke('backtest:strategies'),
+    optimize: (o) => invoke('backtest:optimize', o)
+  },
+  // ИИ-режим торговли + бумажный счёт
+  bot: {
+    cfg: () => invoke('bot:cfg'),
+    setCfg: (p) => invoke('bot:setCfg', p),
+    runOnce: () => invoke('bot:runOnce')
+  },
+  paper: {
+    valuation: (q) => invoke('paper:valuation', q),
+    history: () => invoke('paper:history'),
+    reset: (c) => invoke('paper:reset', c),
+    trade: (o) => invoke('paper:trade', o)
   },
   // Центр уведомлений
   notif: {

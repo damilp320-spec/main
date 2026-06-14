@@ -54,6 +54,8 @@ const connections = require('./connections');
 const calendar = require('./calendar');
 const email = require('./email');
 const modelbuilder = require('./modelbuilder');
+const paper = require('./paper');
+const tradingbot = require('./tradingbot');
 const fs = require('fs');
 
 let win = null;
@@ -211,6 +213,8 @@ app.whenReady().then(async () => {
 
   // Календарь: напоминания о событиях.
   calendar.init({ notify: (p) => sendToUI('watcher:fired', p) });
+  // ИИ-режим торговли (по умолчанию бумажный счёт).
+  tradingbot.init({ sendToUI });
 
   // Очередь задач: пробрасываем события в UI и возобновляем незавершённые.
   taskQueue.load();
@@ -581,6 +585,16 @@ ipcMain.handle('playground:ask', async (_e, model, prompt, opts) => {
 /* ---------------- IPC: backtesting ---------------- */
 ipcMain.handle('backtest:run', (_e, opts) => backtest.run(opts));
 ipcMain.handle('backtest:strategies', () => backtest.STRATEGIES);
+ipcMain.handle('backtest:optimize', (_e, opts) => backtest.optimize(opts));
+
+/* ---------------- IPC: AI trading bot + paper account ---------------- */
+ipcMain.handle('bot:cfg', () => tradingbot.publicCfg());
+ipcMain.handle('bot:setCfg', (_e, patch) => tradingbot.setCfg(patch));
+ipcMain.handle('bot:runOnce', () => tradingbot.runOnce());
+ipcMain.handle('paper:valuation', (_e, quotes) => paper.valuation(quotes));
+ipcMain.handle('paper:history', () => paper.history());
+ipcMain.handle('paper:reset', (_e, cash) => paper.reset(cash));
+ipcMain.handle('paper:trade', (_e, o) => paper.trade(o));
 
 /* ---------------- IPC: notifications center ---------------- */
 ipcMain.handle('notif:list', () => notifications.list());

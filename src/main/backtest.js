@@ -89,4 +89,35 @@ const STRATEGIES = [
   { id: 'breakout', name: 'Пробой канала', params: [['lookback', 'Окно (свечей)', 20]] }
 ];
 
-module.exports = { run, STRATEGIES };
+// Последний сигнал стратегии по свежим свечам (для ИИ-бота).
+function lastSignal(strategy, candles, params) {
+  const sig = signals(strategy, candles, params || {});
+  for (let i = sig.length - 1; i >= Math.max(0, sig.length - 2); i--) if (sig[i]) return sig[i];
+  return null;
+}
+
+// Оптимизатор: перебор сеток параметров, поиск лучшей по доходности.
+async function optimize({ symbol, interval, range, strategy }) {
+  const grids = {
+    sma_cross: [{ k: 'fast', v: [5, 10, 15, 20] }, { k: 'slow', v: [30, 50, 100] }],
+    rsi: [{ k: 'period', v: [9, 14, 21] }, { k: 'oversold', v: [20, 30] }, { k: 'overbought', v: [70, 80] }],
+    breakout: [{ k: 'lookback', v: [10, 20, 30, 55] }]
+  }[strategy || 'sma_cross'];
+  if (!grids) return { ok: false, error: 'Нет сетки для стратегии' };
+  // Декартово произведение значений параметров.
+  let combos = [{}];
+  for (const g of grids) combos = combos.flatMap((c) => g.v.map((val) => ({ ...c, [g.k]: val })));
+  let best = null; const results = [];
+  for (const params of combos.slice(0, 60)) {
+    const r = await run({ symbol, interval, range, strategy, params });
+    if (!r.ok) return r;
+    const score = r.return - r.maxDrawdown * 0.3; // штраф за просадку
+    results.push({ params, return: r.return, maxDrawdown: r.maxDrawdown, trades: r.trades, winRate: r.winRate, score: +score.toFixed(2) });
+    if (!best || score > best.score) best = results[results.length - 1];
+  }
+  results.sort((a, b) => b.score - a.score);
+  return { ok: true, best, top: results.slice(0, 8) };
+}
+
+module.exports = { run, optimize, signals, lastSignal, STRATEGIES };
+

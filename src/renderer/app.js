@@ -2279,11 +2279,28 @@ async function viewTrading() {
         <label class="field tr-lim" style="display:none"><span>${esc(t('tr.price'))}</span><input type="number" id="tr-price" step="0.01"></label>
         <button class="btn primary" id="tr-place" style="margin-top:6px">${esc(t('tr.place'))}</button>
       </div>
+      <div class="card" id="bot-card"><h3>🤖 ${esc(t('bot.title'))}</h3><div id="bot-body"></div></div>
+      <div class="card" id="paper-card"><h3>🧪 ${esc(t('bot.paper'))}</h3><div id="paper-body"></div></div>
+      <div class="card">
+        <h3>🧮 ${esc(t('rk.title'))}</h3>
+        <div class="row" style="gap:8px"><label class="field"><span>${esc(t('rk.account'))}</span><input id="rk-acc" type="number" value="10000"></label><label class="field"><span>${esc(t('rk.risk'))}</span><input id="rk-risk" type="number" value="1"></label></div>
+        <div class="row" style="gap:8px"><label class="field"><span>${esc(t('rk.entry'))}</span><input id="rk-entry" type="number" step="0.01"></label><label class="field"><span>${esc(t('rk.stop'))}</span><input id="rk-stop" type="number" step="0.01"></label></div>
+        <div id="rk-out" class="muted" style="margin-top:8px"></div>
+      </div>
       <div class="card" style="grid-column:1/-1">
         <h3>📜 ${esc(t('tr.audit'))}</h3>
         <div id="tr-log" class="tr-log"></div>
       </div>
     </div>`;
+  renderBotCard();
+  renderPaperCard();
+  const rk = () => {
+    const acc = +$('#rk-acc').value, risk = +$('#rk-risk').value, e = +$('#rk-entry').value, s = +$('#rk-stop').value;
+    const out = $('#rk-out'); if (!acc || !risk || !e || !s || e === s) { out.textContent = t('rk.hint'); return; }
+    const riskAmt = acc * risk / 100; const perShare = Math.abs(e - s); const shares = Math.floor(riskAmt / perShare);
+    out.innerHTML = `<b>${esc(t('rk.size'))}: ${shares}</b> ${esc(t('rk.shares'))} · ${esc(t('rk.exposure'))} ${(shares * e).toFixed(0)} · ${esc(t('rk.atRisk'))} ${riskAmt.toFixed(0)} (${(shares * perShare).toFixed(0)})`;
+  };
+  ['#rk-acc', '#rk-risk', '#rk-entry', '#rk-stop'].forEach((s) => { const el2 = $(s); if (el2) el2.oninput = rk; });
 
   let foundInstrument = null;
   // Переключение окружения с предупреждением для live.
@@ -2337,6 +2354,65 @@ async function viewTrading() {
   };
   renderTradeLog();
 }
+
+// ИИ-режим торговли.
+async function renderBotCard() {
+  const box = $('#bot-body'); if (!box) return;
+  const c = await N.bot.cfg();
+  const strats = await N.backtest.strategies();
+  const safe = c.brokerSafe;
+  box.innerHTML = `
+    ${toggleRow('bot-enable', t('bot.enable'), c.enabled)}
+    <div class="row" style="gap:8px">
+      <label class="field"><span>${esc(t('bot.mode'))}</span><select id="bot-mode"><option value="paper" ${c.mode === 'paper' ? 'selected' : ''}>🧪 ${esc(t('bot.modePaper'))}</option><option value="broker" ${c.mode === 'broker' ? 'selected' : ''}>💹 ${esc(t('bot.modeBroker'))}</option></select></label>
+      <label class="field"><span>${esc(t('bot.strategy'))}</span><select id="bot-strat">${strats.map((s) => `<option value="${s.id}" ${s.id === c.strategy ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>
+    </div>
+    <div class="row" style="gap:8px">
+      <label class="field" style="max-width:100px"><span>${esc(t('bot.qty'))}</span><input id="bot-qty" type="number" value="${c.qty}"></label>
+      <label class="field" style="max-width:130px"><span>${esc(t('bot.every'))}</span><input id="bot-int" type="number" value="${c.intervalMin}"></label>
+      <label class="field" style="max-width:100px"><span>${esc(t('bot.candle'))}</span><select id="bot-candle"><option value="1d" ${c.interval === '1d' ? 'selected' : ''}>1д</option><option value="1h" ${c.interval === '1h' ? 'selected' : ''}>1ч</option></select></label>
+    </div>
+    <label class="field"><span>${esc(t('bot.symbols'))}</span><input id="bot-syms" value="${esc(c.symbols.join(', '))}" placeholder="AAPL, BTC-USD"></label>
+    ${toggleRow('bot-sent', t('bot.sentiment'), c.useSentiment)}
+    ${c.mode === 'broker' && safe ? `<div class="card ${safe.live && !safe.dryRun ? 'tr-live' : 'tr-safe'}" style="margin:6px 0;font-size:12px"><b>${safe.live ? '🔴 LIVE' : '🟢 sandbox'}</b>${safe.dryRun ? ' · 🧪 dry-run' : ''} · ${safe.confirm ? '✅ ' + esc(t('bot.willConfirm')) : '⚠️ ' + esc(t('bot.willAuto'))}</div>` : ''}
+    <div class="row" style="gap:6px"><button class="btn ghost sm" id="bot-once">▶ ${esc(t('bot.runOnce'))}</button><span id="bot-status" class="muted" style="font-size:12px">${c.running ? '🟢 ' + esc(t('bot.running')) : ''}</span></div>
+    <div id="bot-log" class="op-log" style="max-height:150px;margin-top:8px"></div>
+    <p class="muted" style="font-size:11px;margin-top:6px">${esc(t('bot.note'))}</p>`;
+  const saveCfg = () => N.bot.setCfg({ mode: $('#bot-mode').value, strategy: $('#bot-strat').value, qty: +$('#bot-qty').value || 1, intervalMin: +$('#bot-int').value || 15, interval: $('#bot-candle').value, symbols: $('#bot-syms').value.split(',').map((s) => s.trim()).filter(Boolean), useSentiment: $('#bot-sent').checked });
+  bindToggle('bot-enable', async (v) => { if (v && !await confirmModal('🤖 ' + t('bot.title'), t('bot.enableWarn'))) return renderBotCard(); await N.bot.setCfg({ enabled: v }); renderBotCard(); });
+  ['#bot-mode', '#bot-strat', '#bot-qty', '#bot-int', '#bot-candle', '#bot-syms'].forEach((s) => { const e = $(s); if (e) e.onchange = async () => { await saveCfg(); if (s === '#bot-mode') renderBotCard(); }; });
+  bindToggle('bot-sent', () => saveCfg());
+  $('#bot-once').onclick = async () => { $('#bot-status').textContent = '⏳'; await N.bot.runOnce(); $('#bot-status').textContent = '✓ ' + t('bot.evaluated'); renderPaperCard(); };
+}
+async function renderPaperCard() {
+  const box = $('#paper-body'); if (!box) return;
+  let v = await N.paper.valuation();
+  const quotes = {};
+  for (const p of v.positions) { if (state.view !== 'trading') return; const d = await N.markets.candles({ symbol: p.symbol, interval: '1d', range: '5d' }); if (d.ok && d.candles.length) quotes[p.symbol] = d.candles[d.candles.length - 1].c; }
+  if (Object.keys(quotes).length) v = await N.paper.valuation(quotes);
+  if (!box || state.view !== 'trading') return;
+  box.innerHTML = `
+    <div class="bt-stats">
+      <div class="bt-stat"><span>${esc(t('bot.equity'))}</span><b>${v.equity.toLocaleString()}</b></div>
+      <div class="bt-stat"><span>${esc(t('bot.cash'))}</span><b>${v.cash.toLocaleString()}</b></div>
+      <div class="bt-stat"><span>P&L</span><b class="${v.totalPnl >= 0 ? 'mk-up' : 'mk-down'}">${v.totalPnl >= 0 ? '+' : ''}${v.totalPnl} (${v.totalPnlPct}%)</b></div>
+    </div>
+    ${v.positions.length ? `<table class="tr-pf-tbl"><tr><th>Тикер</th><th>Кол-во</th><th>Ср.</th><th>Тек.</th><th>P&L</th></tr>${v.positions.map((p) => `<tr><td>${esc(p.symbol)}</td><td>${p.qty}</td><td>${p.avg.toFixed(2)}</td><td>${p.price.toFixed(2)}</td><td class="${p.pnl >= 0 ? 'mk-up' : 'mk-down'}">${p.pnl} (${p.pnlPct}%)</td></tr>`).join('')}</table>` : `<p class="muted">${esc(t('bot.noPos'))}</p>`}
+    <button class="btn ghost sm" id="paper-reset" style="margin-top:8px">↺ ${esc(t('bot.reset'))}</button>`;
+  $('#paper-reset').onclick = async () => { if (await confirmModal(t('bot.reset'), t('bot.resetConfirm'))) { await N.paper.reset(100000); renderPaperCard(); } };
+}
+N.on('bot:event', (e) => {
+  const log = $('#bot-log');
+  if (log && state.view === 'trading') {
+    const ic = { signal: '📊', trade: '✅', order: '📤', skip: '⤵️', error: '⚠️', status: '🔄' };
+    const msg = e.kind === 'signal' ? `${e.symbol}: ${e.signal} @ ${(e.price || 0).toFixed ? e.price.toFixed(2) : e.price}` : e.kind === 'trade' ? `${e.symbol}: ${e.side} ${e.qty} @ ${e.price.toFixed(2)}${e.pnl != null ? ' · P&L ' + e.pnl : ''}` : `${e.symbol || ''} ${e.message || ''}`;
+    const d = el('div', 'op-line op-' + (e.kind === 'trade' ? 'action' : e.kind === 'error' ? 'warn' : 'frame'));
+    d.textContent = `${ic[e.kind] || '•'} ${msg}`;
+    log.appendChild(d); log.scrollTop = log.scrollHeight;
+  }
+  if (e.kind === 'trade' && state.view === 'trading') renderPaperCard();
+});
+
 async function renderTradeLog() {
   const box = $('#tr-log'); if (!box) return;
   const log = (await N.trade.log()).slice(-30).reverse();
@@ -2896,6 +2972,7 @@ async function viewMarkets() {
         <label class="field" style="max-width:200px"><span>${esc(t('bt.strategy'))}</span><select id="bt-strat"></select></label>
         <div id="bt-params" class="row" style="gap:8px;flex-wrap:wrap"></div>
         <button class="btn primary" id="bt-run">▶ ${esc(t('bt.run'))}</button>
+        <button class="btn ghost" id="bt-opt">🔧 ${esc(t('bt.optimize'))}</button>
       </div>
       <div id="bt-result" style="margin-top:12px"></div>
       <p class="muted" style="font-size:11px;margin-top:8px">${esc(t('bt.note'))}</p>
@@ -2940,6 +3017,17 @@ async function initBacktest() {
   };
   sel.onchange = renderParams; renderParams();
   $('#bt-run').onclick = runBacktest;
+  $('#bt-opt').onclick = runOptimize;
+}
+async function runOptimize() {
+  const mk = state.market; const box = $('#bt-result');
+  box.innerHTML = '<span class="spin">⏳</span> ' + esc(t('bt.optimizing'));
+  const r = await N.backtest.optimize({ symbol: mk.symbol, interval: mk.interval, range: mk.range, strategy: $('#bt-strat').value });
+  if (!r.ok) { box.innerHTML = `<span class="mk-down">⚠️ ${esc(r.error)}</span>`; return; }
+  box.innerHTML = `<p><b>${esc(t('bt.best'))}:</b> ${esc(JSON.stringify(r.best.params))} → <span class="${r.best.return >= 0 ? 'mk-up' : 'mk-down'}">${r.best.return}%</span> · DD -${r.best.maxDrawdown}% · ${r.best.winRate}% win</p>
+    <table class="tr-pf-tbl"><tr><th>${esc(t('bt.params'))}</th><th>Return</th><th>DD</th><th>Win</th><th>Score</th></tr>${r.top.map((x) => `<tr><td>${esc(JSON.stringify(x.params))}</td><td class="${x.return >= 0 ? 'mk-up' : 'mk-down'}">${x.return}%</td><td>-${x.maxDrawdown}%</td><td>${x.winRate}%</td><td>${x.score}</td></tr>`).join('')}</table>
+    <button class="btn ghost sm" id="bt-apply" style="margin-top:8px">${esc(t('bt.apply'))}</button>`;
+  $('#bt-apply').onclick = () => { Object.entries(r.best.params).forEach(([k, v]) => { const i = $(`#bt-params [data-bp="${k}"]`); if (i) i.value = v; }); runBacktest(); };
 }
 async function runBacktest() {
   const mk = state.market;

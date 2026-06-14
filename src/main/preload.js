@@ -274,6 +274,12 @@ contextBridge.exposeInMainWorld('mythera', {
     fetch: (q) => invoke('news:fetch', q),
     sentiment: (q) => invoke('news:sentiment', q)
   },
+  // Обучение с сайта (web → RAG)
+  crawler: { learn: (o) => invoke('crawler:learn', o) },
+  // Диагностика системы
+  diag: { run: () => invoke('diag:run') },
+  // Плейграунд моделей
+  playground: { ask: (model, prompt, opts) => invoke('playground:ask', model, prompt, opts) },
   // Бэктест стратегий
   backtest: {
     run: (o) => invoke('backtest:run', o),

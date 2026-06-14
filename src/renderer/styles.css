@@ -248,6 +248,27 @@ body.artifact-open .content { margin-right: 42vw; }
 .tabs .tab.active { color: var(--text); border-bottom-color: var(--accent); }
 .tabs .tab:hover { color: var(--text); }
 
+/* ---------- Model playground ---------- */
+.pg-models { display: flex; flex-wrap: wrap; gap: 8px; }
+.pg-chip { background: var(--bg-3); border: 1px solid var(--border); border-radius: 8px; padding: 5px 10px; font-size: 12px; cursor: pointer; font-family: 'Consolas', monospace; display: inline-flex; align-items: center; gap: 6px; }
+.pg-results { display: grid; gap: 14px; margin-top: 16px; }
+.pg-results.cols-2 { grid-template-columns: 1fr 1fr; }
+.pg-results.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+.pg-col-head { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 6px; margin-bottom: 8px; }
+.pg-stat { font-size: 11px; color: var(--accent-2); font-family: 'Consolas', monospace; }
+.pg-out { font-size: 13px; line-height: 1.5; white-space: pre-wrap; max-height: 420px; overflow-y: auto; }
+@media (max-width: 900px) { .pg-results.cols-2, .pg-results.cols-3 { grid-template-columns: 1fr; } }
+
+/* ---------- Diagnostics ---------- */
+.diag-item { margin-bottom: 8px; border-left: 3px solid var(--border); }
+.diag-item.diag-ok { border-left-color: #26a69a; }
+.diag-item.diag-warn { border-left-color: #f7b733; }
+.diag-item.diag-off { border-left-color: #ef5350; }
+.diag-row { display: flex; align-items: center; gap: 10px; }
+.diag-ic { font-size: 16px; }
+.diag-detail { color: var(--muted); font-size: 12px; margin-left: auto; font-family: 'Consolas', monospace; }
+.diag-hint { margin-top: 6px; font-size: 12px; color: var(--accent-2); }
+
 /* ---------- Image generation ---------- */
 .img-result { min-height: 200px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .img-out { max-width: 100%; border-radius: 10px; }

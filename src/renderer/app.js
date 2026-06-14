@@ -126,7 +126,7 @@ async function render() {
   content.className = 'content fade-in';
   // Останавливаем авто-обновление рынков при уходе с раздела.
   if (state.view !== 'markets' && window.__marketTimer) { clearInterval(window.__marketTimer); window.__marketTimer = null; }
-  const map = { dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scenarios: viewScenarios, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, smarthome: viewSmartHome, knowledge: viewKnowledge, swarm: viewSwarm, queue: viewQueue, skills: viewSkills, dispatch: viewDispatch, prompts: viewPrompts, voice: viewVoice, operator: viewOperator, automation: viewAutomation, markets: viewMarkets, trading: viewTrading, code: viewCode, images: viewImages, developer: viewDeveloper, settings: viewSettings };
+  const map = { dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scenarios: viewScenarios, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, smarthome: viewSmartHome, knowledge: viewKnowledge, swarm: viewSwarm, queue: viewQueue, skills: viewSkills, dispatch: viewDispatch, prompts: viewPrompts, voice: viewVoice, operator: viewOperator, automation: viewAutomation, markets: viewMarkets, trading: viewTrading, code: viewCode, images: viewImages, playground: viewPlayground, diagnostics: viewDiagnostics, developer: viewDeveloper, settings: viewSettings };
   const fn = map[state.view] || viewDashboard;
   // Граница ошибок: сбой одной вкладки не «вешает» весь интерфейс.
   try {
@@ -1035,6 +1035,16 @@ async function viewKnowledge() {
       <div id="kb-status" class="muted" style="margin-top:10px"></div>
     </div>
     <div class="card" style="margin-top:16px">
+      <h3>🌐 ${esc(t('kb.learnSite'))}</h3>
+      <p class="muted" style="margin-bottom:8px">${esc(t('kb.learnSiteSub'))}</p>
+      <div class="row" style="gap:8px">
+        <input id="kb-url" placeholder="https://docs.example.com" style="flex:1">
+        <input id="kb-pages" type="number" value="8" min="1" max="30" style="max-width:80px" title="${esc(t('kb.maxPages'))}">
+        <button class="btn primary" id="kb-learn">${esc(t('kb.learn'))}</button>
+      </div>
+      <div id="kb-crawl" class="muted" style="margin-top:8px"></div>
+    </div>
+    <div class="card" style="margin-top:16px">
       <h3>🔎 Проверить поиск</h3>
       <div class="row"><input id="kb-q" placeholder="Запрос для проверки релевантности…"><button class="btn" id="kb-search">Найти</button></div>
       <div id="kb-results" style="margin-top:10px"></div>
@@ -1054,6 +1064,15 @@ async function viewKnowledge() {
     $('#kbf-go', m).onclick = async () => { const r = await N.rag.ingestFile('kb', $('#kbf-path', m).value.trim()); toast(r.ok ? 'OK' : 'Ошибка', r.ok ? `Фрагментов: ${r.added}` : r.error, r.ok ? 'ok' : 'err'); if (r.ok) { close(); viewKnowledge(); } };
   });
   $('#kb-clear').onclick = async () => { if (await confirmModal('Очистить базу знаний?', 'Все документы будут удалены.')) { await N.rag.clear('kb'); viewKnowledge(); } };
+  $('#kb-learn').onclick = async () => {
+    const url = $('#kb-url').value.trim(); if (!url) return;
+    const status = $('#kb-crawl'); status.innerHTML = '<span class="spin">⏳</span> ' + esc(t('kb.crawling'));
+    $('#kb-learn').disabled = true;
+    const r = await N.crawler.learn({ url, maxPages: +$('#kb-pages').value || 8, scope: 'kb' });
+    $('#kb-learn').disabled = false;
+    if (r.ok) { status.innerHTML = `✅ ${t('kb.learned')}: ${r.indexed} стр., ${r.chunks} фрагм.`; setTimeout(viewKnowledge, 1500); }
+    else status.innerHTML = `<span class="mk-down">⚠️ ${esc(r.error)}</span>`;
+  };
   $('#kb-search').onclick = async () => {
     const q = $('#kb-q').value.trim(); if (!q) return;
     $('#kb-results').innerHTML = '<span class="spin"></span>';
@@ -2187,6 +2206,54 @@ N.on('trade:confirm', ({ order, cfg }) => {
 });
 N.on('trade:log', () => { if (state.view === 'trading') renderTradeLog(); });
 
+/* ---------- Плейграунд моделей (A/B сравнение) ---------- */
+async function viewPlayground() {
+  const models = await N.installer.listModels();
+  if (!state.pgPicks) state.pgPicks = models.slice(0, 2).map((m) => m.name);
+  content.innerHTML = `
+    <div class="view-head"><h1>⚖️ ${esc(t('pg.title'))}</h1><p>${esc(t('pg.sub'))}</p></div>
+    <div class="card">
+      <p class="muted" style="margin-bottom:8px">${esc(t('pg.pick'))}</p>
+      <div id="pg-models" class="pg-models">${models.length ? models.map((m) => `<label class="pg-chip"><input type="checkbox" value="${esc(m.name)}" ${state.pgPicks.includes(m.name) ? 'checked' : ''}> ${esc(m.name)}</label>`).join('') : `<span class="muted">${esc(t('pg.noModels'))}</span>`}</div>
+      <label class="field" style="margin-top:10px"><span>${esc(t('pg.prompt'))}</span><textarea id="pg-prompt" rows="3" placeholder="${esc(t('pg.promptPh'))}"></textarea></label>
+      <button class="btn primary" id="pg-run">▶ ${esc(t('pg.run'))}</button>
+    </div>
+    <div id="pg-results" class="pg-results"></div>`;
+  $$('#pg-models input').forEach((c) => c.onchange = () => { state.pgPicks = $$('#pg-models input:checked').map((x) => x.value); });
+  $('#pg-run').onclick = async () => {
+    const prompt = $('#pg-prompt').value.trim(); if (!prompt) return;
+    const picks = $$('#pg-models input:checked').map((x) => x.value);
+    if (!picks.length) return toast('⚖️', t('pg.pickAtLeast'), 'err');
+    const box = $('#pg-results');
+    box.innerHTML = picks.map((m, i) => `<div class="card pg-col"><div class="pg-col-head"><b>${esc(m)}</b><span class="pg-stat" id="pg-stat-${i}">⏳</span></div><div class="pg-out" id="pg-out-${i}"><span class="spin">⏳</span></div></div>`).join('');
+    box.className = 'pg-results cols-' + Math.min(picks.length, 3);
+    picks.forEach(async (m, i) => {
+      const r = await N.playground.ask(m, prompt);
+      const out = $('#pg-out-' + i), stat = $('#pg-stat-' + i);
+      if (!out) return;
+      if (r.ok) { out.textContent = r.text || '(пусто)'; stat.textContent = `${(r.ms / 1000).toFixed(1)}с · ${r.tokens} ток · ${r.tps} ток/с`; }
+      else { out.innerHTML = `<span class="mk-down">⚠️ ${esc(r.error)}</span>`; stat.textContent = '—'; }
+    });
+  };
+}
+
+/* ---------- Диагностика системы ---------- */
+async function viewDiagnostics() {
+  content.innerHTML = `
+    <div class="view-head"><h1>🩺 ${esc(t('diag.title'))}</h1><p>${esc(t('diag.sub'))}</p></div>
+    <div class="card"><div class="row" style="justify-content:space-between;align-items:center"><div id="diag-summary" class="muted">${esc(t('diag.running'))}</div><button class="btn ghost sm" id="diag-refresh">↻ ${esc(t('diag.refresh'))}</button></div></div>
+    <div id="diag-list"></div>`;
+  $('#diag-refresh').onclick = viewDiagnostics;
+  const r = await N.diag.run();
+  const ic = { ok: '✅', warn: '⚠️', off: '⛔' };
+  $('#diag-summary').innerHTML = `<b>${r.summary.ok}/${r.summary.total}</b> ${esc(t('diag.okOf'))}`;
+  $('#diag-list').innerHTML = r.checks.map((c) => `
+    <div class="card diag-item diag-${c.status}">
+      <div class="diag-row"><span class="diag-ic">${ic[c.status]}</span><b>${esc(c.label)}</b><span class="diag-detail">${esc(c.detail)}</span></div>
+      ${c.hint && c.status !== 'ok' ? `<div class="diag-hint">💡 ${esc(c.hint)}</div>` : ''}
+    </div>`).join('');
+}
+
 /* ---------- Генерация изображений (Stable Diffusion) ---------- */
 async function viewImages() {
   if (!state.imgGallery) state.imgGallery = [];
@@ -2779,6 +2846,7 @@ async function initProjectSelector() {
   };
 }
 N.on('learner:skill', ({ skill }) => { toast('🎓 ' + t('learn.new'), (skill && skill.label) || '', 'ok'); });
+N.on('crawler:progress', (p) => { const s = $('#kb-crawl'); if (s && p.stage === 'index') s.innerHTML = `<span class="spin">⏳</span> ${esc(t('kb.crawling'))} ${p.indexed}/${p.max} · ${esc(String(p.url || '').slice(0, 50))}`; });
 // График из анализа данных → панель артефактов.
 N.on('artifact:image', ({ title, base64 }) => { openArtifact({ kind: 'image', titleText: title, base64 }); });
 // Проактивный наблюдатель сработал.
@@ -2962,6 +3030,8 @@ function buildCommands() {
     nav('dashboard', '🏠', t('nav.dashboard')),
     nav('agents', '🤖', t('nav.agents')),
     nav('marketplace', '⬇️', t('nav.marketplace')),
+    nav('playground', '⚖️', t('nav.playground')),
+    nav('diagnostics', '🩺', t('nav.diagnostics')),
     nav('scenarios', '🎬', t('nav.scenarios')),
     nav('scheduler', '⏰', t('nav.scheduler')),
     nav('minecraft', '🧱', t('nav.minecraft')),
@@ -3076,6 +3146,7 @@ $('#skill-import-input').addEventListener('change', async (e) => {
 // Прикрепление файла к чату: сохраняем в рабочее пространство (агент сможет read_file),
 // а для текстовых — ещё и кладём содержимое прямо в сообщение.
 const TEXT_EXT = /\.(txt|md|json|csv|log|js|ts|py|java|html|css|xml|yml|yaml|ini|cfg|conf|sh|bat|ps1|sql|c|cpp|h|go|rs|rb|php|toml|env|gradle|properties)$/i;
+const DOC_EXT = /\.(pdf|docx?|xlsx?|pptx?|odt|ods|rtf|png|jpe?g|bmp|tiff?|webp)$/i;
 $('#chat-file-input').addEventListener('change', async (e) => {
   const file = e.target.files[0]; if (!file) return;
   e.target.value = '';
@@ -3086,10 +3157,19 @@ $('#chat-file-input').addEventListener('change', async (e) => {
     const b64 = btoa(bin);
     const saved = await N.system.saveUpload(file.name, b64);
     let contentText = null;
-    if (TEXT_EXT.test(file.name) || file.type.startsWith('text')) { try { contentText = await file.text(); } catch {} }
+    if (TEXT_EXT.test(file.name) || file.type.startsWith('text')) {
+      try { contentText = await file.text(); } catch {}
+    } else if (DOC_EXT.test(file.name) && saved && saved.path) {
+      // Документы (PDF/DOCX/XLSX/PPTX/изображения) — извлекаем текст, чтобы файл
+      // можно было «закинуть» в ЛЮБОЙ чат и спрашивать по содержимому.
+      toast('📄 ' + t('att.extracting'), file.name);
+      const r = await N.docs.read(saved.path);
+      if (typeof r === 'string' && !r.startsWith('ОШИБКА')) contentText = r;
+      else toast('⚠️', (typeof r === 'string' ? r : t('att.extractFail')).slice(0, 80), 'err');
+    }
     state.attachment = { name: file.name, path: saved && saved.path, content: contentText };
     renderAttachBar();
-    toast('Файл прикреплён', file.name, 'ok');
+    toast(t('att.attached'), file.name, 'ok');
   } catch (err) { toast('Ошибка', err.message, 'err'); }
 });
 

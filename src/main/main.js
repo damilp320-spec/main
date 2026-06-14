@@ -45,6 +45,8 @@ const reports = require('./reports');
 const imagegen = require('./imagegen');
 const workspace = require('./workspace');
 const news = require('./news');
+const crawler = require('./crawler');
+const diagnostics = require('./diagnostics');
 
 let win = null;
 let tray = null;
@@ -476,6 +478,22 @@ ipcMain.handle('ws:run', (_e, p) => workspace.run(p));
 /* ---------------- IPC: news & sentiment ---------------- */
 ipcMain.handle('news:fetch', (_e, q) => news.fetchNews(q));
 ipcMain.handle('news:sentiment', (_e, q) => news.sentiment(q));
+
+/* ---------------- IPC: web-to-RAG crawler ---------------- */
+ipcMain.handle('crawler:learn', (_e, opts) => crawler.learn(opts, (p) => sendToUI('crawler:progress', p)));
+
+/* ---------------- IPC: diagnostics ---------------- */
+ipcMain.handle('diag:run', () => diagnostics.run());
+
+/* ---------------- IPC: model playground ---------------- */
+ipcMain.handle('playground:ask', async (_e, model, prompt, opts) => {
+  const t0 = Date.now(); let chars = 0;
+  try {
+    const r = await ollama.chatStream({ model, messages: [{ role: 'user', content: String(prompt || '') }], options: opts || {} }, (c) => { chars += c.length; });
+    const ms = Date.now() - t0; const tokens = Math.round(chars / 4);
+    return { ok: true, model, text: r.content || '', ms, tokens, tps: ms > 0 ? +(tokens / (ms / 1000)).toFixed(1) : 0 };
+  } catch (e) { return { ok: false, model, error: e.message }; }
+});
 
 /* ---------------- IPC: backtesting ---------------- */
 ipcMain.handle('backtest:run', (_e, opts) => backtest.run(opts));

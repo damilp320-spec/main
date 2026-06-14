@@ -278,6 +278,33 @@ contextBridge.exposeInMainWorld('mythera', {
   crawler: { learn: (o) => invoke('crawler:learn', o) },
   // Диагностика системы
   diag: { run: () => invoke('diag:run') },
+  // Заметки (второй мозг)
+  notes: {
+    list: () => invoke('notes:list'),
+    get: (id) => invoke('notes:get', id),
+    save: (n) => invoke('notes:save', n),
+    remove: (id) => invoke('notes:remove', id),
+    search: (q) => invoke('notes:search', q),
+    backlinks: (title) => invoke('notes:backlinks', title),
+    byTitle: (title) => invoke('notes:byTitle', title),
+    graph: () => invoke('notes:graph')
+  },
+  // Студия данных (SQL/CSV)
+  data: {
+    files: () => invoke('data:files'),
+    describe: (f) => invoke('data:describe', f),
+    query: (f, sql) => invoke('data:query', f, sql)
+  },
+  // RSS-читалка
+  rss: {
+    feeds: () => invoke('rss:feeds'),
+    add: (url, title) => invoke('rss:add', url, title),
+    remove: (url) => invoke('rss:remove', url),
+    aggregate: () => invoke('rss:aggregate'),
+    digest: () => invoke('rss:digest')
+  },
+  // Экспорт в PDF
+  pdf: { export: (html, title) => invoke('pdf:export', html, title) },
   // Плейграунд моделей
   playground: { ask: (model, prompt, opts) => invoke('playground:ask', model, prompt, opts) },
   // Бэктест стратегий

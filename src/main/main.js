@@ -47,6 +47,10 @@ const workspace = require('./workspace');
 const news = require('./news');
 const crawler = require('./crawler');
 const diagnostics = require('./diagnostics');
+const notes = require('./notes');
+const datastudio = require('./datastudio');
+const rss = require('./rss');
+const fs = require('fs');
 
 let win = null;
 let tray = null;
@@ -484,6 +488,49 @@ ipcMain.handle('crawler:learn', (_e, opts) => crawler.learn(opts, (p) => sendToU
 
 /* ---------------- IPC: diagnostics ---------------- */
 ipcMain.handle('diag:run', () => diagnostics.run());
+
+/* ---------------- IPC: notes (second brain) ---------------- */
+ipcMain.handle('notes:list', () => notes.list());
+ipcMain.handle('notes:get', (_e, id) => notes.get(id));
+ipcMain.handle('notes:save', (_e, n) => notes.save(n));
+ipcMain.handle('notes:remove', (_e, id) => notes.remove(id));
+ipcMain.handle('notes:search', (_e, q) => notes.search(q));
+ipcMain.handle('notes:backlinks', (_e, title) => notes.backlinks(title));
+ipcMain.handle('notes:byTitle', (_e, title) => notes.getByTitle(title));
+ipcMain.handle('notes:graph', () => notes.graph());
+
+/* ---------------- IPC: data studio (SQL/CSV) ---------------- */
+ipcMain.handle('data:files', () => datastudio.listFiles());
+ipcMain.handle('data:describe', (_e, f) => datastudio.describe(f));
+ipcMain.handle('data:query', (_e, f, sql) => datastudio.query(f, sql));
+
+/* ---------------- IPC: RSS reader ---------------- */
+ipcMain.handle('rss:feeds', () => rss.feeds());
+ipcMain.handle('rss:add', (_e, url, title) => rss.addFeed(url, title));
+ipcMain.handle('rss:remove', (_e, url) => rss.removeFeed(url));
+ipcMain.handle('rss:aggregate', () => rss.aggregate());
+ipcMain.handle('rss:digest', () => rss.digest());
+
+/* ---------------- IPC: PDF export (native printToPDF) ---------------- */
+ipcMain.handle('pdf:export', async (_e, htmlBody, title) => {
+  let w;
+  try {
+    const safeTitle = String(title || 'report').replace(/[^\wа-яА-Я\- ]+/g, '_').slice(0, 80);
+    const css = 'body{font-family:Segoe UI,Arial,sans-serif;color:#111;margin:32px;line-height:1.5} h1{color:#5b3df5} h2{border-bottom:1px solid #ddd;padding-bottom:4px;margin-top:24px} table{border-collapse:collapse;width:100%;margin:8px 0} th,td{border:1px solid #ccc;padding:6px 9px;text-align:left;font-size:13px} code,pre{background:#f4f4f8;border-radius:4px;padding:2px 5px} img{max-width:100%} .muted{color:#777}';
+    const html = `<!doctype html><html><head><meta charset="utf-8"><style>${css}</style></head><body>${htmlBody}</body></html>`;
+    const tmp = path.join(app.getPath('temp'), 'mythera-report-' + Date.now() + '.html');
+    fs.writeFileSync(tmp, html, 'utf8');
+    w = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
+    await w.loadFile(tmp);
+    const pdf = await w.webContents.printToPDF({ printBackground: true, margins: { top: 0.4, bottom: 0.4, left: 0.4, right: 0.4 } });
+    const dir = store.get('settings.fullDiskAccess', false) ? app.getPath('downloads') : app.getPath('downloads');
+    const out = path.join(dir, safeTitle + '.pdf');
+    fs.writeFileSync(out, pdf);
+    try { fs.unlinkSync(tmp); } catch {}
+    return { ok: true, path: out };
+  } catch (e) { return { ok: false, error: e.message }; }
+  finally { if (w && !w.isDestroyed()) w.destroy(); }
+});
 
 /* ---------------- IPC: model playground ---------------- */
 ipcMain.handle('playground:ask', async (_e, model, prompt, opts) => {

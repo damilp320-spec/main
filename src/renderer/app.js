@@ -126,7 +126,7 @@ async function render() {
   content.className = 'content fade-in';
   // Останавливаем авто-обновление рынков при уходе с раздела.
   if (state.view !== 'markets' && window.__marketTimer) { clearInterval(window.__marketTimer); window.__marketTimer = null; }
-  const map = { dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scenarios: viewScenarios, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, smarthome: viewSmartHome, knowledge: viewKnowledge, swarm: viewSwarm, queue: viewQueue, skills: viewSkills, dispatch: viewDispatch, prompts: viewPrompts, voice: viewVoice, operator: viewOperator, automation: viewAutomation, markets: viewMarkets, trading: viewTrading, code: viewCode, images: viewImages, playground: viewPlayground, diagnostics: viewDiagnostics, developer: viewDeveloper, settings: viewSettings };
+  const map = { dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scenarios: viewScenarios, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, smarthome: viewSmartHome, knowledge: viewKnowledge, swarm: viewSwarm, queue: viewQueue, skills: viewSkills, dispatch: viewDispatch, prompts: viewPrompts, voice: viewVoice, operator: viewOperator, automation: viewAutomation, markets: viewMarkets, trading: viewTrading, code: viewCode, images: viewImages, notes: viewNotes, data: viewData, rss: viewRss, playground: viewPlayground, diagnostics: viewDiagnostics, developer: viewDeveloper, settings: viewSettings };
   const fn = map[state.view] || viewDashboard;
   // Граница ошибок: сбой одной вкладки не «вешает» весь интерфейс.
   try {
@@ -183,10 +183,11 @@ async function viewDashboard() {
     <div class="card" style="margin-top:16px">
       <div class="row" style="justify-content:space-between;align-items:center">
         <h3>📊 ${esc(t('rep.telemetry'))}</h3>
-        <div class="row" style="gap:6px">
-          <button class="btn ghost sm" id="rep-chats">⬇ ${esc(t('rep.expChats'))}</button>
-          <button class="btn ghost sm" id="rep-trades">⬇ ${esc(t('rep.expTrades'))}</button>
-          <button class="btn ghost sm" id="rep-tel">⬇ ${esc(t('rep.expTel'))}</button>
+        <div class="row" style="gap:6px;flex-wrap:wrap">
+          <button class="btn ghost sm" id="rep-chats">MD ${esc(t('rep.expChats'))}</button>
+          <button class="btn ghost sm" id="rep-trades">MD ${esc(t('rep.expTrades'))}</button>
+          <button class="btn ghost sm" id="rep-tel">MD ${esc(t('rep.expTel'))}</button>
+          <button class="btn ghost sm" id="rep-pdf">📄 PDF ${esc(t('rep.expTel'))}</button>
         </div>
       </div>
       <div id="dash-tel" class="muted" style="margin-top:8px">…</div>
@@ -199,6 +200,15 @@ async function viewDashboard() {
   $('#rep-chats').onclick = exportChatsReport;
   $('#rep-trades').onclick = exportTradesReport;
   $('#rep-tel').onclick = exportTelemetryReport;
+  $('#rep-pdf').onclick = async () => {
+    const s = await N.reports.telemetry();
+    if (!s.count) return toast('—', t('rep.noData'), 'err');
+    const html = `<h1>📊 ${esc(t('rep.telemetry'))}</h1><p class="muted">${new Date().toLocaleString()}</p>
+      <ul><li>${t('rep.runs')}: ${s.count}</li><li>${t('rep.totalTok')}: ${s.totalTokens}</li><li>${t('rep.avgTps')}: ${s.avgTps}</li><li>${t('rep.toolCalls')}: ${s.totalToolCalls}</li></ul>
+      <h2>${t('rep.telemetry')} — ${esc(t('dash.models'))}</h2><table><tr><th>Model</th><th>Runs</th><th>Tokens</th><th>tok/s</th></tr>${s.byModel.map((m) => `<tr><td>${esc(m.model)}</td><td>${m.count}</td><td>${m.tokens}</td><td>${m.avgTps}</td></tr>`).join('')}</table>`;
+    const r = await N.pdf.export(html, 'mythera-telemetry');
+    toast(r.ok ? '📄 PDF' : '⚠️', r.ok ? r.path : r.error, r.ok ? 'ok' : 'err');
+  };
 }
 
 async function renderTelemetryCard() {
@@ -2206,6 +2216,148 @@ N.on('trade:confirm', ({ order, cfg }) => {
 });
 N.on('trade:log', () => { if (state.view === 'trading') renderTradeLog(); });
 
+/* ---------- Заметки / «второй мозг» ---------- */
+function mdToHtml(md) {
+  let h = esc(md);
+  h = h.replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_m, a, b) => `<a class="wikilink" data-note="${esc(a.trim())}">${esc((b || a).trim())}</a>`);
+  h = h.replace(/^### (.+)$/gm, '<h3>$1</h3>').replace(/^## (.+)$/gm, '<h2>$1</h2>').replace(/^# (.+)$/gm, '<h1>$1</h1>');
+  h = h.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/`([^`]+)`/g, '<code>$1</code>');
+  h = h.replace(/^[-*] (.+)$/gm, '<li>$1</li>').replace(/(<li>[\s\S]*?<\/li>)/g, '<ul>$1</ul>');
+  return h.replace(/\n/g, '<br>');
+}
+async function viewNotes() {
+  if (!state.notes) state.notes = { openId: null, q: '' };
+  content.innerHTML = `
+    <div class="view-head"><h1>📓 ${esc(t('notes.title'))}</h1><p>${esc(t('notes.sub'))}</p></div>
+    <div class="notes-layout">
+      <div class="card notes-list-card">
+        <div class="row" style="gap:6px"><input id="notes-q" placeholder="${esc(t('notes.search'))}" value="${esc(state.notes.q)}" style="flex:1"><button class="btn sm" id="notes-new">＋</button></div>
+        <div id="notes-list" class="notes-list"></div>
+      </div>
+      <div class="card notes-edit-card" id="notes-edit"></div>
+    </div>`;
+  $('#notes-q').oninput = (e) => { state.notes.q = e.target.value; renderNotesList(); };
+  $('#notes-new').onclick = async () => { const n = await N.notes.save({ title: t('notes.untitled'), body: '' }); state.notes.openId = n.id; await renderNotesList(); openNote(n.id); };
+  await renderNotesList();
+  if (state.notes.openId) openNote(state.notes.openId); else renderNoteEditor(null);
+}
+async function renderNotesList() {
+  const box = $('#notes-list'); if (!box) return;
+  const items = state.notes.q ? await N.notes.search(state.notes.q) : await N.notes.list();
+  items.sort((a, b) => (b.updated || 0) - (a.updated || 0));
+  box.innerHTML = items.length ? items.map((n) => `<div class="note-item ${state.notes.openId === n.id ? 'active' : ''}" data-id="${esc(n.id)}"><b>${esc(n.title)}</b><div class="note-snip">${esc(n.snippet || '')}</div></div>`).join('') : `<p class="muted" style="font-size:12px;padding:8px">${esc(t('notes.empty'))}</p>`;
+  $$('#notes-list [data-id]').forEach((el2) => el2.onclick = () => openNote(el2.dataset.id));
+}
+async function openNote(id) {
+  const n = await N.notes.get(id); if (!n) return;
+  state.notes.openId = id;
+  $$('#notes-list .note-item').forEach((el2) => el2.classList.toggle('active', el2.dataset.id === id));
+  renderNoteEditor(n);
+  const bl = await N.notes.backlinks(n.title);
+  const blBox = $('#note-backlinks'); if (blBox) { blBox.innerHTML = bl.length ? '<b>' + t('notes.backlinks') + ':</b> ' + bl.map((b) => `<a class="wikilink" data-open="${esc(b.id)}">${esc(b.title)}</a>`).join(', ') : ''; $$('#note-backlinks [data-open]').forEach((a) => a.onclick = () => openNote(a.dataset.open)); }
+}
+function renderNoteEditor(n) {
+  const box = $('#notes-edit'); if (!box) return;
+  if (!n) { box.innerHTML = `<div class="empty"><div class="big-ico">📓</div><p>${esc(t('notes.pick'))}</p></div>`; return; }
+  box.innerHTML = `
+    <div class="row" style="justify-content:space-between;align-items:center;gap:8px">
+      <input id="note-title" value="${esc(n.title)}" class="note-title-input">
+      <span><button class="btn ghost sm" id="note-preview">👁</button><button class="btn ghost sm" id="note-pdf">⬇PDF</button><button class="btn ghost sm" id="note-del">🗑</button></span>
+    </div>
+    <input id="note-tags" value="${esc((n.tags || []).join(', '))}" placeholder="${esc(t('notes.tags'))}" class="note-tags-input">
+    <textarea id="note-body" class="note-body" placeholder="${esc(t('notes.bodyHint'))}">${esc(n.body)}</textarea>
+    <div id="note-prev" class="note-prev" style="display:none"></div>
+    <div id="note-backlinks" class="note-backlinks"></div>
+    <div class="muted" id="note-saved" style="font-size:11px;margin-top:4px"></div>`;
+  let timer = null;
+  const save = async () => { const note = { id: n.id, title: $('#note-title').value, body: $('#note-body').value, tags: $('#note-tags').value }; await N.notes.save(note); $('#note-saved').textContent = '✓ ' + t('notes.saved'); renderNotesList(); };
+  const autosave = () => { clearTimeout(timer); $('#note-saved').textContent = '…'; timer = setTimeout(save, 700); };
+  $('#note-title').oninput = autosave; $('#note-tags').oninput = autosave; $('#note-body').oninput = autosave;
+  $('#note-del').onclick = async () => { if (await confirmModal(t('notes.del'), n.title)) { await N.notes.remove(n.id); state.notes.openId = null; await renderNotesList(); renderNoteEditor(null); } };
+  $('#note-preview').onclick = () => {
+    const prev = $('#note-prev'), body = $('#note-body');
+    if (prev.style.display === 'none') { prev.innerHTML = mdToHtml($('#note-body').value); prev.style.display = ''; body.style.display = 'none'; $$('#note-prev .wikilink').forEach((a) => a.onclick = async () => { const tn = await N.notes.byTitle(a.dataset.note); if (tn) openNote(tn.id); else { const nn = await N.notes.save({ title: a.dataset.note, body: '' }); renderNotesList(); openNote(nn.id); } }); }
+    else { prev.style.display = 'none'; body.style.display = ''; }
+  };
+  $('#note-pdf').onclick = () => exportNotePdf(n);
+}
+async function exportNotePdf(n) {
+  const html = `<h1>${esc(n.title)}</h1>${(n.tags || []).length ? `<p class="muted">${esc(n.tags.join(', '))}</p>` : ''}<div>${mdToHtml($('#note-body') ? $('#note-body').value : n.body)}</div>`;
+  const r = await N.pdf.export(html, n.title);
+  toast(r.ok ? '⬇ PDF' : '⚠️', r.ok ? r.path : r.error, r.ok ? 'ok' : 'err');
+}
+
+/* ---------- Студия данных (SQL / CSV) ---------- */
+async function viewData() {
+  if (!state.data) state.data = { file: '', sql: 'SELECT * FROM data LIMIT 50' };
+  const files = await N.data.files();
+  content.innerHTML = `
+    <div class="view-head"><h1>🗃️ ${esc(t('data.title'))}</h1><p>${esc(t('data.sub'))}</p></div>
+    <div class="card">
+      <label class="field"><span>${esc(t('data.file'))}</span>
+        <div class="row"><select id="data-file" style="flex:1"><option value="">${esc(t('data.pick'))}</option>${files.map((f) => `<option value="${esc(f)}" ${f === state.data.file ? 'selected' : ''}>${esc(f)}</option>`).join('')}</select>
+        <button class="btn ghost" id="data-open">${esc(t('data.open'))}</button></div></label>
+      <div id="data-meta" class="muted" style="font-size:12px"></div>
+      <label class="field" style="margin-top:8px"><span>SQL ${esc(t('data.sqlHint'))}</span><textarea id="data-sql" rows="3" class="code-editor" style="min-height:auto">${esc(state.data.sql)}</textarea></label>
+      <div class="row" style="gap:8px"><button class="btn primary" id="data-run">▶ ${esc(t('data.run'))}</button><button class="btn ghost" id="data-csv">⬇ CSV</button></div>
+    </div>
+    <div class="card"><div id="data-result" class="muted">${esc(t('data.resultHint'))}</div></div>`;
+  $('#data-file').onchange = (e) => { state.data.file = e.target.value; };
+  $('#data-open').onclick = async () => {
+    if (!state.data.file) return; const meta = $('#data-meta'); meta.textContent = '…';
+    const r = await N.data.describe(state.data.file);
+    if (!r.ok) { meta.innerHTML = `<span class="mk-down">⚠️ ${esc(r.error)}</span>`; return; }
+    if (r.kind === 'sqlite') { meta.innerHTML = `🗄️ SQLite · ${esc(t('data.tables'))}: ${r.tables.map((tb) => `<a class="wikilink" data-tbl="${esc(tb)}">${esc(tb)}</a>`).join(', ')}`; $$('#data-meta [data-tbl]').forEach((a) => a.onclick = () => { $('#data-sql').value = `SELECT * FROM ${a.dataset.tbl} LIMIT 50`; }); }
+    else { meta.innerHTML = `📄 CSV · ${esc(t('data.cols'))}: ${r.columns.join(', ')} · ${esc(t('data.tableData'))}`; renderDataTable(r.columns, r.rows); }
+  };
+  $('#data-run').onclick = async () => {
+    if (!state.data.file) return toast('🗃️', t('data.pickFirst'), 'err');
+    state.data.sql = $('#data-sql').value;
+    const box = $('#data-result'); box.innerHTML = '<span class="spin">⏳</span>';
+    const r = await N.data.query(state.data.file, state.data.sql);
+    if (!r.ok) { box.innerHTML = `<span class="mk-down">⚠️ ${esc(r.error)}</span>`; return; }
+    window.__lastData = r; renderDataTable(r.columns, r.rows);
+  };
+  $('#data-csv').onclick = () => {
+    const d = window.__lastData; if (!d) return;
+    const csv = [d.columns.join(',')].concat(d.rows.map((r) => r.map((c) => `"${String(c == null ? '' : c).replace(/"/g, '""')}"`).join(','))).join('\n');
+    downloadText('query-result.csv', csv, 'text/csv');
+  };
+  if (state.data.file) $('#data-open').click();
+}
+function renderDataTable(cols, rows) {
+  const box = $('#data-result'); if (!box) return;
+  if (!rows.length) { box.innerHTML = `<p class="muted">${esc(t('data.noRows'))}</p>`; return; }
+  box.innerHTML = `<div class="data-tbl-wrap"><table class="data-tbl"><thead><tr>${cols.map((c) => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${rows.slice(0, 300).map((r) => `<tr>${r.map((c) => `<td>${esc(String(c == null ? '' : c)).slice(0, 200)}</td>`).join('')}</tr>`).join('')}</tbody></table></div><p class="muted" style="font-size:11px;margin-top:6px">${rows.length} ${esc(t('data.rowsShown'))}</p>`;
+}
+
+/* ---------- RSS-читалка + ИИ-дайджест ---------- */
+async function viewRss() {
+  content.innerHTML = `
+    <div class="view-head"><h1>📰 ${esc(t('rss.title'))}</h1><p>${esc(t('rss.sub'))}</p></div>
+    <div class="card">
+      <div class="row" style="gap:8px"><input id="rss-url" placeholder="https://example.com/feed.xml" style="flex:1"><button class="btn" id="rss-add">${esc(t('rss.add'))}</button>
+        <button class="btn ghost" id="rss-refresh">↻ ${esc(t('rss.refresh'))}</button><button class="btn primary" id="rss-digest">🧠 ${esc(t('rss.digest'))}</button></div>
+      <div id="rss-feeds" class="rss-feeds"></div>
+    </div>
+    <div id="rss-digest-box"></div>
+    <div class="card"><div id="rss-items" class="muted">${esc(t('rss.loading'))}</div></div>`;
+  $('#rss-add').onclick = async () => { const u = $('#rss-url').value.trim(); if (!u) return; await N.rss.add(u); $('#rss-url').value = ''; viewRss(); };
+  $('#rss-refresh').onclick = viewRss;
+  $('#rss-digest').onclick = async () => {
+    const box = $('#rss-digest-box'); box.innerHTML = `<div class="card"><span class="spin">⏳</span> ${esc(t('rss.digesting'))}</div>`;
+    const r = await N.rss.digest();
+    box.innerHTML = r.ok ? `<div class="card"><h3>🧠 ${esc(t('rss.digest'))}</h3><div style="white-space:pre-wrap;line-height:1.5">${esc(r.digest)}</div></div>` : `<div class="card mk-down">⚠️ ${esc(r.error)}</div>`;
+  };
+  const feeds = await N.rss.feeds();
+  $('#rss-feeds').innerHTML = feeds.length ? feeds.map((f) => `<span class="rss-chip">${esc(f.title || f.url)} <span data-rm="${esc(f.url)}">✕</span></span>`).join('') : `<span class="muted" style="font-size:12px">${esc(t('rss.noFeeds'))}</span>`;
+  $$('#rss-feeds [data-rm]').forEach((x) => x.onclick = async () => { await N.rss.remove(x.dataset.rm); viewRss(); });
+  const agg = await N.rss.aggregate();
+  const box = $('#rss-items');
+  box.innerHTML = agg.items.length ? agg.items.map((i) => `<div class="news-item"><a data-link="${esc(i.link)}">${esc(i.title)}</a><span class="news-meta">${esc(i.source || '')}${i.date ? ' · ' + new Date(i.date).toLocaleString() : ''}</span></div>`).join('') : `<p class="muted">${esc(t('rss.empty'))}</p>`;
+  $$('#rss-items [data-link]').forEach((a) => a.onclick = () => N.system.openExternal(a.dataset.link));
+}
+
 /* ---------- Плейграунд моделей (A/B сравнение) ---------- */
 async function viewPlayground() {
   const models = await N.installer.listModels();
@@ -3042,10 +3194,13 @@ function buildCommands() {
     nav('operator', '🦾', t('nav.operator')),
     nav('smarthome', '🏠', t('nav.smarthome')),
     nav('knowledge', '📚', t('nav.knowledge')),
+    nav('notes', '📓', t('nav.notes')),
     nav('swarm', '🐝', t('nav.swarm')),
     nav('skills', '🧩', t('nav.skills')),
     nav('code', '📝', t('nav.code')),
     nav('images', '🎨', t('nav.images')),
+    nav('data', '🗃️', t('nav.data')),
+    nav('rss', '📰', t('nav.rss')),
     nav('automation', '🔗', t('nav.automation')),
     nav('markets', '📈', t('nav.markets')),
     nav('trading', '💹', t('nav.trading')),

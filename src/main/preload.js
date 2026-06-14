@@ -255,6 +255,25 @@ contextBridge.exposeInMainWorld('mythera', {
     panic: () => invoke('trade:panic'),
     log: () => invoke('trade:log')
   },
+  // Генерация изображений (Stable Diffusion)
+  img: {
+    status: () => invoke('img:status'),
+    generate: (o) => invoke('img:generate', o)
+  },
+  // Кодовое рабочее пространство (мини-IDE)
+  ws: {
+    tree: () => invoke('ws:tree'),
+    read: (p) => invoke('ws:read', p),
+    write: (p, c) => invoke('ws:write', p, c),
+    create: (p, isDir) => invoke('ws:create', p, isDir),
+    remove: (p) => invoke('ws:remove', p),
+    run: (p) => invoke('ws:run', p)
+  },
+  // Новости и сентимент
+  news: {
+    fetch: (q) => invoke('news:fetch', q),
+    sentiment: (q) => invoke('news:sentiment', q)
+  },
   // Бэктест стратегий
   backtest: {
     run: (o) => invoke('backtest:run', o),

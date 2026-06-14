@@ -126,7 +126,7 @@ async function render() {
   content.className = 'content fade-in';
   // Останавливаем авто-обновление рынков при уходе с раздела.
   if (state.view !== 'markets' && window.__marketTimer) { clearInterval(window.__marketTimer); window.__marketTimer = null; }
-  const map = { dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scenarios: viewScenarios, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, smarthome: viewSmartHome, knowledge: viewKnowledge, swarm: viewSwarm, queue: viewQueue, skills: viewSkills, dispatch: viewDispatch, prompts: viewPrompts, voice: viewVoice, operator: viewOperator, automation: viewAutomation, markets: viewMarkets, trading: viewTrading, developer: viewDeveloper, settings: viewSettings };
+  const map = { dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scenarios: viewScenarios, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, smarthome: viewSmartHome, knowledge: viewKnowledge, swarm: viewSwarm, queue: viewQueue, skills: viewSkills, dispatch: viewDispatch, prompts: viewPrompts, voice: viewVoice, operator: viewOperator, automation: viewAutomation, markets: viewMarkets, trading: viewTrading, code: viewCode, images: viewImages, developer: viewDeveloper, settings: viewSettings };
   const fn = map[state.view] || viewDashboard;
   // Граница ошибок: сбой одной вкладки не «вешает» весь интерфейс.
   try {
@@ -2187,6 +2187,132 @@ N.on('trade:confirm', ({ order, cfg }) => {
 });
 N.on('trade:log', () => { if (state.view === 'trading') renderTradeLog(); });
 
+/* ---------- Генерация изображений (Stable Diffusion) ---------- */
+async function viewImages() {
+  if (!state.imgGallery) state.imgGallery = [];
+  content.innerHTML = `
+    <div class="view-head"><h1>🎨 ${esc(t('img.title'))}</h1><p>${esc(t('img.sub'))}</p></div>
+    <div class="card" id="img-status-card"><span class="muted">${esc(t('img.checking'))}</span></div>
+    <div class="grid cols-2">
+      <div class="card">
+        <label class="field"><span>${esc(t('img.prompt'))}</span><textarea id="img-prompt" rows="3" placeholder="a cozy cabin in the snowy mountains, golden hour, highly detailed"></textarea></label>
+        <label class="field"><span>${esc(t('img.negative'))}</span><input id="img-neg" placeholder="blurry, low quality, watermark"></label>
+        <div class="row" style="gap:8px">
+          <label class="field" style="max-width:130px"><span>${esc(t('img.size'))}</span><select id="img-size"><option value="512x512">512×512</option><option value="768x512">768×512</option><option value="512x768">512×768</option><option value="768x768">768×768</option></select></label>
+          <label class="field" style="max-width:130px"><span>${esc(t('img.steps'))}: <b id="img-steps-v">24</b></span><input type="range" id="img-steps" min="8" max="50" value="24"></label>
+        </div>
+        <button class="btn primary" id="img-gen">✨ ${esc(t('img.generate'))}</button>
+        <a class="btn ghost sm" id="img-seturl" style="margin-left:8px">⚙️ ${esc(t('img.server'))}</a>
+      </div>
+      <div class="card">
+        <h3>${esc(t('img.result'))}</h3>
+        <div id="img-result" class="img-result"><span class="muted">${esc(t('img.resultHint'))}</span></div>
+      </div>
+    </div>
+    <div class="card"><h3>🖼 ${esc(t('img.gallery'))}</h3><div id="img-gallery" class="img-gallery"></div></div>`;
+  $('#img-steps').oninput = (e) => { $('#img-steps-v').textContent = e.target.value; };
+  N.img.status().then((s) => {
+    const c = $('#img-status-card'); if (!c) return;
+    c.innerHTML = s.ok ? `<span class="mk-up">✅ ${esc(t('img.connected'))}</span> <span class="muted">${esc((s.current || '').toString().slice(0, 60))}</span>` : `<span class="mk-down">⚠️ ${esc(s.error)}</span> <span class="muted">${esc(t('img.needServer'))}</span>`;
+  });
+  $('#img-seturl').onclick = async () => {
+    const cur = await N.store.get('settings.sdUrl', 'http://127.0.0.1:7860');
+    const url = await promptModal(t('img.server'), 'http://127.0.0.1:7860', cur);
+    if (url) { await N.store.set('settings.sdUrl', url.trim()); viewImages(); }
+  };
+  $('#img-gen').onclick = async () => {
+    const prompt = $('#img-prompt').value.trim(); if (!prompt) return;
+    const [w, h] = $('#img-size').value.split('x').map(Number);
+    const box = $('#img-result'); box.innerHTML = `<div class="img-loading"><span class="spin">⏳</span> ${esc(t('img.generating'))}</div>`;
+    $('#img-gen').disabled = true;
+    const r = await N.img.generate({ prompt, negative: $('#img-neg').value.trim(), width: w, height: h, steps: +$('#img-steps').value });
+    $('#img-gen').disabled = false;
+    if (!r.ok) { box.innerHTML = `<span class="mk-down">⚠️ ${esc(r.error)}</span>`; return; }
+    const src = 'data:image/png;base64,' + r.base64;
+    box.innerHTML = `<img class="img-out" src="${src}"><div class="row" style="gap:6px;margin-top:8px"><button class="btn ghost sm" id="img-dl">⬇ ${esc(t('img.save'))}</button><span class="muted" style="font-size:11px">seed ${r.seed != null ? r.seed : '?'}</span></div>`;
+    $('#img-dl').onclick = () => { const a = document.createElement('a'); a.href = src; a.download = 'mythera-' + Date.now() + '.png'; a.click(); };
+    state.imgGallery.unshift({ src, prompt }); state.imgGallery = state.imgGallery.slice(0, 12);
+    renderImgGallery();
+  };
+  renderImgGallery();
+}
+function renderImgGallery() {
+  const g = $('#img-gallery'); if (!g) return;
+  g.innerHTML = (state.imgGallery || []).length ? state.imgGallery.map((it) => `<img class="img-thumb" src="${it.src}" title="${esc(it.prompt)}">`).join('') : `<p class="muted">${esc(t('img.galleryEmpty'))}</p>`;
+  $$('#img-gallery .img-thumb').forEach((im) => im.onclick = () => openArtifact({ kind: 'image', titleText: 'Изображение', base64: im.src.split(',')[1] }));
+}
+
+/* ---------- Мини-IDE: код ---------- */
+async function viewCode() {
+  if (!state.code) state.code = { openPath: null, expanded: {} };
+  content.innerHTML = `
+    <div class="view-head"><h1>📝 ${esc(t('code.title'))}</h1><p>${esc(t('code.sub'))}</p></div>
+    <div class="code-layout">
+      <div class="card code-tree-card">
+        <div class="row" style="justify-content:space-between;align-items:center"><b>${esc(t('code.files'))}</b>
+          <span><button class="btn ghost sm" id="code-new">＋</button><button class="btn ghost sm" id="code-refresh">↻</button></span></div>
+        <div id="code-tree" class="code-tree"></div>
+      </div>
+      <div class="card code-edit-card">
+        <div class="row" style="justify-content:space-between;align-items:center">
+          <b id="code-fname" class="muted">${esc(t('code.noFile'))}</b>
+          <span><button class="btn sm" id="code-save" disabled>💾 ${esc(t('code.save'))}</button><button class="btn primary sm" id="code-run" disabled>▶ ${esc(t('code.run'))}</button></span></div>
+        <textarea id="code-editor" class="code-editor" spellcheck="false" placeholder="${esc(t('code.editorHint'))}"></textarea>
+        <div class="code-out-head">${esc(t('code.output'))}</div>
+        <pre id="code-out" class="code-out"></pre>
+      </div>
+    </div>`;
+  await refreshTree();
+  $('#code-refresh').onclick = refreshTree;
+  $('#code-new').onclick = async () => {
+    const name = await promptModal(t('code.newFile'), 'script.py');
+    if (!name) return; const r = await N.ws.create(name, false);
+    if (r.ok) { await refreshTree(); openCodeFile(r.path); } else toast('⚠️', r.error, 'err');
+  };
+  $('#code-save').onclick = saveCodeFile;
+  $('#code-run').onclick = runCodeFile;
+  $('#code-editor').oninput = () => { const s = $('#code-save'); if (s) s.disabled = !state.code.openPath; };
+  $('#code-editor').addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); saveCodeFile(); } });
+}
+async function refreshTree() {
+  const box = $('#code-tree'); if (!box) return;
+  const tree = await N.ws.tree();
+  box.innerHTML = tree.length ? treeHTML(tree) : `<p class="muted" style="font-size:12px">${esc(t('code.empty'))}</p>`;
+  $$('#code-tree [data-file]').forEach((el2) => el2.onclick = () => openCodeFile(el2.dataset.file));
+  $$('#code-tree [data-dir]').forEach((el2) => el2.onclick = () => { state.code.expanded[el2.dataset.dir] = !state.code.expanded[el2.dataset.dir]; refreshTree(); });
+}
+function treeHTML(nodes, depth = 0) {
+  return nodes.map((n) => {
+    const pad = `style="padding-left:${depth * 12 + 4}px"`;
+    if (n.dir) {
+      const open = state.code.expanded[n.path];
+      return `<div class="tree-node tree-dir" data-dir="${esc(n.path)}" ${pad}>${open ? '📂' : '📁'} ${esc(n.name)}</div>` + (open && n.children ? treeHTML(n.children, depth + 1) : '');
+    }
+    return `<div class="tree-node tree-file ${state.code.openPath === n.path ? 'active' : ''}" data-file="${esc(n.path)}" ${pad}>📄 ${esc(n.name)}</div>`;
+  }).join('');
+}
+async function openCodeFile(path) {
+  const r = await N.ws.read(path);
+  if (!r.ok) { toast('⚠️', r.error, 'err'); return; }
+  state.code.openPath = path;
+  $('#code-editor').value = r.content;
+  $('#code-fname').textContent = path; $('#code-fname').classList.remove('muted');
+  $('#code-save').disabled = true; $('#code-run').disabled = false;
+  $$('#code-tree .tree-file').forEach((el2) => el2.classList.toggle('active', el2.dataset.file === path));
+}
+async function saveCodeFile() {
+  if (!state.code.openPath) return;
+  const r = await N.ws.write(state.code.openPath, $('#code-editor').value);
+  if (r.ok) { $('#code-save').disabled = true; toast('💾', t('code.saved'), 'ok'); } else toast('⚠️', r.error, 'err');
+}
+async function runCodeFile() {
+  if (!state.code.openPath) return;
+  await saveCodeFile();
+  const out = $('#code-out'); out.textContent = '⏳…';
+  const r = await N.ws.run(state.code.openPath);
+  out.textContent = String(r);
+}
+
 /* ---------- Рынки: акции / фьючерсы / крипта / форекс / индексы ---------- */
 const MARKET_PRESETS = [
   { label: 'Акции', items: [['AAPL', 'Apple'], ['TSLA', 'Tesla'], ['NVDA', 'NVIDIA'], ['MSFT', 'Microsoft'], ['SBER.ME', 'Сбер']] },
@@ -2238,6 +2364,11 @@ async function viewMarkets() {
     <div class="grid cols-2">
       <div class="card"><h3>⭐ ${esc(t('mk.watchlist'))}</h3><div id="mk-wl"></div></div>
       <div class="card"><h3>🧠 ${esc(t('mk.aiTitle'))}</h3><div id="mk-ai" class="mk-ai muted">${esc(t('mk.aiHint'))}</div></div>
+      <div class="card" style="grid-column:1/-1">
+        <div class="row" style="justify-content:space-between;align-items:center"><h3>📰 ${esc(t('news.title'))}</h3><button class="btn ghost sm" id="mk-sentiment">🧠 ${esc(t('news.sentiment'))}</button></div>
+        <div id="mk-sent" class="muted" style="margin:6px 0;font-size:13px"></div>
+        <div id="mk-news" class="mk-news muted">${esc(t('news.hint'))}</div>
+      </div>
     </div>`;
 
   const load = async (sym) => { if (sym) mk.symbol = sym; mk.interval = $('#mk-int').value; mk.range = $('#mk-rng').value; $('#mk-sym').value = mk.symbol; await loadMarket(); };
@@ -2250,6 +2381,7 @@ async function viewMarkets() {
   $('#mk-sma50').onchange = (e) => { mk.sma50 = e.target.checked; drawMarket(); };
   $('#mk-watch').onclick = addToWatchlist;
   $('#mk-analyze').onclick = analyzeMarket;
+  $('#mk-sentiment').onclick = analyzeSentiment;
   window.addEventListener('resize', drawMarket);
   await renderWatchlist();
   await initBacktest();
@@ -2326,6 +2458,23 @@ async function loadMarket(silent) {
   if (q) q.innerHTML = `<b>${esc(d.symbol)}</b> <span class="mk-price">${last.toFixed(2)} ${esc(d.currency || '')}</span> <span class="${up ? 'mk-up' : 'mk-down'}">${up ? '▲' : '▼'} ${chg.toFixed(2)}%</span> <span class="muted" style="font-size:11px">· ${esc(d.source)}</span>`;
   drawMarket();
   checkAlerts(d.symbol, last);
+  if (!silent) loadNews();
+}
+async function loadNews() {
+  const box = $('#mk-news'); if (!box) return;
+  box.textContent = '…';
+  const r = await N.news.fetch(state.market.symbol);
+  if (!r.ok || !r.news.length) { box.innerHTML = `<span class="muted">${esc(t('news.none'))}</span>`; return; }
+  box.innerHTML = r.news.slice(0, 8).map((n) => `<div class="news-item"><a data-link="${esc(n.link)}">${esc(n.title)}</a><span class="news-meta">${esc(n.publisher || '')}${n.time ? ' · ' + new Date(n.time).toLocaleDateString() : ''}</span></div>`).join('');
+  $$('#mk-news [data-link]').forEach((a) => a.onclick = () => N.system.openExternal(a.dataset.link));
+}
+async function analyzeSentiment() {
+  const box = $('#mk-sent'); if (!box) return;
+  box.classList.remove('muted'); box.innerHTML = '<span class="spin">⏳</span> ' + esc(t('news.analyzing'));
+  const r = await N.news.sentiment(state.market.symbol);
+  if (!r.ok) { box.innerHTML = `<span class="mk-down">⚠️ ${esc(r.error)}</span>`; return; }
+  const label = r.score > 20 ? `<span class="mk-up">${t('news.positive')} (+${r.score})</span>` : r.score < -20 ? `<span class="mk-down">${t('news.negative')} (${r.score})</span>` : `<span class="muted">${t('news.neutral')} (${r.score})</span>`;
+  box.innerHTML = `<b>${t('news.sentiment')}:</b> ${label}<br>${esc(r.summary)}`;
 }
 
 // Свечной график на canvas (без внешних библиотек).
@@ -2820,7 +2969,17 @@ function buildCommands() {
     nav('translator', '🌐', t('nav.translator')),
     nav('prompts', '💡', t('nav.prompts')),
     nav('voice', '🎙️', t('nav.voice')),
+    nav('operator', '🦾', t('nav.operator')),
     nav('smarthome', '🏠', t('nav.smarthome')),
+    nav('knowledge', '📚', t('nav.knowledge')),
+    nav('swarm', '🐝', t('nav.swarm')),
+    nav('skills', '🧩', t('nav.skills')),
+    nav('code', '📝', t('nav.code')),
+    nav('images', '🎨', t('nav.images')),
+    nav('automation', '🔗', t('nav.automation')),
+    nav('markets', '📈', t('nav.markets')),
+    nav('trading', '💹', t('nav.trading')),
+    nav('dispatch', '📡', t('nav.dispatch')),
     nav('queue', '📋', t('nav.queue')),
     nav('developer', '🛠️', t('nav.developer')),
     nav('settings', '⚙️', t('nav.settings')),

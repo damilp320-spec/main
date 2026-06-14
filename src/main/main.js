@@ -42,6 +42,9 @@ const trading = require('./trading');
 const backtest = require('./backtest');
 const notifications = require('./notifications');
 const reports = require('./reports');
+const imagegen = require('./imagegen');
+const workspace = require('./workspace');
+const news = require('./news');
 
 let win = null;
 let tray = null;
@@ -177,6 +180,8 @@ app.whenReady().then(async () => {
   trading.setUISender(sendToUI);
   // Центр уведомлений.
   notifications.setUISender(sendToUI);
+  // Генерация изображений: результат в панель артефактов.
+  imagegen.setUISender(sendToUI);
 
   // Глобальный быстрый запуск (Spotlight для ИИ) + горячая клавиша.
   quickask.init({ getMainWin: () => win });
@@ -455,6 +460,22 @@ ipcMain.handle('trade:confirm', (_e, id) => trading.confirmOrder(id));
 ipcMain.handle('trade:reject', (_e, id) => trading.rejectOrder(id));
 ipcMain.handle('trade:panic', () => trading.panic());
 ipcMain.handle('trade:log', () => trading.getLog());
+
+/* ---------------- IPC: image generation (Stable Diffusion) ---------------- */
+ipcMain.handle('img:status', () => imagegen.status());
+ipcMain.handle('img:generate', (_e, opts) => imagegen.generate(opts));
+
+/* ---------------- IPC: code workspace (mini-IDE) ---------------- */
+ipcMain.handle('ws:tree', () => workspace.tree());
+ipcMain.handle('ws:read', (_e, p) => workspace.read(p));
+ipcMain.handle('ws:write', (_e, p, c) => workspace.write(p, c));
+ipcMain.handle('ws:create', (_e, p, isDir) => workspace.create(p, isDir));
+ipcMain.handle('ws:remove', (_e, p) => workspace.remove(p));
+ipcMain.handle('ws:run', (_e, p) => workspace.run(p));
+
+/* ---------------- IPC: news & sentiment ---------------- */
+ipcMain.handle('news:fetch', (_e, q) => news.fetchNews(q));
+ipcMain.handle('news:sentiment', (_e, q) => news.sentiment(q));
 
 /* ---------------- IPC: backtesting ---------------- */
 ipcMain.handle('backtest:run', (_e, opts) => backtest.run(opts));

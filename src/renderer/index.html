@@ -16,6 +16,7 @@
     </div>
     <div class="titlebar-right">
       <select class="proj-select" id="proj-select" title="Проект"></select>
+      <button class="bell-btn" id="gsearch-btn" title="Глобальный поиск (Ctrl+Shift+F)">🔍</button>
       <button class="bell-btn" id="bell-btn" title="Уведомления">🔔<span class="bell-badge" id="bell-badge" style="display:none">0</span></button>
       <button class="cmdk-hint" id="cmdk-hint" title="Командная палитра">⌘K</button>
       <div class="titlebar-controls">
@@ -33,7 +34,8 @@
 
       <div class="nav-group">
         <div class="nav-group-title" data-i18n="nav.grp.main">Основное</div>
-        <button class="nav-item active" data-view="dashboard"><span class="nav-ico">🏠</span><span data-i18n="nav.dashboard">Главная</span></button>
+        <button class="nav-item active" data-view="today"><span class="nav-ico">☀️</span><span data-i18n="nav.today">Сегодня</span></button>
+        <button class="nav-item" data-view="dashboard"><span class="nav-ico">🏠</span><span data-i18n="nav.dashboard">Главная</span></button>
         <button class="nav-item" data-view="agents"><span class="nav-ico">🤖</span><span data-i18n="nav.agents">Агенты</span></button>
         <button class="nav-item" data-view="queue"><span class="nav-ico">📋</span><span data-i18n="nav.queue">Очередь задач</span></button>
         <button class="nav-item" data-view="calendar"><span class="nav-ico">📅</span><span data-i18n="nav.calendar">Календарь</span></button>
@@ -123,6 +125,14 @@
     <div class="cmdk-box">
       <input id="cmdk-input" placeholder="Что сделать? Команда, агент, раздел…" autocomplete="off" />
       <div class="cmdk-list" id="cmdk-list"></div>
+    </div>
+  </div>
+
+  <!-- Глобальный поиск (Ctrl+Shift+F) -->
+  <div class="cmdk-backdrop" id="gsearch" style="display:none">
+    <div class="cmdk-box">
+      <input id="gsearch-input" placeholder="Поиск по заметкам, диалогам, знаниям, событиям, файлам…" autocomplete="off" />
+      <div class="cmdk-list" id="gsearch-list"></div>
     </div>
   </div>
 

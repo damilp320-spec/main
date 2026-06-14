@@ -7,7 +7,7 @@ const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls)
 const esc = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 
 const state = {
-  view: 'dashboard',
+  view: 'today',
   agents: [],
   activeAgentId: null,
   chats: {},           // agentId -> [{role, text}] — у каждого агента своя история
@@ -126,7 +126,7 @@ async function render() {
   content.className = 'content fade-in';
   // Останавливаем авто-обновление рынков при уходе с раздела.
   if (state.view !== 'markets' && window.__marketTimer) { clearInterval(window.__marketTimer); window.__marketTimer = null; }
-  const map = { dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scenarios: viewScenarios, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, smarthome: viewSmartHome, knowledge: viewKnowledge, swarm: viewSwarm, queue: viewQueue, skills: viewSkills, dispatch: viewDispatch, prompts: viewPrompts, voice: viewVoice, operator: viewOperator, automation: viewAutomation, markets: viewMarkets, trading: viewTrading, code: viewCode, images: viewImages, notes: viewNotes, data: viewData, rss: viewRss, calendar: viewCalendar, email: viewEmail, connections: viewConnections, playground: viewPlayground, diagnostics: viewDiagnostics, developer: viewDeveloper, settings: viewSettings };
+  const map = { today: viewToday, dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scenarios: viewScenarios, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, smarthome: viewSmartHome, knowledge: viewKnowledge, swarm: viewSwarm, queue: viewQueue, skills: viewSkills, dispatch: viewDispatch, prompts: viewPrompts, voice: viewVoice, operator: viewOperator, automation: viewAutomation, markets: viewMarkets, trading: viewTrading, code: viewCode, images: viewImages, notes: viewNotes, data: viewData, rss: viewRss, calendar: viewCalendar, email: viewEmail, connections: viewConnections, playground: viewPlayground, diagnostics: viewDiagnostics, developer: viewDeveloper, settings: viewSettings };
   const fn = map[state.view] || viewDashboard;
   // Граница ошибок: сбой одной вкладки не «вешает» весь интерфейс.
   try {
@@ -142,6 +142,62 @@ async function render() {
 }
 
 /* ---------- Dashboard ---------- */
+/* ---------- «Сегодня»: личный центр управления ---------- */
+async function viewToday() {
+  const now = Date.now();
+  content.innerHTML = `
+    <div class="view-head"><h1>☀️ ${esc(t('today.title'))}</h1><p>${esc(t('today.sub'))} · ${new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}</p></div>
+    <div class="grid cols-2">
+      <div class="card today-card"><div class="row between"><h3>📅 ${esc(t('today.events'))}</h3><button class="btn ghost sm" data-go="calendar">→</button></div><div id="today-cal" class="muted">…</div></div>
+      <div class="card today-card"><div class="row between"><h3>🔔 ${esc(t('today.notifs'))}</h3><button class="btn ghost sm" id="today-bell">→</button></div><div id="today-notif" class="muted">…</div></div>
+      <div class="card today-card"><div class="row between"><h3>📋 ${esc(t('today.tasks'))}</h3><button class="btn ghost sm" data-go="queue">→</button></div><div id="today-tasks" class="muted">…</div></div>
+      <div class="card today-card"><div class="row between"><h3>📈 ${esc(t('today.markets'))}</h3><button class="btn ghost sm" data-go="markets">→</button></div><div id="today-mkt" class="muted">…</div></div>
+      <div class="card today-card" style="grid-column:1/-1"><div class="row between"><h3>📰 ${esc(t('today.news'))}</h3><button class="btn ghost sm" data-go="rss">→</button></div><div id="today-rss" class="muted">…</div></div>
+    </div>`;
+  $$('#content [data-go]').forEach((b) => b.onclick = () => navigate(b.dataset.go));
+  $('#today-bell').onclick = toggleNotifPanel;
+
+  // Календарь.
+  N.cal.list(now - 3600000, now + 7 * 86400000).then((ev) => {
+    const box = $('#today-cal'); if (!box) return;
+    box.innerHTML = ev.length ? ev.slice(0, 6).map((e) => `<div class="today-row"><span>${esc(e.title)}</span><span class="muted">${new Date(e.start).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })}</span></div>`).join('') : `<span class="muted">${esc(t('today.noEvents'))}</span>`;
+  });
+  // Уведомления (непрочитанные).
+  N.notif.list().then((list) => {
+    const box = $('#today-notif'); if (!box) return;
+    const un = list.filter((n) => !n.read).slice(-6).reverse();
+    box.innerHTML = un.length ? un.map((n) => `<div class="today-row"><span>${NOTIF_ICON[n.kind] || 'ℹ️'} ${esc(n.title)}</span></div>`).join('') : `<span class="muted">${esc(t('today.noNotifs'))}</span>`;
+  });
+  // Задачи очереди.
+  N.taskq.list().then((q) => {
+    const box = $('#today-tasks'); if (!box) return;
+    const active = (q.tasks || []).filter((x) => !TASK_TERMINAL.includes(x.status)).slice(0, 6);
+    box.innerHTML = active.length ? active.map((x) => `<div class="today-row"><span>${TASK_STATUS[x.status] || '•'} ${esc(String(x.goal || '').slice(0, 50))}</span></div>`).join('') : `<span class="muted">${esc(t('today.noTasks'))}</span>`;
+  });
+  // Watchlist движения.
+  N.markets.watchlist().then(async (wl) => {
+    const box = $('#today-mkt'); if (!box) return;
+    if (!wl.length) { box.innerHTML = `<span class="muted">${esc(t('today.noWatch'))}</span>`; return; }
+    box.innerHTML = '';
+    for (const w of wl.slice(0, 6)) {
+      if (state.view !== 'today') return;
+      const d = await N.markets.candles({ symbol: w.symbol, interval: '1d', range: '5d' });
+      if (!box || state.view !== 'today') return;
+      if (d.ok && d.candles.length) { const c = d.candles.map((x) => x.c); const chg = (c[c.length - 1] / c[0] - 1) * 100; box.innerHTML += `<div class="today-row"><span>${esc(w.symbol)}</span><span class="${chg >= 0 ? 'mk-up' : 'mk-down'}">${c[c.length - 1].toFixed(2)} ${chg >= 0 ? '+' : ''}${chg.toFixed(1)}%</span></div>`; }
+    }
+    if (!box.innerHTML) box.innerHTML = `<span class="muted">—</span>`;
+  });
+  // RSS заголовки.
+  N.rss.feeds().then(async (feeds) => {
+    const box = $('#today-rss'); if (!box) return;
+    if (!feeds.length) { box.innerHTML = `<span class="muted">${esc(t('today.noRss'))}</span>`; return; }
+    const agg = await N.rss.aggregate();
+    if (!box || state.view !== 'today') return;
+    box.innerHTML = agg.items.length ? agg.items.slice(0, 6).map((i) => `<div class="today-row"><a data-link="${esc(i.link)}">${esc(i.title)}</a><span class="muted" style="font-size:11px">${esc(i.source || '')}</span></div>`).join('') : `<span class="muted">—</span>`;
+    $$('#today-rss [data-link]').forEach((a) => a.onclick = () => N.system.openExternal(a.dataset.link));
+  });
+}
+
 async function viewDashboard() {
   const info = await N.system.info();
   const stats = await N.system.stats();
@@ -1512,6 +1568,60 @@ async function viewVoice() {
   $('#speech-install').onclick = () => installLogModal('Установка локальной речи', () => N.tooling.installSpeech());
 }
 
+/* ---------- Бэкап / восстановление ---------- */
+async function backupExport() {
+  const data = await N.store.all();
+  const blob = { _type: 'mythera-backup', version: 1, at: Date.now(), data };
+  downloadText('mythera-backup-' + new Date().toISOString().slice(0, 10) + '.json', JSON.stringify(blob, null, 2), 'application/json');
+  toast('💾', t('bk.exported'), 'ok');
+}
+function backupImport() {
+  const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.json';
+  inp.onchange = async () => {
+    const f = inp.files[0]; if (!f) return;
+    let obj; try { obj = JSON.parse(await f.text()); } catch { return toast('⚠️', t('bk.bad'), 'err'); }
+    const data = obj && obj._type === 'mythera-backup' ? obj.data : (obj && typeof obj === 'object' ? obj : null);
+    if (!data) return toast('⚠️', t('bk.bad'), 'err');
+    if (!await confirmModal(t('bk.restore'), t('bk.restoreWarn'))) return;
+    await N.store.replaceAll(data);
+    toast('✅', t('bk.restored'), 'ok');
+    setTimeout(() => location.reload(), 800);
+  };
+  inp.click();
+}
+
+/* ---------- Тур по возможностям ---------- */
+const TOUR_STEPS = [
+  { ico: '☀️', key: 'today', view: 'today' }, { ico: '🤖', key: 'agents', view: 'agents' },
+  { ico: '📓', key: 'notes', view: 'notes' }, { ico: '🔗', key: 'auto', view: 'automation' },
+  { ico: '📈', key: 'markets', view: 'markets' }, { ico: '🎨', key: 'images', view: 'images' },
+  { ico: '🩺', key: 'diag', view: 'diagnostics' }, { ico: '🔍', key: 'search', view: null }
+];
+function startTour() {
+  let i = 0;
+  const render = (m, close) => {
+    const s = TOUR_STEPS[i];
+    m.innerHTML = `<div style="text-align:center"><div style="font-size:48px">${s.ico}</div><h2>${esc(t('tour.' + s.key + '.t'))}</h2><p class="muted" style="margin:10px 0">${esc(t('tour.' + s.key + '.d'))}</p>
+      <div class="row" style="justify-content:center;gap:8px;margin-top:14px">
+        ${i > 0 ? `<button class="btn ghost" id="tour-prev">←</button>` : ''}
+        ${s.view ? `<button class="btn ghost" id="tour-go">${esc(t('tour.goto'))}</button>` : ''}
+        <button class="btn primary" id="tour-next">${i < TOUR_STEPS.length - 1 ? esc(t('tour.next')) : esc(t('tour.done'))}</button>
+      </div><div class="tour-dots">${TOUR_STEPS.map((_, k) => `<span class="${k === i ? 'on' : ''}"></span>`).join('')}</div></div>`;
+    const prev = $('#tour-prev', m); if (prev) prev.onclick = () => { i--; render(m, close); };
+    const go = $('#tour-go', m); if (go) go.onclick = () => { close(); navigate(s.view); };
+    $('#tour-next', m).onclick = () => { if (i < TOUR_STEPS.length - 1) { i++; render(m, close); } else { N.store.set('settings.tourDone', true); close(); } };
+  };
+  modal('<div id="tour-body"></div>', (m, close) => render(m, close));
+}
+
+/* ---------- Персонализация вида ---------- */
+async function applyViewPrefs() {
+  const density = await N.store.get('settings.density', 'comfortable');
+  const scale = await N.store.get('settings.fontScale', 1);
+  document.body.classList.toggle('compact', density === 'compact');
+  document.documentElement.style.fontSize = (14 * (+scale || 1)) + 'px';
+}
+
 /* ---------- Settings ---------- */
 async function viewSettings() {
   const g = (k, d) => N.store.get('settings.' + k, d);
@@ -1547,7 +1657,9 @@ async function viewSettings() {
     duplexVoice: await g('duplexVoice', false),
     artifacts: await g('artifacts', true),
     quickAsk: await g('quickAsk', true),
-    tradingEnabled: await g('tradingEnabled', false)
+    tradingEnabled: await g('tradingEnabled', false),
+    density: await g('density', 'comfortable'),
+    fontScale: await g('fontScale', 1)
   };
   const docCaps = await N.docs.capabilities();
   const cloudKey = await N.cloud.hasKey();
@@ -1571,6 +1683,11 @@ async function viewSettings() {
         <p class="muted" style="margin:10px 0 6px">${esc(t('set.accent'))}</p>
         <div id="accent-row">${swatches}</div>
         <label class="field" style="margin-top:14px"><span>${esc(t('set.language'))}</span><select id="set-lang">${langOpts}</select></label>
+        <label class="field"><span>${esc(t('set.density'))}</span><select id="set-density">
+          <option value="comfortable" ${s.density === 'comfortable' ? 'selected' : ''}>${esc(t('set.comfortable'))}</option>
+          <option value="compact" ${s.density === 'compact' ? 'selected' : ''}>${esc(t('set.compact'))}</option></select></label>
+        <label class="field"><span>${esc(t('set.fontSize'))}: <b id="fs-val">${Math.round(s.fontScale * 100)}%</b></span><input type="range" id="set-fontscale" min="0.85" max="1.25" step="0.05" value="${s.fontScale}"></label>
+        <button class="btn ghost sm" id="set-tour" style="margin-top:6px">🎓 ${esc(t('set.tour'))}</button>
       </div>
       <div class="card">
         <h3>🚀 ${esc(t('set.launch'))}</h3>
@@ -1687,6 +1804,11 @@ async function viewSettings() {
         <label class="field"><span>${esc(t('set.cloudKey'))}</span><input id="set-cloudkey" type="password" placeholder="${cloudKey.hasKey ? '•••••• (сохранён)' : 'sk-…'}"></label>
         <div class="row" style="gap:6px"><button class="btn sm" id="cloud-savekey">${esc(t('set.cloudSaveKey'))}</button><button class="btn ghost sm" id="cloud-test">${esc(t('set.cloudTest'))}</button><span id="cloud-status" class="muted" style="font-size:12px"></span></div>
       </div>
+      <div class="card">
+        <h3>💾 ${esc(t('bk.title'))}</h3>
+        <p class="muted" style="margin-bottom:10px">${esc(t('bk.sub'))}</p>
+        <div class="row" style="gap:6px"><button class="btn primary" id="bk-export">⬇ ${esc(t('bk.export'))}</button><button class="btn ghost" id="bk-import">⬆ ${esc(t('bk.import'))}</button></div>
+      </div>
       <div class="card" style="grid-column:1/-1">
         <h3>ℹ️ ${esc(t('set.about'))}</h3>
         <p class="muted">Mythera AI Hub v${esc(info.appVersion)} · ${esc(info.platform)} ${esc(info.release)} · ${info.cpus} ${'ядер/cores'}</p>
@@ -1759,6 +1881,11 @@ async function viewSettings() {
   $('#cloud-savekey').onclick = async () => { const k = $('#set-cloudkey').value.trim(); if (!k) return; const r = await N.cloud.setKey(k); $('#set-cloudkey').value = ''; toast('☁️', r.encrypted ? 'OK (зашифрован)' : 'OK', 'ok'); };
   $('#cloud-test').onclick = async () => { $('#cloud-status').textContent = '…'; const r = await N.cloud.test(); $('#cloud-status').textContent = r.ok ? ('✅ ' + (r.model || '')) : ('❌ ' + (r.error || '')); };
   $('#set-viewconst').onclick = showConstitution;
+  $('#set-density').onchange = async (e) => { await N.store.set('settings.density', e.target.value); applyViewPrefs(); };
+  $('#set-fontscale').oninput = async (e) => { $('#fs-val').textContent = Math.round(e.target.value * 100) + '%'; await N.store.set('settings.fontScale', +e.target.value); applyViewPrefs(); };
+  $('#set-tour').onclick = startTour;
+  $('#bk-export').onclick = backupExport;
+  $('#bk-import').onclick = backupImport;
   bindToggle('set-light', async (v) => { const th = await N.store.get('settings.theme', { mode: 'dark', accent: 'violet' }); th.mode = v ? 'light' : 'dark'; await N.store.set('settings.theme', th); applyTheme(); });
   $('#set-rate').oninput = (e) => { $('#rate-val').textContent = (+e.target.value).toFixed(1) + '×'; N.store.set('settings.voiceRate', +e.target.value); };
   // Звук и музыка.
@@ -3372,8 +3499,12 @@ let cmdkSel = 0, cmdkItems = [];
 function buildCommands() {
   const nav = (v, ico, label, sub) => ({ ico, label, sub: sub || 'Раздел', run: () => navigate(v) });
   const cmds = [
+    nav('today', '☀️', t('nav.today')),
     nav('dashboard', '🏠', t('nav.dashboard')),
     nav('agents', '🤖', t('nav.agents')),
+    { ico: '🔍', label: t('gs.cmd'), sub: 'Действие', run: openGSearch },
+    { ico: '🎓', label: t('set.tour'), sub: 'Действие', run: startTour },
+    { ico: '💾', label: t('bk.export'), sub: 'Действие', run: backupExport },
     nav('marketplace', '⬇️', t('nav.marketplace')),
     nav('playground', '⚖️', t('nav.playground')),
     nav('diagnostics', '🩺', t('nav.diagnostics')),
@@ -3435,6 +3566,39 @@ function renderCmdk(q) {
 }
 function runCmdk(i) { const c = cmdkItems[i]; if (c) { closeCmdk(); c.run(); } }
 
+/* ---------- Глобальный поиск (по всему контенту) ---------- */
+let gsTimer = null, gsItems = [], gsSel = 0;
+function openGSearch() { const b = $('#gsearch'); b.style.display = 'flex'; const inp = $('#gsearch-input'); inp.value = ''; gsItems = []; gsSel = 0; $('#gsearch-list').innerHTML = `<div class="cmdk-item">${esc(t('gs.hint'))}</div>`; setTimeout(() => inp.focus(), 20); }
+function closeGSearch() { $('#gsearch').style.display = 'none'; }
+async function renderGSearch(q) {
+  q = q.trim(); const list = $('#gsearch-list');
+  if (q.length < 2) { list.innerHTML = `<div class="cmdk-item">${esc(t('gs.hint'))}</div>`; gsItems = []; return; }
+  list.innerHTML = `<div class="cmdk-item"><span class="spin">⏳</span></div>`;
+  const items = [];
+  const ql = q.toLowerCase();
+  // Команды/разделы.
+  buildCommands().filter((c) => (c.label + ' ' + c.sub).toLowerCase().includes(ql)).slice(0, 4).forEach((c) => items.push({ ico: c.ico, label: c.label, sub: c.sub, run: c.run }));
+  // Параллельно собираем из источников.
+  const [notes, hist, kb, cal, files] = await Promise.all([
+    N.notes.search(q).catch(() => []),
+    N.agents.history().catch(() => []),
+    N.rag.retrieve('kb', q).catch(() => []),
+    N.cal.list().catch(() => []),
+    N.ws.tree().catch(() => [])
+  ]);
+  notes.slice(0, 5).forEach((n) => items.push({ ico: '📓', label: n.title, sub: 'Заметка · ' + (n.snippet || ''), run: () => { navigate('notes'); setTimeout(() => openNote(n.id), 200); } }));
+  hist.filter((h) => (h.user + ' ' + h.assistant).toLowerCase().includes(ql)).slice(-4).reverse().forEach((h) => items.push({ ico: '💬', label: String(h.user || '').slice(0, 60), sub: 'Диалог · ' + (h.agentName || ''), run: () => navigate('agents') }));
+  kb.slice(0, 4).forEach((h) => items.push({ ico: '📚', label: String(h.text || '').slice(0, 60), sub: 'Знание · ' + (h.source || ''), run: () => navigate('knowledge') }));
+  cal.filter((e) => e.title.toLowerCase().includes(ql)).slice(0, 4).forEach((e) => items.push({ ico: '📅', label: e.title, sub: 'Событие · ' + new Date(e.start).toLocaleDateString(), run: () => navigate('calendar') }));
+  const flat = []; const walk = (ns) => ns.forEach((n) => { if (n.dir) walk(n.children || []); else flat.push(n); });
+  walk(files); flat.filter((f) => f.name.toLowerCase().includes(ql)).slice(0, 5).forEach((f) => items.push({ ico: '📄', label: f.name, sub: 'Файл · ' + f.path, run: () => { navigate('code'); setTimeout(() => openCodeFile(f.path), 250); } }));
+
+  gsItems = items; gsSel = 0;
+  list.innerHTML = items.length ? items.map((c, i) => `<div class="cmdk-item ${i === 0 ? 'sel' : ''}" data-i="${i}"><span class="ico">${c.ico}</span><span>${esc(c.label)}</span><span class="sub">${esc(c.sub)}</span></div>`).join('') : `<div class="cmdk-item">${esc(t('gs.none'))}</div>`;
+  $$('.cmdk-item', list).forEach((it) => { if (it.dataset.i != null) it.onclick = () => runGSearch(+it.dataset.i); });
+}
+function runGSearch(i) { const c = gsItems[i]; if (c) { closeGSearch(); c.run(); } }
+
 async function toggleThemeMode() {
   const th = await N.store.get('settings.theme', { mode: 'dark', accent: 'violet' });
   th.mode = th.mode === 'light' ? 'dark' : 'light';
@@ -3461,16 +3625,26 @@ document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') { e.preventDefault(); toggleFocusMode(); return; }
   if ((e.ctrlKey || e.metaKey) && e.key === '\\') { e.preventDefault(); toggleRail(); return; }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); $('#cmdk').style.display === 'flex' ? closeCmdk() : openCmdk(); return; }
+  if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'f') { e.preventDefault(); $('#gsearch').style.display === 'flex' ? closeGSearch() : openGSearch(); return; }
   if ($('#cmdk').style.display === 'flex') {
     if (e.key === 'Escape') closeCmdk();
     else if (e.key === 'ArrowDown') { e.preventDefault(); cmdkSel = Math.min(cmdkItems.length - 1, cmdkSel + 1); renderCmdk($('#cmdk-input').value); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); cmdkSel = Math.max(0, cmdkSel - 1); renderCmdk($('#cmdk-input').value); }
     else if (e.key === 'Enter') { e.preventDefault(); runCmdk(cmdkSel); }
   }
+  if ($('#gsearch').style.display === 'flex') {
+    if (e.key === 'Escape') closeGSearch();
+    else if (e.key === 'ArrowDown') { e.preventDefault(); gsSel = Math.min(gsItems.length - 1, gsSel + 1); $$('#gsearch-list .cmdk-item').forEach((it, i) => it.classList.toggle('sel', i === gsSel)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); gsSel = Math.max(0, gsSel - 1); $$('#gsearch-list .cmdk-item').forEach((it, i) => it.classList.toggle('sel', i === gsSel)); }
+    else if (e.key === 'Enter') { e.preventDefault(); runGSearch(gsSel); }
+  }
 });
 $('#cmdk-input').addEventListener('input', (e) => { cmdkSel = 0; renderCmdk(e.target.value); });
 $('#cmdk').addEventListener('click', (e) => { if (e.target.id === 'cmdk') closeCmdk(); });
 $('#cmdk-hint').onclick = openCmdk;
+$('#gsearch-input').addEventListener('input', (e) => { clearTimeout(gsTimer); gsTimer = setTimeout(() => renderGSearch(e.target.value), 250); });
+$('#gsearch').addEventListener('click', (e) => { if (e.target.id === 'gsearch') closeGSearch(); });
+$('#gsearch-btn').onclick = openGSearch;
 
 /* Импорт агента из файла */
 $('#agent-import-input').addEventListener('change', async (e) => {
@@ -3789,6 +3963,7 @@ async function pollOllama() {
   if (lang) setLangCode(lang);
   applyStaticI18n();
   await applyTheme();
+  await applyViewPrefs();
   await setupSidebar();
   await initProjectSelector();
   window.__artifactsOn = await N.store.get('settings.artifacts', true);

@@ -248,6 +248,20 @@ body.artifact-open .content { margin-right: 42vw; }
 .tabs .tab.active { color: var(--text); border-bottom-color: var(--accent); }
 .tabs .tab:hover { color: var(--text); }
 
+/* ---------- Today + tour + density ---------- */
+.today-card { min-height: 120px; }
+.today-row { display: flex; justify-content: space-between; gap: 10px; padding: 4px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.today-row:last-child { border-bottom: 0; }
+.today-row a { cursor: pointer; color: var(--text); }
+.today-row a:hover { color: var(--accent); }
+.tour-dots { display: flex; justify-content: center; gap: 6px; margin-top: 14px; }
+.tour-dots span { width: 7px; height: 7px; border-radius: 50%; background: var(--border); }
+.tour-dots span.on { background: var(--accent); }
+body.compact .card { padding: 11px 13px; }
+body.compact .nav-item { padding: 6px 10px; }
+body.compact .msg { padding: 8px 11px; }
+body.compact .view-head { margin-bottom: 10px; }
+
 /* ---------- Calendar ---------- */
 .cal-list { display: flex; flex-direction: column; gap: 6px; max-height: 64vh; overflow: auto; }
 .cal-item { display: flex; justify-content: space-between; align-items: center; padding: 9px 10px; border: 1px solid var(--border); border-radius: 8px; }

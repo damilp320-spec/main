@@ -214,7 +214,32 @@ textarea { resize: vertical; min-height: 70px; }
 .msg-fb.rated { font-size: 13px; opacity: .85; }
 .fb-btn { background: var(--bg-3); border: 1px solid var(--border); border-radius: 8px; padding: 2px 8px; cursor: pointer; font-size: 13px; line-height: 1.2; transition: transform .1s, background .15s; }
 .fb-btn:hover { background: var(--bg-2); transform: scale(1.12); }
+.msg-art { align-self: flex-start; margin: 0 0 4px 2px; }
 .chat-input { display: flex; gap: 10px; padding: 14px; border-top: 1px solid var(--border); }
+
+/* ---------- Project selector (titlebar) ---------- */
+.proj-select { -webkit-app-region: no-drag; background: var(--bg-3); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 3px 8px; font-size: 12px; max-width: 160px; cursor: pointer; }
+
+/* ---------- Operator (computer-use) ---------- */
+.warn-card { border: 1px solid rgba(255,176,32,.35); background: rgba(255,176,32,.07); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.op-log { max-height: 360px; overflow-y: auto; font-family: 'Consolas', monospace; font-size: 12px; display: flex; flex-direction: column; gap: 4px; }
+.op-line { padding: 4px 8px; border-radius: 6px; white-space: pre-wrap; word-break: break-word; }
+.op-goal { background: var(--accent-grad); color: #0b0e14; font-weight: 600; }
+.op-frame { color: var(--accent-2); }
+.op-action { background: rgba(124,92,255,.1); border-left: 2px solid var(--accent); }
+.op-result { color: var(--muted); padding-left: 18px; }
+.op-warn { color: #ffb020; }
+.op-done { font-weight: 600; }
+
+/* ---------- Artifact pane ---------- */
+.artifact-pane { position: fixed; top: 44px; right: 0; width: 42vw; min-width: 360px; height: calc(100vh - 44px); background: var(--bg-1); border-left: 1px solid var(--border); display: flex; flex-direction: column; z-index: 40; box-shadow: -8px 0 24px rgba(0,0,0,.25); }
+.artifact-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 13px; font-weight: 600; }
+.artifact-actions { display: flex; gap: 4px; }
+.artifact-body { flex: 1; overflow: auto; background: #fff; }
+.artifact-frame { width: 100%; height: 100%; border: 0; background: #fff; }
+.artifact-code { margin: 0; padding: 14px; font-family: 'Consolas', monospace; font-size: 12.5px; line-height: 1.5; color: var(--text); background: var(--bg-2); white-space: pre-wrap; word-break: break-word; height: 100%; }
+body.artifact-open .content { margin-right: 42vw; }
+.pm-input { background: var(--bg-3); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 9px 11px; font-size: 14px; }
 .chat-input textarea { min-height: 44px; max-height: 120px; }
 
 /* ---------- Scheduler ---------- */

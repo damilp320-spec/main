@@ -21,6 +21,7 @@ const webagent = require('./webagent');
 const gui = require('./gui');
 const mcp = require('./mcp');
 const docs = require('./docs');
+const learner = require('./learner');
 
 const activeSessions = new Map(); // sessionId -> { stop: bool }
 
@@ -394,6 +395,8 @@ async function chat({ agentId, sessionId, message, history, effort }, sendToUI) 
   if (store.get('settings.longMemory', true)) {
     memory.remember(agent.id, model, message, finalText).catch(() => {});
   }
+  // Самообучение: в фоне пытаемся выделить переиспользуемый скил из удачной задачи.
+  learner.maybeLearn({ model, userMsg: message, finalText, toolCalls: tel.toolCalls }, sendToUI).catch(() => {});
   return { sessionId, text: finalText, telemetry };
 }
 

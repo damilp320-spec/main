@@ -15,6 +15,7 @@
       <span class="badge" id="ollama-badge" data-i18n="badge.checking">● проверка…</span>
     </div>
     <div class="titlebar-right">
+      <select class="proj-select" id="proj-select" title="Проект"></select>
       <button class="cmdk-hint" id="cmdk-hint" title="Командная палитра">⌘K</button>
       <div class="titlebar-controls">
         <button class="win-btn" id="btn-min" title="Свернуть">&#x2013;</button>
@@ -48,6 +49,7 @@
       <div class="nav-group">
         <div class="nav-group-title" data-i18n="nav.grp.tools">Инструменты</div>
         <button class="nav-item" data-view="voice"><span class="nav-ico">🎙️</span><span data-i18n="nav.voice">Голос</span></button>
+        <button class="nav-item" data-view="operator"><span class="nav-ico">🦾</span><span data-i18n="nav.operator">Оператор ПК</span></button>
         <button class="nav-item" data-view="smarthome"><span class="nav-ico">🏠</span><span data-i18n="nav.smarthome">Умный дом</span></button>
         <button class="nav-item" data-view="minecraft"><span class="nav-ico">🧱</span><span data-i18n="nav.minecraft">Minecraft</span></button>
         <button class="nav-item" data-view="servers"><span class="nav-ico">🖥️</span><span data-i18n="nav.servers">Серверы</span></button>
@@ -80,6 +82,18 @@
     <span class="mic-ico">🎤</span>
     <span class="pulse"></span>
   </button>
+
+  <!-- Панель артефактов (живой превью кода/HTML/графики) -->
+  <aside class="artifact-pane" id="artifact-pane" style="display:none">
+    <div class="artifact-head">
+      <span id="artifact-title">Артефакт</span>
+      <div class="artifact-actions">
+        <button class="win-btn" id="artifact-refresh" title="Обновить">⟳</button>
+        <button class="win-btn" id="artifact-close" title="Закрыть">✕</button>
+      </div>
+    </div>
+    <div class="artifact-body" id="artifact-body"></div>
+  </aside>
 
   <!-- Контейнер уведомлений -->
   <div class="toast-wrap" id="toast-wrap"></div>

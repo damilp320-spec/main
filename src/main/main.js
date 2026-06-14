@@ -31,6 +31,8 @@ const mcp = require('./mcp');
 const docs = require('./docs');
 const cloud = require('./cloud');
 const modelrouter = require('./modelrouter');
+const operator = require('./operator');
+const projects = require('./projects');
 
 let win = null;
 let tray = null;
@@ -371,6 +373,18 @@ ipcMain.handle('cloud:ask', (_e, messages, opts) => cloud.ask(messages, opts));
 /* ---------------- IPC: model routing ---------------- */
 ipcMain.handle('models:installed', () => modelrouter.installed());
 ipcMain.handle('models:pick', (_e, kind, fallback) => modelrouter.pick(kind, fallback));
+
+/* ---------------- IPC: computer-use operator ---------------- */
+ipcMain.handle('operator:run', (_e, opts) => operator.run(opts, sendToUI));
+ipcMain.handle('operator:stop', (_e, sessionId) => operator.stop(sessionId));
+
+/* ---------------- IPC: project workspaces ---------------- */
+ipcMain.handle('projects:list', () => projects.list());
+ipcMain.handle('projects:active', () => projects.active());
+ipcMain.handle('projects:create', (_e, name) => projects.create(name));
+ipcMain.handle('projects:rename', (_e, id, name) => projects.rename(id, name));
+ipcMain.handle('projects:remove', (_e, id) => projects.remove(id));
+ipcMain.handle('projects:setActive', (_e, id) => projects.setActive(id));
 
 /* ---------------- IPC: feedback ratings ---------------- */
 ipcMain.handle('feedback:rate', (_e, entry) => {

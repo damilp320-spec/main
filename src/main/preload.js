@@ -206,6 +206,20 @@ contextBridge.exposeInMainWorld('mythera', {
     rate: (e) => invoke('feedback:rate', e),
     list: () => invoke('feedback:list')
   },
+  // Оператор ПК (computer-use)
+  operator: {
+    run: (o) => invoke('operator:run', o),
+    stop: (s) => invoke('operator:stop', s)
+  },
+  // Проектные рабочие пространства
+  projects: {
+    list: () => invoke('projects:list'),
+    active: () => invoke('projects:active'),
+    create: (n) => invoke('projects:create', n),
+    rename: (id, n) => invoke('projects:rename', id, n),
+    remove: (id) => invoke('projects:remove', id),
+    setActive: (id) => invoke('projects:setActive', id)
+  },
   // Удалённый доступ (dispatch)
   dispatch: {
     status: () => invoke('dispatch:status'),

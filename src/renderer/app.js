@@ -124,7 +124,7 @@ const content = $('#content');
 async function render() {
   content.scrollTop = 0;
   content.className = 'content fade-in';
-  const map = { dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scenarios: viewScenarios, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, smarthome: viewSmartHome, knowledge: viewKnowledge, swarm: viewSwarm, queue: viewQueue, skills: viewSkills, dispatch: viewDispatch, prompts: viewPrompts, voice: viewVoice, developer: viewDeveloper, settings: viewSettings };
+  const map = { dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scenarios: viewScenarios, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, smarthome: viewSmartHome, knowledge: viewKnowledge, swarm: viewSwarm, queue: viewQueue, skills: viewSkills, dispatch: viewDispatch, prompts: viewPrompts, voice: viewVoice, operator: viewOperator, developer: viewDeveloper, settings: viewSettings };
   const fn = map[state.view] || viewDashboard;
   // Граница ошибок: сбой одной вкладки не «вешает» весь интерфейс.
   try {
@@ -507,6 +507,16 @@ function renderChat() {
     const d = el('div', 'msg ' + m.role);
     d.textContent = m.text;
     body.appendChild(d);
+    // Артефакт: кнопка живого превью кода/HTML/графики.
+    if (m.role === 'bot' && m.text && window.__artifactsOn) {
+      const art = extractArtifact(m.text);
+      if (art) {
+        const ab = el('div', 'msg-art');
+        ab.innerHTML = `<button class="btn ghost sm">${art.kind === 'html' ? '🖼' : '📄'} ${esc(t('art.preview'))}</button>`;
+        ab.querySelector('button').onclick = () => openArtifact(art);
+        body.appendChild(ab);
+      }
+    }
     // Телеметрия + оценка ответа на финальных сообщениях бота.
     if (m.role === 'bot' && m.text) {
       if (m.tel) {
@@ -1419,7 +1429,11 @@ async function viewSettings() {
     cloudEnabled: await g('cloudEnabled', false),
     cloudProvider: await g('cloudProvider', 'openai'),
     cloudModel: await g('cloudModel', 'gpt-4o-mini'),
-    cloudBaseUrl: await g('cloudBaseUrl', '')
+    cloudBaseUrl: await g('cloudBaseUrl', ''),
+    operator: await g('operator', false),
+    autoLearnSkills: await g('autoLearnSkills', false),
+    duplexVoice: await g('duplexVoice', false),
+    artifacts: await g('artifacts', true)
   };
   const docCaps = await N.docs.capabilities();
   const cloudKey = await N.cloud.hasKey();
@@ -1470,6 +1484,8 @@ async function viewSettings() {
         <h3>🎙️ ${esc(t('set.voice'))}</h3>
         ${toggleRow('set-vreplies', t('set.voiceReplies'), s.voiceReplies)}
         ${toggleRow('set-autolisten', t('set.autoListen'), s.autoListen)}
+        ${toggleRow('set-duplex', t('set.duplexVoice'), s.duplexVoice)}
+        <p class="muted" style="margin:6px 0">${esc(t('set.duplexVoiceNote'))}</p>
         <label class="field" style="margin-top:10px"><span>${esc(t('set.voiceRate'))}: <b id="rate-val">${s.voiceRate}×</b></span>
           <input type="range" id="set-rate" min="0.5" max="2" step="0.1" value="${s.voiceRate}"></label>
       </div>
@@ -1509,6 +1525,10 @@ async function viewSettings() {
         <p class="muted" style="margin:6px 0">${esc(t('set.selfVerifyNote'))}</p>
         ${toggleRow('set-visiblethink', t('set.visibleThinking'), s.visibleThinking)}
         <p class="muted" style="margin:6px 0">${esc(t('set.visibleThinkingNote'))}</p>
+        ${toggleRow('set-autolearn', t('set.autoLearn'), s.autoLearnSkills)}
+        <p class="muted" style="margin:6px 0">${esc(t('set.autoLearnNote'))}</p>
+        ${toggleRow('set-artifacts', t('set.artifacts'), s.artifacts)}
+        <p class="muted" style="margin:6px 0">${esc(t('set.artifactsNote'))}</p>
       </div>
       <div class="card">
         <h3>🦾 ${esc(t('set.capabilities'))}</h3>
@@ -1516,6 +1536,8 @@ async function viewSettings() {
         <p class="muted" style="margin:6px 0">${esc(t('set.webAutomationNote'))}</p>
         ${toggleRow('set-guiauto', t('set.guiAutomation'), s.guiAutomation)}
         <p class="muted" style="margin:6px 0">${esc(t('set.guiAutomationNote'))}</p>
+        ${toggleRow('set-operator', t('set.operator'), s.operator)}
+        <p class="muted" style="margin:6px 0">${esc(t('set.operatorNote'))}</p>
         <p class="muted" style="margin:10px 0 4px"><b>${esc(t('set.docs'))}</b></p>
         <p class="muted" style="margin:4px 0">${esc(t('set.docsNote'))}</p>
         <p class="muted" style="margin:4px 0;font-family:monospace;font-size:11px">PDF ${docCaps.pdftotext ? '✅' : '⚪'} · Office ${docCaps.soffice ? '✅' : '⚪'} · OCR ${docCaps.tesseract ? '✅' : '⚪'}</p>
@@ -1577,6 +1599,13 @@ async function viewSettings() {
   bindToggle('set-modelrouting', (v) => N.store.set('settings.modelRouting', v));
   bindToggle('set-selfverify', (v) => N.store.set('settings.selfVerify', v));
   bindToggle('set-visiblethink', (v) => N.store.set('settings.visibleThinking', v));
+  bindToggle('set-autolearn', (v) => N.store.set('settings.autoLearnSkills', v));
+  bindToggle('set-artifacts', (v) => { N.store.set('settings.artifacts', v); window.__artifactsOn = v; });
+  bindToggle('set-duplex', (v) => N.store.set('settings.duplexVoice', v));
+  bindToggle('set-operator', async (v) => {
+    if (v) { const ok = await confirmModal('🦾 ' + t('set.operator'), t('set.operatorNote')); if (!ok) return viewSettings(); N.store.set('settings.guiAutomation', true); }
+    N.store.set('settings.operator', v);
+  });
   // Возможности.
   bindToggle('set-webauto', async (v) => {
     if (v) { const ok = await confirmModal('🌐 ' + t('set.webAutomation'), t('set.webAutomationNote')); if (!ok) return viewSettings(); }
@@ -1728,6 +1757,23 @@ function confirmModal(title, text) {
   });
 }
 
+function promptModal(title, placeholder, value) {
+  return new Promise((resolve) => {
+    let done = false;
+    const back = modal(`<h2>${esc(title)}</h2>
+      <input id="pm-in" class="pm-input" placeholder="${esc(placeholder || '')}" value="${esc(value || '')}" style="width:100%;margin:10px 0">
+      <div class="modal-actions"><button class="btn ghost" id="pm-no">${esc(t('btn.cancel'))}</button><button class="btn primary" id="pm-yes">OK</button></div>`,
+      (m, close) => {
+        const inp = $('#pm-in', m); inp && inp.focus();
+        const ok = () => { done = true; const v = inp ? inp.value.trim() : ''; close(); resolve(v || null); };
+        $('#pm-yes', m).onclick = ok;
+        $('#pm-no', m).onclick = () => { done = true; close(); resolve(null); };
+        inp && inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') ok(); });
+      });
+    back.addEventListener('click', (e) => { if (e.target === back && !done) resolve(null); });
+  });
+}
+
 /* ================= VOICE (Web Speech API + wake-word) ================= */
 const VOICE_LANG = () => ({ ru: 'ru-RU', en: 'en-US', uk: 'uk-UA', es: 'es-ES', de: 'de-DE', zh: 'zh-CN' }[getLangCode()] || 'en-US');
 let recognition = null;
@@ -1747,6 +1793,8 @@ function setupRecognition() {
       const tr = e.results[i][0].transcript;
       if (e.results[i].isFinal) finalT += tr; else interim += tr;
     }
+    // Barge-in: пользователь заговорил поверх ответа — прерываем речь.
+    if (ttsActive && (interim.trim().length > 1 || finalT.trim())) speakInterrupt();
     const vt = $('#vt'); if (vt) vt.textContent = finalT || interim || '…';
     if (finalT.trim()) handleVoiceCommand(finalT.trim());
   };
@@ -1807,33 +1855,163 @@ async function handleVoiceCommand(rawText) {
   toast('Команда', text);
 }
 
+let ttsActive = false;        // сейчас говорит TTS (для barge-in в дуплексе)
+let currentAudio = null;      // текущий Piper-Audio, чтобы прервать
+// Прервать речь (barge-in): пользователь заговорил поверх ответа.
+function speakInterrupt() {
+  ttsActive = false;
+  try { if (currentAudio) { currentAudio.pause(); currentAudio.currentTime = 0; currentAudio = null; } } catch {}
+  try { if ('speechSynthesis' in window) speechSynthesis.cancel(); } catch {}
+}
+// После завершения речи — продолжаем слушать (в дуплексе всегда, иначе по autoListen).
+async function afterSpeak() {
+  ttsActive = false;
+  const duplex = await N.store.get('settings.duplexVoice', false);
+  const cont = duplex || await N.store.get('settings.autoListen', false);
+  if (state.voiceListening && !recognitionRunning && cont) { try { recognition && recognition.start(); } catch {} }
+}
 async function speakOut(text) {
   // Piper (локальный TTS) — если включён и настроен; иначе Web Speech API.
   const engine = await N.store.get('settings.ttsEngine', 'web');
+  ttsActive = true;
   if (engine === 'piper') {
     try {
       const r = await N.speech.synthesize(text);
       if (r.ok && r.file) {
         const audio = new Audio('file://' + r.file);
+        currentAudio = audio;
         audio.playbackRate = await N.store.get('settings.voiceRate', 1);
-        audio.onended = async () => { if (state.voiceListening && !recognitionRunning && await N.store.get("settings.autoListen", false)) { try { recognition && recognition.start(); } catch {} } };
+        audio.onended = () => { currentAudio = null; afterSpeak(); };
         audio.play(); return;
       }
     } catch {}
   }
-  if (!('speechSynthesis' in window)) return;
+  if (!('speechSynthesis' in window)) { ttsActive = false; return; }
   const u = new SpeechSynthesisUtterance(text);
   u.lang = VOICE_LANG();
   u.rate = await N.store.get('settings.voiceRate', 1);
   const v = speechSynthesis.getVoices().find((x) => x.lang && x.lang.startsWith(u.lang.slice(0, 2)));
   if (v) u.voice = v;
-  u.onend = async () => { if (state.voiceListening && !recognitionRunning && await N.store.get("settings.autoListen", false)) { try { recognition && recognition.start(); } catch {} } };
+  u.onend = () => afterSpeak();
   speechSynthesis.cancel();
   speechSynthesis.speak(u);
 }
 
 /* Плавающая кнопка голоса */
 $('#voice-fab').onclick = () => { if (state.view !== 'voice') navigate('voice'); toggleVoice(); };
+
+/* ---------- Оператор ПК (computer-use) ---------- */
+let operatorSession = null;
+async function viewOperator() {
+  const on = await N.store.get('settings.operator', false);
+  const gerald = await N.store.get('settings.guiAutomation', false);
+  content.innerHTML = `
+    <div class="view-head"><h1>🦾 ${esc(t('op.title'))}</h1><p>${esc(t('op.sub'))}</p></div>
+    ${on ? '' : `<div class="card warn-card">⚠️ ${esc(t('op.disabled'))} <button class="btn sm" id="op-enable">${esc(t('op.enable'))}</button></div>`}
+    ${gerald ? '' : `<div class="card warn-card">🖱️ ${esc(t('op.needgui'))}</div>`}
+    <div class="card">
+      <label class="field"><span>${esc(t('op.goal'))}</span>
+        <textarea id="op-goal" rows="2" placeholder="${esc(t('op.goalPh'))}"></textarea></label>
+      <div class="row" style="gap:8px;align-items:center">
+        <label class="field" style="max-width:140px"><span>${esc(t('op.maxSteps'))}</span><input type="number" id="op-steps" value="15" min="3" max="40"></label>
+        <button class="btn primary" id="op-run" ${on ? '' : 'disabled'}>▶ ${esc(t('op.run'))}</button>
+        <button class="btn ghost" id="op-stop" style="display:none">⏹ ${esc(t('op.stop'))}</button>
+      </div>
+      <p class="muted" style="margin-top:8px">${esc(t('op.note'))}</p>
+    </div>
+    <div class="card" id="op-log-card" style="display:none">
+      <h3>📡 ${esc(t('op.live'))}</h3>
+      <div id="op-log" class="op-log"></div>
+    </div>`;
+  if ($('#op-enable')) $('#op-enable').onclick = async () => { await N.store.set('settings.operator', true); await N.store.set('settings.guiAutomation', true); viewOperator(); };
+  $('#op-run').onclick = async () => {
+    const goal = $('#op-goal').value.trim(); if (!goal) return;
+    const maxSteps = +$('#op-steps').value || 15;
+    operatorSession = 'op-' + Date.now();
+    $('#op-log').innerHTML = ''; $('#op-log-card').style.display = '';
+    $('#op-run').style.display = 'none'; $('#op-stop').style.display = '';
+    opLog('goal', '🎯 ' + goal);
+    await N.operator.run({ sessionId: operatorSession, goal, maxSteps });
+  };
+  $('#op-stop').onclick = () => { if (operatorSession) N.operator.stop(operatorSession); };
+}
+function opLog(kind, text) {
+  const box = $('#op-log'); if (!box) return;
+  const d = el('div', 'op-line op-' + kind);
+  d.textContent = text;
+  box.appendChild(d); box.scrollTop = box.scrollHeight;
+}
+N.on('operator:frame', ({ step, width, height }) => opLog('frame', `👁 ${t('op.step')} ${step + 1}${width ? ` · ${width}×${height}` : ''}`));
+N.on('operator:think', () => {});
+N.on('operator:action', ({ name, args }) => opLog('action', `⚙️ ${name}(${JSON.stringify(args || {}).slice(0, 80)})`));
+N.on('operator:result', ({ name, result }) => opLog('result', `↳ ${String(result).slice(0, 120)}`));
+N.on('operator:warn', ({ message }) => opLog('warn', '⚠️ ' + message));
+N.on('operator:done', ({ ok, summary, error }) => {
+  opLog('done', (ok ? '✅ ' : '❌ ') + (summary || error || ''));
+  const r = $('#op-run'), s = $('#op-stop'); if (r) r.style.display = ''; if (s) s.style.display = 'none';
+  operatorSession = null;
+  if (summary) toast('🦾 ' + t('op.title'), String(summary).slice(0, 80), ok ? 'ok' : 'err');
+});
+
+/* ---------- Проектные рабочие пространства ---------- */
+async function initProjectSelector() {
+  const sel = $('#proj-select'); if (!sel) return;
+  const projects = await N.projects.list();
+  const active = await N.store.get('settings.activeProject', '');
+  sel.innerHTML = `<option value="">${esc(t('proj.none'))}</option>` +
+    projects.map((p) => `<option value="${esc(p.id)}" ${p.id === active ? 'selected' : ''}>📁 ${esc(p.name)}</option>`).join('') +
+    `<option value="__new">＋ ${esc(t('proj.new'))}</option>` +
+    (active ? `<option value="__del">🗑 ${esc(t('proj.del'))}</option>` : '');
+  sel.onchange = async () => {
+    const v = sel.value;
+    if (v === '__new') {
+      const name = await promptModal(t('proj.new'), t('proj.namePh'));
+      if (name) { await N.projects.create(name); toast('📁', t('proj.created'), 'ok'); }
+      return initProjectSelector();
+    }
+    if (v === '__del') {
+      const cur = await N.store.get('settings.activeProject', '');
+      if (cur && await confirmModal(t('proj.del'), t('proj.delConfirm'))) { await N.projects.remove(cur); toast('🗑', t('proj.deleted'), 'ok'); }
+      return initProjectSelector();
+    }
+    await N.projects.setActive(v);
+    toast('📁', v ? t('proj.switched') : t('proj.none'), 'ok');
+  };
+}
+N.on('learner:skill', ({ skill }) => { toast('🎓 ' + t('learn.new'), (skill && skill.label) || '', 'ok'); });
+
+/* ---------- Артефакты (живой превью) ---------- */
+const ARTIFACT_RE = /```(\w+)?\n([\s\S]*?)```/g;
+// Извлекает первый «превьюшный» блок (html/svg/markdown/код) из текста.
+function extractArtifact(text) {
+  ARTIFACT_RE.lastIndex = 0; let m;
+  while ((m = ARTIFACT_RE.exec(text))) {
+    const lang = (m[1] || '').toLowerCase(); const code = m[2];
+    if (['html', 'svg', 'xml'].includes(lang)) return { kind: 'html', lang, code };
+    if (['js', 'javascript', 'css', 'python', 'py', 'json', 'ts', 'java', 'c', 'cpp', 'go', 'rust', 'sh', 'bash'].includes(lang)) return { kind: 'code', lang, code };
+  }
+  // Голый HTML без ограждения.
+  if (/<(!doctype|html|svg|div|h1|table)[\s>]/i.test(text) && text.includes('</')) return { kind: 'html', lang: 'html', code: text };
+  return null;
+}
+function openArtifact(art) {
+  const pane = $('#artifact-pane'), body = $('#artifact-body'), title = $('#artifact-title');
+  if (!pane) return;
+  title.textContent = (art.kind === 'html' ? '🖼 ' : '📄 ') + (art.lang || 'artifact');
+  body.innerHTML = '';
+  if (art.kind === 'html') {
+    const frame = el('iframe', 'artifact-frame');
+    frame.setAttribute('sandbox', 'allow-scripts'); // изоляция: без доступа к родителю/сети cookies
+    frame.srcdoc = art.lang === 'svg' ? `<body style="margin:0;display:grid;place-items:center;background:#fff">${art.code}</body>` : art.code;
+    body.appendChild(frame);
+  } else {
+    const pre = el('pre', 'artifact-code'); pre.textContent = art.code; body.appendChild(pre);
+  }
+  pane.style.display = 'flex';
+  document.body.classList.add('artifact-open');
+  window.__lastArtifact = art;
+}
+function closeArtifact() { const p = $('#artifact-pane'); if (p) p.style.display = 'none'; document.body.classList.remove('artifact-open'); }
 
 /* ---------- Scenarios (готовые сценарии в один клик) ---------- */
 const SCENARIOS = [
@@ -2362,6 +2540,11 @@ async function pollOllama() {
   applyStaticI18n();
   await applyTheme();
   await setupSidebar();
+  await initProjectSelector();
+  window.__artifactsOn = await N.store.get('settings.artifacts', true);
+  // Панель артефактов: кнопки управления.
+  const ac = $('#artifact-close'); if (ac) ac.onclick = closeArtifact;
+  const ar = $('#artifact-refresh'); if (ar) ar.onclick = () => { if (window.__lastArtifact) openArtifact(window.__lastArtifact); };
   render();
   pollStats(); pollOllama();
   setInterval(pollStats, 3000);

@@ -36,12 +36,16 @@ function trade({ symbol, side, qty, price, reason, source }) {
     const pnl = (price - pos.avg) * qty;
     pos.qty -= qty;
     if (pos.qty <= 0.0000001) delete a.positions[symbol]; else a.positions[symbol] = pos;
-    a.history.push({ at: Date.now(), symbol, side, qty, price, pnl: +pnl.toFixed(2), reason: reason || '', source: source || 'manual' });
+    const at = Date.now();
+    a.history.push({ at, symbol, side, qty, price, pnl: +pnl.toFixed(2), reason: reason || '', source: source || 'manual' });
     persist(a);
+    autoJournal({ at, symbol, side, qty, price, pnl: +pnl.toFixed(2), reason, source });
     return { ok: true, pnl: +pnl.toFixed(2) };
   }
-  a.history.push({ at: Date.now(), symbol, side, qty, price, reason: reason || '', source: source || 'manual' });
+  const at = Date.now();
+  a.history.push({ at, symbol, side, qty, price, reason: reason || '', source: source || 'manual' });
   persist(a);
+  autoJournal({ at, symbol, side, qty, price, reason, source });
   return { ok: true };
 }
 
@@ -55,6 +59,11 @@ function valuation(quotes) {
   }
   const equity = a.cash + posVal;
   return { cash: +a.cash.toFixed(2), positions, equity: +equity.toFixed(2), start: a.start, totalPnl: +(equity - a.start).toFixed(2), totalPnlPct: +(((equity - a.start) / a.start) * 100).toFixed(2), trades: a.history.length };
+}
+// Авто-журналирование автоматических сделок (бот/копилот/DCA/ребаланс).
+function autoJournal(e) {
+  if (!['bot', 'copilot', 'dca', 'rebalance'].includes(e.source)) return;
+  try { require('./journal').logAuto(e); } catch {}
 }
 function state() { return acc(); }
 function history() { return acc().history.slice(-60).reverse(); }

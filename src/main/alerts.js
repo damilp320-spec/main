@@ -52,6 +52,8 @@ async function checkAll() {
       if (met && !a._fired) {
         a._fired = true; changed = true;
         const cur = a.type.startsWith('rsi') ? `RSI ${rv.toFixed(0)}` : price.toFixed(2);
+        // Склейка: сигнал не пользователю, а на проверку ИИ-супервайзеру.
+        if (a.toCopilot) { try { const cp = require('./copilot'); if (cp.enabled()) { cp.consider({ symbol, action: a.type.includes('above') && a.type.startsWith('rsi') ? 'sell' : 'buy', signal: 'alert', price, reason: `алерт: ${LABEL[a.type]} ${a.value} (${cur})` }); continue; } } catch {} }
         notify && notify({ title: '🔔 ' + symbol, message: `${LABEL[a.type]} ${a.value} (тек. ${cur})` });
       } else if (!met && a._fired) { a._fired = false; changed = true; }
     }

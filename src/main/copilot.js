@@ -91,9 +91,13 @@ async function act(id) {
   }
   const amount = +store.get('settings.copilot.amount', 1000);
   const qty = Math.max(1, Math.floor(amount / price));
-  const r = paper.trade({ symbol: p.symbol, side: p.action === 'sell' ? 'sell' : 'buy', qty, price, reason: 'copilot', source: 'copilot' });
+  const r = paper.trade({ symbol: p.symbol, side: p.action === 'sell' ? 'sell' : 'buy', qty, price, reason: 'copilot: ' + (p.reasoning || '').slice(0, 80), source: 'copilot' });
   setProposalStatus(id, r.ok ? 'executed' : 'failed');
-  if (r.ok) emit('watcher:fired', { title: '🧭 Исполнено (бумага): ' + p.symbol, message: `${p.action} ${qty} @ ${price.toFixed(2)}` });
+  if (r.ok) {
+    emit('watcher:fired', { title: '🧭 Исполнено (бумага): ' + p.symbol, message: `${p.action} ${qty} @ ${price.toFixed(2)}` });
+    // Склейка: сохраняем обоснование сделки в заметки.
+    if (store.get('settings.autoJournal', true)) { try { require('./notes').save({ title: `Сделка ИИ: ${p.action.toUpperCase()} ${p.symbol} · ${new Date().toLocaleDateString()}`, body: `Действие: **${p.action} ${p.symbol}** @ ${price.toFixed(2)} ×${qty}\nУверенность: ${p.confidence}%\n\nОбоснование ИИ:\n${p.reasoning}`, tags: ['сделка', 'copilot', p.symbol] }); } catch {} }
+  }
   return r;
 }
 function dismiss(id) { setProposalStatus(id, 'dismissed'); return { ok: true }; }

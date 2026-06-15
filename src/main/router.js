@@ -40,8 +40,8 @@ const BUNDLES = [
     kw: ['данны', 'таблиц', 'csv', 'excel', 'xlsx', 'график', 'диаграмм', 'chart', 'plot', 'статист', 'метрик', 'анализ', 'pandas', 'matplotlib', 'визуализ', 'документ', 'pdf', 'sql', 'запрос к', 'база данных', 'sqlite'] },
   { name: 'notes', tools: ['save_note', 'search_notes', 'read_note'],
     kw: ['заметк', 'запиши', 'сохрани мысль', 'note', 'второй мозг', 'конспект', 'дневник', 'запомни заметк'] },
-  { name: 'markets', tools: ['market_data', 'market_news', 'web_search', 'http_get'],
-    kw: ['акци', 'акция', 'фьючерс', 'крипт', 'биткоин', 'bitcoin', 'btc', 'eth', 'котировк', 'тикер', 'бирж', 'трейд', 'инвест', 'stock', 'ticker', 'futures', 'forex', 'форекс', 'индекс', 'nasdaq', 's&p', 'доллар', 'нефть', 'золото', 'цена акц', 'свеч', 'новост'] },
+  { name: 'markets', tools: ['market_data', 'market_news', 'deep_analysis', 'portfolio_analytics', 'screen_assets', 'market_breadth', 'strategy_lab', 'get_portfolio', 'web_search', 'http_get'],
+    kw: ['акци', 'акция', 'фьючерс', 'крипт', 'биткоин', 'bitcoin', 'btc', 'eth', 'котировк', 'тикер', 'бирж', 'трейд', 'инвест', 'stock', 'ticker', 'futures', 'forex', 'форекс', 'индекс', 'nasdaq', 's&p', 'доллар', 'нефть', 'золото', 'цена акц', 'свеч', 'новост', 'портфел', 'разбери', 'проанализир актив', 'рынок сегодня', 'стратеги', 'скринер', 'что купить'] },
   { name: 'image', tools: ['generate_image'],
     kw: ['нарисуй', 'картин', 'изображени', 'image', 'draw', 'сгенерируй карт', 'арт', 'логотип', 'picture', 'нейросеть нарису', 'обои', 'иллюстрац'] }
 ];

@@ -14,6 +14,16 @@ function save(e) {
 }
 function remove(id) { store.set('tradeJournal', store.get('tradeJournal', []).filter((e) => e.id !== id)); return { ok: true }; }
 
+// Авто-журналирование сделки (вызывается paper.trade для автоматических сделок).
+function logAuto(e) {
+  if (!store.get('settings.autoJournal', true)) return;
+  const all = store.get('tradeJournal', []);
+  const ref = 'paper:' + e.at + ':' + e.symbol + ':' + e.side;
+  if (all.some((x) => x.ref === ref)) return;
+  all.push({ id: 'j-' + randomUUID().slice(0, 8), ref, symbol: e.symbol, side: e.side, qty: e.qty, price: e.price, pnl: e.pnl != null ? e.pnl : null, date: e.at, reason: e.reason || '', source: e.source || '', outcome: e.pnl != null ? (e.pnl >= 0 ? 'win' : 'loss') : '', notes: '' });
+  store.set('tradeJournal', all.slice(-1000));
+}
+
 // Импорт закрытых сделок (sell с P&L) с бумажного счёта.
 function syncPaper() {
   const paper = require('./paper');
@@ -23,7 +33,7 @@ function syncPaper() {
   let added = 0;
   for (const h of hist) {
     if (h.side !== 'sell' || h.pnl == null) continue;
-    const ref = 'paper:' + h.at + ':' + h.symbol;
+    const ref = 'paper:' + h.at + ':' + h.symbol + ':' + h.side;
     if (have.has(ref)) continue;
     all.push({ id: 'j-' + randomUUID().slice(0, 8), ref, symbol: h.symbol, side: 'sell', qty: h.qty, price: h.price, pnl: h.pnl, date: h.at, reason: h.reason || '', source: h.source || 'paper', outcome: h.pnl >= 0 ? 'win' : 'loss', notes: '' });
     added++;
@@ -62,4 +72,4 @@ const toolSchemas = [
 ];
 const toolHandlers = { journal_review: async () => { const r = await review(); return r.ok ? r.text : ('ОШИБКА: ' + r.error); } };
 
-module.exports = { list, save, remove, syncPaper, stats, review, toolSchemas, toolHandlers };
+module.exports = { list, save, remove, logAuto, syncPaper, stats, review, toolSchemas, toolHandlers };

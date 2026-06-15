@@ -1556,7 +1556,7 @@ async function viewVoice() {
     <div class="card" style="margin-top:16px">
       <h3>💡 Примеры команд</h3>
       <div style="margin-top:8px">
-        ${['Включи Imagine Dragons на YouTube Music', 'Сделай громкость 30%', 'Выключи свет на кухне', 'Открой YouTube', 'Сделай скриншот и опиши экран', 'Какая загрузка системы?'].map(c => `<span class="tag accent">«${esc(c)}»</span>`).join('')}
+        ${['Какой у меня портфель?', 'Разбери TSLA', 'Что с рынком сегодня?', 'Включи Imagine Dragons на YouTube Music', 'Сделай громкость 30%', 'Выключи свет на кухне', 'Сделай скриншот и опиши экран'].map(c => `<span class="tag accent">«${esc(c)}»</span>`).join('')}
       </div>
     </div>`;
   let transcript = '';
@@ -2361,7 +2361,7 @@ async function viewTrading() {
       </div>
       <div class="card" id="corr-card"><div class="row between"><h3>🧬 ${esc(t('corr.title'))}</h3><button class="btn ghost sm" id="corr-run">↻</button></div><div id="corr-body" class="muted">${esc(t('corr.hint'))}</div></div>
       <div class="card" id="jr-card" style="grid-column:1/-1">
-        <div class="row between"><h3>📒 ${esc(t('jr.title'))}</h3><span><button class="btn ghost sm" id="jr-sync">⬇ ${esc(t('jr.sync'))}</button><button class="btn ghost sm" id="jr-review">🤖 ${esc(t('jr.review'))}</button></span></div>
+        <div class="row between"><h3>📒 ${esc(t('jr.title'))}</h3><span><label class="mk-ind" title="${esc(t('jr.autoHint'))}"><input type="checkbox" id="jr-auto"> ${esc(t('jr.auto'))}</label><button class="btn ghost sm" id="jr-sync">⬇ ${esc(t('jr.sync'))}</button><button class="btn ghost sm" id="jr-review">🤖 ${esc(t('jr.review'))}</button></span></div>
         <div id="jr-stats" class="muted" style="margin:6px 0"></div>
         <div id="jr-ai" class="mk-ai"></div>
         <div id="jr-list"></div>
@@ -2387,6 +2387,8 @@ async function viewTrading() {
   $('#pa-rebal').onclick = rebalanceModal;
   $('#dca-add').onclick = async () => { const sym = $('#dca-sym').value.trim(); if (!sym) return; await N.dca.save({ symbol: sym, amount: +$('#dca-amt').value || 100, everyHours: +$('#dca-hrs').value || 168, mode: 'paper' }); $('#dca-sym').value = ''; renderDca(); };
   $('#corr-run').onclick = renderCorrelation;
+  N.store.get('settings.autoJournal', true).then((v) => { const c = $('#jr-auto'); if (c) c.checked = v; });
+  $('#jr-auto') && ($('#jr-auto').onchange = (e) => N.store.set('settings.autoJournal', e.target.checked));
   $('#jr-sync').onclick = async () => { const r = await N.journal.syncPaper(); toast('📒', t('jr.synced') + ': ' + r.added, 'ok'); renderJournal(); };
   $('#jr-review').onclick = async () => { const ai = $('#jr-ai'); ai.innerHTML = '<span class="spin">⏳</span> ' + esc(t('jr.reviewing')); const r = await N.journal.review(); ai.textContent = r.ok ? r.text : ('⚠️ ' + r.error); };
   const rk = () => {
@@ -3244,6 +3246,7 @@ async function viewMarkets() {
           <label class="field" style="max-width:120px"><span>${esc(t('al.ticker'))}</span><input id="al-sym" placeholder="AAPL"></label>
           <label class="field" style="max-width:170px"><span>${esc(t('al.cond'))}</span><select id="al-type"><option value="price_above">${esc(t('al.priceAbove'))}</option><option value="price_below">${esc(t('al.priceBelow'))}</option><option value="rsi_above">RSI ≥</option><option value="rsi_below">RSI ≤</option></select></label>
           <label class="field" style="max-width:100px"><span>${esc(t('al.value'))}</span><input id="al-val" type="number"></label>
+          <label class="mk-ind" title="${esc(t('al.toAiHint'))}"><input type="checkbox" id="al-ai"> 🧭 ${esc(t('al.toAi'))}</label>
           <button class="btn" id="al-add">＋ ${esc(t('al.add'))}</button>
         </div>
         <div id="al-list" style="margin-top:10px"></div>
@@ -3293,7 +3296,7 @@ async function viewMarkets() {
   $('#al-add').onclick = async () => {
     const sym = ($('#al-sym').value.trim() || mk.symbol); const val = +$('#al-val').value;
     if (!sym || !val) return toast('🔔', t('al.need'), 'err');
-    await N.alerts.save({ symbol: sym, type: $('#al-type').value, value: val });
+    await N.alerts.save({ symbol: sym, type: $('#al-type').value, value: val, toCopilot: $('#al-ai').checked });
     $('#al-val').value = ''; renderAlerts();
   };
   $('#al-sym').value = mk.symbol;
@@ -3415,7 +3418,7 @@ async function renderAlerts() {
   const box = $('#al-list'); if (!box) return;
   const all = await N.alerts.list();
   const lbl = { price_above: t('al.priceAbove'), price_below: t('al.priceBelow'), rsi_above: 'RSI ≥', rsi_below: 'RSI ≤' };
-  box.innerHTML = all.length ? all.map((a) => `<div class="al-item"><label class="switch"><input type="checkbox" data-tg="${esc(a.id)}" ${a.enabled !== false ? 'checked' : ''}><span class="slider"></span></label><span><b>${esc(a.symbol)}</b> ${esc(lbl[a.type] || a.type)} <b>${a.value}</b></span>${a._fired ? '<span class="mk-up" style="font-size:11px">● сработал</span>' : ''}<button class="btn ghost sm" data-rm="${esc(a.id)}" style="margin-left:auto">✕</button></div>`).join('') : `<p class="muted">${esc(t('al.empty'))}</p>`;
+  box.innerHTML = all.length ? all.map((a) => `<div class="al-item"><label class="switch"><input type="checkbox" data-tg="${esc(a.id)}" ${a.enabled !== false ? 'checked' : ''}><span class="slider"></span></label><span><b>${esc(a.symbol)}</b> ${esc(lbl[a.type] || a.type)} <b>${a.value}</b>${a.toCopilot ? ' <span class="muted">🧭</span>' : ''}</span>${a._fired ? '<span class="mk-up" style="font-size:11px">● сработал</span>' : ''}<button class="btn ghost sm" data-rm="${esc(a.id)}" style="margin-left:auto">✕</button></div>`).join('') : `<p class="muted">${esc(t('al.empty'))}</p>`;
   $$('#al-list [data-tg]').forEach((c) => c.onchange = () => N.alerts.toggle(c.dataset.tg, c.checked));
   $$('#al-list [data-rm]').forEach((b) => b.onclick = async () => { await N.alerts.remove(b.dataset.rm); renderAlerts(); });
 }

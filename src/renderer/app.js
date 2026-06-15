@@ -1722,7 +1722,11 @@ async function viewSettings() {
     quickAsk: await g('quickAsk', true),
     tradingEnabled: await g('tradingEnabled', false),
     density: await g('density', 'comfortable'),
-    fontScale: await g('fontScale', 1)
+    fontScale: await g('fontScale', 1),
+    adaptiveEffort: await g('adaptiveEffort', false),
+    selfConsistency: await g('selfConsistency', false),
+    learnFromHistory: await g('learnFromHistory', false),
+    criticModel: await g('criticModel', '')
   };
   const docCaps = await N.docs.capabilities();
   const cloudKey = await N.cloud.hasKey();
@@ -1823,6 +1827,15 @@ async function viewSettings() {
         <p class="muted" style="margin:6px 0">${esc(t('set.autoLearnNote'))}</p>
         ${toggleRow('set-artifacts', t('set.artifacts'), s.artifacts)}
         <p class="muted" style="margin:6px 0">${esc(t('set.artifactsNote'))}</p>
+        <hr style="border:0;border-top:1px solid var(--border);margin:10px 0"><b style="font-size:13px">🧠 ${esc(t('set.boosters'))}</b>
+        ${toggleRow('set-adaptive', t('set.adaptiveEffort'), s.adaptiveEffort)}
+        <p class="muted" style="margin:6px 0">${esc(t('set.adaptiveEffortNote'))}</p>
+        ${toggleRow('set-selfcons', t('set.selfConsistency'), s.selfConsistency)}
+        <p class="muted" style="margin:6px 0">${esc(t('set.selfConsistencyNote'))}</p>
+        ${toggleRow('set-learnhist', t('set.learnHistory'), s.learnFromHistory)}
+        <p class="muted" style="margin:6px 0">${esc(t('set.learnHistoryNote'))}</p>
+        <label class="field"><span>${esc(t('set.criticModel'))}</span><select id="set-critic"><option value="">${esc(t('set.criticOff'))}</option>${(models.length ? models.map((m) => m.name) : []).map((n) => `<option value="${esc(n)}" ${n === s.criticModel ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
+        <p class="muted" style="margin:6px 0">${esc(t('set.criticModelNote'))}</p>
       </div>
       <div class="card">
         <h3>🦾 ${esc(t('set.capabilities'))}</h3>
@@ -1904,6 +1917,10 @@ async function viewSettings() {
   bindToggle('set-selfverify', (v) => N.store.set('settings.selfVerify', v));
   bindToggle('set-visiblethink', (v) => N.store.set('settings.visibleThinking', v));
   bindToggle('set-autolearn', (v) => N.store.set('settings.autoLearnSkills', v));
+  bindToggle('set-adaptive', (v) => N.store.set('settings.adaptiveEffort', v));
+  bindToggle('set-selfcons', (v) => N.store.set('settings.selfConsistency', v));
+  bindToggle('set-learnhist', (v) => N.store.set('settings.learnFromHistory', v));
+  $('#set-critic') && ($('#set-critic').onchange = (e) => N.store.set('settings.criticModel', e.target.value));
   bindToggle('set-artifacts', (v) => { N.store.set('settings.artifacts', v); window.__artifactsOn = v; });
   bindToggle('set-duplex', (v) => N.store.set('settings.duplexVoice', v));
   bindToggle('set-quickask', (v) => N.store.set('settings.quickAsk', v));
@@ -4434,14 +4451,20 @@ N.on('agents:verify', ({ sessionId, stage }) => {
 N.on('agents:done', ({ sessionId, text, telemetry }) => {
   const agentId = sessAgent(sessionId);
   if (agentId) {
-    // Привязываем телеметрию к последнему ответу бота.
-    if (telemetry) {
-      const c = chatFor(agentId);
-      for (let i = c.length - 1; i >= 0; i--) { if (c[i].role === 'bot') { c[i].tel = telemetry; break; } }
-    }
+    const c = chatFor(agentId);
+    // Привязываем телеметрию и финальный (возможно, уточнённый) текст к ответу бота.
+    for (let i = c.length - 1; i >= 0; i--) { if (c[i].role === 'bot') { if (telemetry) c[i].tel = telemetry; if (text && text !== c[i].text) c[i].text = text; break; } }
     persistChat(agentId); delete state.sessions[sessionId]; renderAgentEverywhere(agentId);
   }
   if (!Object.keys(state.sessions).length) state.busy = false;
+});
+// Заметки о рассуждении (адаптивное усилие, self-consistency, критик).
+N.on('agents:reason', ({ sessionId, note }) => {
+  const agentId = sessAgent(sessionId); if (!agentId) return;
+  const c = chatFor(agentId); const bot = c.pop();
+  c.push({ role: 'tool', text: '🧠 ' + note });
+  if (bot) c.push(bot);
+  renderAgentEverywhere(agentId);
 });
 
 // Перерисовать чат данного агента во всех местах, где он показан.

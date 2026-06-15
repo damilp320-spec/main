@@ -22,6 +22,7 @@ const gui = require('./gui');
 const mcp = require('./mcp');
 const docs = require('./docs');
 const learner = require('./learner');
+const reasoning = require('./reasoning');
 const analysis = require('./analysis');
 const markets = require('./markets');
 const trading = require('./trading');
@@ -280,6 +281,11 @@ async function chat({ agentId, sessionId, message, history, effort }, sendToUI) 
   activeSessions.set(sessionId, sess);
 
   let model = agent.model || store.get('settings.defaultModel', '') || 'qwen2.5:7b';
+  // Адаптивное усилие: для сложных запросов авто-повышаем «тщательность».
+  if (effort === 'balanced' && store.get('settings.adaptiveEffort', false) && reasoning.difficulty(message) === 'hard') {
+    effort = 'thorough';
+    sendToUI && sendToUI('agents:reason', { sessionId, note: 'сложный запрос → режим «тщательно»' });
+  }
   const eff = EFFORT[effort] || EFFORT.balanced;
   // Маршрутизация модели: под кодовые задачи — кодер, под быстрые — лёгкая.
   let visionModel = model;
@@ -293,7 +299,8 @@ async function chat({ agentId, sessionId, message, history, effort }, sendToUI) 
   const memCtx = memory.buildContext(agent.id, message);
   let ragCtx = '';
   try { ragCtx = await rag.buildContext(agent.id, message); } catch { /* RAG best effort */ }
-  const messages = [{ role: 'system', content: agent.system + constitution.build() + HONESTY + eff.note + memCtx + ragCtx }];
+  const fewShot = reasoning.fewShotContext(agent.id, message);
+  const messages = [{ role: 'system', content: agent.system + constitution.build() + HONESTY + eff.note + memCtx + ragCtx + fewShot }];
   // Сжимаем длинную историю, чтобы контекст жил долго, но не разрастался.
   let hist = history || [];
   if (hist.length > memory.COMPACT_AFTER) hist = await memory.compactHistory(hist, model);
@@ -420,6 +427,11 @@ async function chat({ agentId, sessionId, message, history, effort }, sendToUI) 
     }
   } catch (e) {
     finalText = 'Ошибка агента: ' + e.message + '\n\nУбедитесь, что Ollama запущена и модель установлена.';
+  }
+
+  // Усилители интеллекта: self-consistency + критик-модель (опционально).
+  if (!sess.stop && !String(finalText).startsWith('Ошибка агента:')) {
+    try { finalText = await reasoning.refine({ messages, model: activeModel, finalText, effort, sendToUI, sessionId }); } catch { /* best effort */ }
   }
 
   activeSessions.delete(sessionId);

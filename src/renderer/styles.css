@@ -388,6 +388,28 @@ body.compact .view-head { margin-bottom: 10px; }
 .term-prompt { color: var(--accent-2); font-family: 'Consolas', monospace; font-size: 12.5px; white-space: nowrap; }
 .term-input input { flex: 1; background: transparent; border: 0; outline: none; color: #eef1f8; font-family: 'Consolas', monospace; font-size: 12.5px; }
 
+/* ---------- Activity / Audit ---------- */
+.stat-row { display: flex; gap: 10px; margin: 4px 0 2px; }
+.stat-pill { background: var(--card-2, #161a24); border: 1px solid var(--border); border-radius: 12px; padding: 10px 16px; min-width: 84px; text-align: center; }
+.stat-pill span { display: block; font-size: 22px; font-weight: 700; }
+.stat-pill label { font-size: 11px; color: var(--muted, #8a93a6); text-transform: uppercase; letter-spacing: .04em; }
+.stat-pill.bad span { color: var(--danger, #ff6b6b); }
+.chip { background: var(--card-2, #161a24); border: 1px solid var(--border); border-radius: 20px; padding: 4px 12px; font-size: 12px; color: #c8d0e0; cursor: pointer; }
+.chip:hover { border-color: var(--accent); }
+.chip.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+.chip b { opacity: .7; font-weight: 600; margin-left: 3px; }
+.act-list { max-height: 64vh; overflow-y: auto; }
+.act-item { display: flex; align-items: flex-start; gap: 10px; padding: 9px 14px; border-bottom: 1px solid var(--border); }
+.act-item:hover { background: rgba(255,255,255,.02); }
+.act-ico { font-size: 15px; flex: 0 0 20px; text-align: center; }
+.act-main { flex: 1; min-width: 0; }
+.act-title { font-size: 13px; color: #eef1f8; word-break: break-word; }
+.act-detail { font-size: 11.5px; color: var(--muted, #8a93a6); margin-top: 2px; word-break: break-word; }
+.act-time { font-size: 11px; color: var(--muted, #8a93a6); white-space: nowrap; flex: 0 0 auto; }
+.act-item.act-error { border-left: 3px solid var(--danger, #ff6b6b); }
+.act-item.act-warn { border-left: 3px solid #e0a93a; }
+.act-item.act-success { border-left: 3px solid #26a69a; }
+
 /* ---------- Automation control ---------- */
 .en-row { display: flex; align-items: center; gap: 12px; border-left: 3px solid var(--border); }
 .en-row.en-on { border-left-color: #26a69a; }

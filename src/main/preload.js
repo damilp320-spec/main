@@ -389,6 +389,11 @@ contextBridge.exposeInMainWorld('mythera', {
     run: (line) => invoke('term:run', line),
     state: () => invoke('term:state')
   },
+  activity: {
+    list: (q) => invoke('activity:list', q),
+    stats: () => invoke('activity:stats'),
+    clear: () => invoke('activity:clear')
+  },
   vault: {
     list: () => invoke('vault:list'),
     get: (id) => invoke('vault:get', id),

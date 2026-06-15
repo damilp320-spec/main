@@ -165,7 +165,7 @@ async function render() {
   content.className = 'content fade-in';
   // Останавливаем авто-обновление рынков при уходе с раздела.
   if (state.view !== 'markets' && window.__marketTimer) { clearInterval(window.__marketTimer); window.__marketTimer = null; }
-  const map = { today: viewToday, dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scenarios: viewScenarios, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, smarthome: viewSmartHome, knowledge: viewKnowledge, swarm: viewSwarm, queue: viewQueue, skills: viewSkills, dispatch: viewDispatch, prompts: viewPrompts, voice: viewVoice, operator: viewOperator, automation: viewAutomation, markets: viewMarkets, cockpit: viewCockpit, trading: viewTrading, code: viewCode, terminal: viewTerminal, images: viewImages, notes: viewNotes, data: viewData, rss: viewRss, calendar: viewCalendar, email: viewEmail, connections: viewConnections, playground: viewPlayground, engines: viewEngines, vault: viewVault, graph: viewGraph, diagnostics: viewDiagnostics, developer: viewDeveloper, settings: viewSettings };
+  const map = { today: viewToday, dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scenarios: viewScenarios, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, smarthome: viewSmartHome, knowledge: viewKnowledge, swarm: viewSwarm, queue: viewQueue, skills: viewSkills, dispatch: viewDispatch, prompts: viewPrompts, voice: viewVoice, operator: viewOperator, automation: viewAutomation, markets: viewMarkets, cockpit: viewCockpit, trading: viewTrading, code: viewCode, terminal: viewTerminal, activity: viewActivity, images: viewImages, notes: viewNotes, data: viewData, rss: viewRss, calendar: viewCalendar, email: viewEmail, connections: viewConnections, playground: viewPlayground, engines: viewEngines, vault: viewVault, graph: viewGraph, diagnostics: viewDiagnostics, developer: viewDeveloper, settings: viewSettings };
   const fn = map[state.view] || viewDashboard;
   // Граница ошибок: сбой одной вкладки не «вешает» весь интерфейс.
   try {
@@ -3367,6 +3367,43 @@ async function viewTerminal() {
   });
 }
 
+const ACT_ICON = { tool: '🔧', terminal: '⌨️', trade: '💹', alert: '🔔', schedule: '⏰', automation: '🔗', reason: '🧠', system: '⚙️', event: '•' };
+async function viewActivity() {
+  if (!state.activity) state.activity = { filter: '' };
+  const [items, st] = await Promise.all([N.activity.list({ type: state.activity.filter || undefined, limit: 300 }), N.activity.stats()]);
+  const types = Object.keys(st.byType).sort((a, b) => st.byType[b] - st.byType[a]);
+  const chip = (val, label, n) => `<button class="chip ${state.activity.filter === val ? 'on' : ''}" data-f="${esc(val)}">${esc(label)}${n != null ? ` <b>${n}</b>` : ''}</button>`;
+  content.innerHTML = `
+    <div class="view-head"><h1>📜 ${esc(t('act.title'))}</h1><p>${esc(t('act.sub'))}</p></div>
+    <div class="stat-row">
+      <div class="stat-pill"><span>${st.total}</span><label>${esc(t('act.total'))}</label></div>
+      <div class="stat-pill"><span>${st.today}</span><label>${esc(t('act.today'))}</label></div>
+      <div class="stat-pill ${st.errors ? 'bad' : ''}"><span>${st.errors}</span><label>${esc(t('act.errors'))}</label></div>
+    </div>
+    <div class="row" style="flex-wrap:wrap;gap:6px;align-items:center;margin:10px 0">
+      ${chip('', t('act.all'), st.total)}
+      ${types.map((ty) => chip(ty, (ACT_ICON[ty] || '•') + ' ' + ty, st.byType[ty])).join('')}
+      <span style="flex:1"></span>
+      <button class="btn ghost sm" id="act-clear">🗑 ${esc(t('act.clear'))}</button>
+    </div>
+    <div class="card" style="padding:0"><div id="act-list" class="act-list"></div></div>`;
+  const fmt = (ts) => { const d = new Date(ts); return d.toLocaleString(); };
+  const renderList = (rows) => {
+    const list = $('#act-list'); if (!list) return;
+    list.innerHTML = rows.length ? rows.map((e) => `
+      <div class="act-item act-${e.level}">
+        <span class="act-ico">${ACT_ICON[e.type] || '•'}</span>
+        <div class="act-main"><div class="act-title">${esc(e.title)}</div>${e.detail ? `<div class="act-detail">${esc(e.detail)}</div>` : ''}</div>
+        <span class="act-time">${esc(fmt(e.at))}</span>
+      </div>`).join('') : `<div class="empty" style="padding:24px">${esc(t('act.empty'))}</div>`;
+  };
+  renderList(items);
+  content.querySelectorAll('.chip[data-f]').forEach((b) => b.onclick = () => { state.activity.filter = b.dataset.f; viewActivity(); });
+  const clr = $('#act-clear'); if (clr) clr.onclick = async () => { if (confirm(t('act.clearConfirm'))) { await N.activity.clear(); viewActivity(); } };
+}
+// Живое обновление ленты активности, если раздел открыт.
+N.on('activity:added', () => { if (state.view === 'activity') viewActivity(); });
+
 async function viewCode() {
   if (!state.code) state.code = { openPath: null, expanded: {} };
   content.innerHTML = `
@@ -4213,6 +4250,7 @@ function buildCommands() {
     nav('skills', '🧩', t('nav.skills')),
     nav('code', '📝', t('nav.code')),
     nav('terminal', '⌨️', t('nav.terminal')),
+    nav('activity', '📜', t('nav.activity')),
     nav('images', '🎨', t('nav.images')),
     nav('data', '🗃️', t('nav.data')),
     nav('rss', '📰', t('nav.rss')),

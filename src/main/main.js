@@ -66,6 +66,7 @@ const copilot = require('./copilot');
 const shadowlab = require('./shadowlab');
 const engines = require('./engines');
 const terminal = require('./terminal');
+const activity = require('./activity');
 const vault = require('./vault');
 const codebase = require('./codebase');
 const fs = require('fs');
@@ -152,8 +153,34 @@ function recordNotification(channel, p) {
     }
   } catch { /* notifications best effort */ }
 }
+// Каналы, которые попадают в единую ленту активности (аудит). Тул-вызовы и
+// команды терминала логируются у источника, поэтому здесь — события верхнего уровня.
+const ACTIVITY_CHANNELS = {
+  'watcher:fired': 'alert', 'scheduler:fired': 'schedule', 'trade:log': 'trade',
+  'flow:done': 'automation', 'mcp:connected': 'system', 'agents:reason': 'reason'
+};
+function captureActivity(channel, payload) {
+  if (channel === 'activity:added') return; // защита от рекурсии
+  const type = ACTIVITY_CHANNELS[channel];
+  if (!type) return;
+  try {
+    const p = payload || {};
+    let title, detail, level = p.level || 'info';
+    if (channel === 'trade:log') {
+      const o = p.order || {};
+      title = `${p.kind || 'trade'}: ${o.direction || ''} ${o.lots || ''} ${o.ticker || o.figi || ''}`.trim();
+      detail = p.reason || o.orderType || '';
+      if (/reject|error|fail/i.test(p.kind || '')) level = 'error';
+    } else {
+      title = p.title || p.name || p.message || channel;
+      detail = (p.title && p.message) ? p.message : (p.detail || '');
+    }
+    activity.log({ type, source: channel.split(':')[0], title, detail, level });
+  } catch {}
+}
 function sendToUI(channel, payload) {
   recordNotification(channel, payload);
+  captureActivity(channel, payload);
   // Склейка: трейдинговые события → Telegram (если включено в подключениях).
   if (channel === 'watcher:fired' && payload && store.get('settings.tradeAlertsTelegram', false) && /[🤖🧭💵🔔📈🚪🛑]/.test(payload.title || '')) {
     connections.telegramSend(((payload.title || '') + '\n' + (payload.message || '')).slice(0, 600)).catch(() => {});
@@ -219,6 +246,8 @@ app.whenReady().then(async () => {
   // Анализ данных: модуль шлёт построенные графики в панель артефактов.
   analysis.setUISender(sendToUI);
   codebase.setUISender(sendToUI);
+  // Лента активности: живые обновления в раздел «Активность».
+  activity.setUISender(sendToUI);
   // Брокер/торговля: подтверждения и аудит-события в UI.
   trading.setUISender(sendToUI);
   // Центр уведомлений.
@@ -655,6 +684,9 @@ ipcMain.handle('backtest:bestStrategy', (_e, opts) => backtest.bestStrategy(opts
 ipcMain.handle('backtest:montecarlo', (_e, opts) => backtest.montecarlo(opts));
 ipcMain.handle('term:run', (_e, line) => terminal.run(line));
 ipcMain.handle('term:state', () => terminal.state());
+ipcMain.handle('activity:list', (_e, q) => activity.list(q || {}));
+ipcMain.handle('activity:stats', () => activity.stats());
+ipcMain.handle('activity:clear', () => activity.clear());
 ipcMain.handle('engines:status', () => engines.status());
 ipcMain.handle('engines:stopAll', () => engines.stopAll());
 ipcMain.handle('vault:list', () => vault.list());

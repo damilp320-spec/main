@@ -42,6 +42,7 @@ const rss = require('./rss');
 const connections = require('./connections');
 const calendar = require('./calendar');
 const email = require('./email');
+const activity = require('./activity');
 
 const activeSessions = new Map(); // sessionId -> { stop: bool }
 
@@ -97,6 +98,17 @@ function allToolSchemas() {
 const extraHandlers = { ...minecraft.toolHandlers, ...remote.toolHandlers, ...translator.toolHandlers, ...browser.toolHandlers, ...audio.toolHandlers, ...smarthome.toolHandlers, ...appcontrol.toolHandlers, ...webagent.toolHandlers, ...gui.toolHandlers, ...docs.toolHandlers, ...analysis.toolHandlers, ...markets.toolHandlers, ...analyst.toolHandlers, ...portfolio.toolHandlers, ...journal.toolHandlers, ...screener.toolHandlers, ...shadowlab.toolHandlers, ...vault.toolHandlers, ...codebase.toolHandlers, ...news.toolHandlers, ...crawler.toolHandlers, ...notes.toolHandlers, ...datastudio.toolHandlers, ...rss.toolHandlers, ...connections.toolHandlers, ...calendar.toolHandlers, ...email.toolHandlers, ...imagegen.toolHandlers, ...trading.toolHandlers };
 
 async function dispatchTool(name, args) {
+  const res = await dispatchToolInner(name, args);
+  // Аудит: фиксируем каждый вызов инструмента в единой ленте активности.
+  try {
+    const err = typeof res === 'string' && /^Ошибка/i.test(res);
+    const brief = Object.keys(args || {}).slice(0, 3).map((k) => `${k}=${String(args[k]).slice(0, 40)}`).join(', ');
+    activity.log({ type: 'tool', source: name, title: name, detail: err ? String(res).slice(0, 200) : brief, level: err ? 'error' : 'info' });
+  } catch {}
+  return res;
+}
+
+async function dispatchToolInner(name, args) {
   if (mcp.isMcpTool(name)) {
     try { return await mcp.callTool(name, args || {}); }
     catch (e) { return `Ошибка MCP ${name}: ${e.message}`; }

@@ -4,6 +4,7 @@ const { spawn } = require('child_process');
 const path = require('path');
 const system = require('./system');
 const store = require('./store');
+const activity = require('./activity');
 
 let cwd = ''; // относительно рабочего пространства
 
@@ -29,7 +30,11 @@ async function run(line) {
   }
   if (!store.get('settings.allowShell', true)) return { ok: false, out: 'Выполнение команд отключено в настройках безопасности.', cwd, prompt: prompt() };
   const reason = system.screenCommand(line);
-  if (reason) return { ok: false, out: `⛔ Заблокировано политикой безопасности (${reason}).`, cwd, prompt: prompt() };
+  if (reason) {
+    activity.log({ type: 'terminal', source: 'cli', title: line.slice(0, 80), detail: 'заблокировано: ' + reason, level: 'error' });
+    return { ok: false, out: `⛔ Заблокировано политикой безопасности (${reason}).`, cwd, prompt: prompt() };
+  }
+  activity.log({ type: 'terminal', source: 'cli', title: line.slice(0, 80), detail: cwd || '~', level: 'info' });
   return new Promise((resolve) => {
     const shell = process.platform === 'win32' ? 'powershell.exe' : '/bin/sh';
     const args = process.platform === 'win32' ? ['-NoProfile', '-NonInteractive', '-Command', line] : ['-c', line];

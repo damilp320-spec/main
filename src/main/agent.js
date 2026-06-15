@@ -29,6 +29,7 @@ const analyst = require('./analyst');
 const portfolio = require('./portfolio');
 const journal = require('./journal');
 const screener = require('./screener');
+const shadowlab = require('./shadowlab');
 const imagegen = require('./imagegen');
 const news = require('./news');
 const crawler = require('./crawler');
@@ -66,6 +67,7 @@ function allToolSchemas() {
     ...portfolio.toolSchemas,
     ...journal.toolSchemas,
     ...screener.toolSchemas,
+    ...shadowlab.toolSchemas,
     ...news.toolSchemas,
     ...crawler.toolSchemas,
     ...notes.toolSchemas,
@@ -87,7 +89,7 @@ function allToolSchemas() {
   return disabled.length ? all.filter((t) => !disabled.includes(t.function.name)) : all;
 }
 
-const extraHandlers = { ...minecraft.toolHandlers, ...remote.toolHandlers, ...translator.toolHandlers, ...browser.toolHandlers, ...audio.toolHandlers, ...smarthome.toolHandlers, ...appcontrol.toolHandlers, ...webagent.toolHandlers, ...gui.toolHandlers, ...docs.toolHandlers, ...analysis.toolHandlers, ...markets.toolHandlers, ...analyst.toolHandlers, ...portfolio.toolHandlers, ...journal.toolHandlers, ...screener.toolHandlers, ...news.toolHandlers, ...crawler.toolHandlers, ...notes.toolHandlers, ...datastudio.toolHandlers, ...rss.toolHandlers, ...connections.toolHandlers, ...calendar.toolHandlers, ...email.toolHandlers, ...imagegen.toolHandlers, ...trading.toolHandlers };
+const extraHandlers = { ...minecraft.toolHandlers, ...remote.toolHandlers, ...translator.toolHandlers, ...browser.toolHandlers, ...audio.toolHandlers, ...smarthome.toolHandlers, ...appcontrol.toolHandlers, ...webagent.toolHandlers, ...gui.toolHandlers, ...docs.toolHandlers, ...analysis.toolHandlers, ...markets.toolHandlers, ...analyst.toolHandlers, ...portfolio.toolHandlers, ...journal.toolHandlers, ...screener.toolHandlers, ...shadowlab.toolHandlers, ...news.toolHandlers, ...crawler.toolHandlers, ...notes.toolHandlers, ...datastudio.toolHandlers, ...rss.toolHandlers, ...connections.toolHandlers, ...calendar.toolHandlers, ...email.toolHandlers, ...imagegen.toolHandlers, ...trading.toolHandlers };
 
 async function dispatchTool(name, args) {
   if (mcp.isMcpTool(name)) {

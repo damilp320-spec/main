@@ -2428,7 +2428,9 @@ async function renderBotCard() {
     <div class="row" style="gap:14px;flex-wrap:wrap;margin:4px 0">
       <label class="mk-ind"><input type="checkbox" id="bot-regime" ${c.regimeFilter ? 'checked' : ''}> ${esc(t('bot.regime'))}</label>
       <label class="mk-ind"><input type="checkbox" id="bot-be" ${c.breakeven ? 'checked' : ''}> ${esc(t('bot.breakeven'))}</label>
+      <label class="mk-ind"><input type="checkbox" id="bot-shadow" ${c.shadowMode ? 'checked' : ''}> ${esc(t('bot.shadow'))}</label>
     </div>
+    <div id="bot-shadow-panel" class="bot-shadow" style="${c.shadowMode ? '' : 'display:none'}"></div>
     <div class="row" style="gap:8px">
       <label class="field" style="max-width:100px"><span>${esc(t('bot.qty'))}</span><input id="bot-qty" type="number" value="${c.qty}"></label>
       <label class="field" style="max-width:130px"><span>${esc(t('bot.every'))}</span><input id="bot-int" type="number" value="${c.intervalMin}"></label>
@@ -2457,7 +2459,7 @@ async function renderBotCard() {
     <div id="bot-bt-res" style="margin-top:8px"></div>
     <div id="bot-log" class="op-log" style="max-height:150px;margin-top:8px"></div>
     <p class="muted" style="font-size:11px;margin-top:6px">${esc(t('bot.note'))}</p>`;
-  const saveCfg = () => N.bot.setCfg({ mode: $('#bot-mode').value, strategy: $('#bot-strat').value, qty: +$('#bot-qty').value || 1, intervalMin: +$('#bot-int').value || 15, interval: $('#bot-candle').value, symbols: $('#bot-syms').value.split(',').map((s) => s.trim()).filter(Boolean), useSentiment: $('#bot-sent').checked, confirmTf: $('#bot-mtf').value, stopLossPct: +$('#bot-sl').value || 0, takeProfitPct: +$('#bot-tp').value || 0, trailingPct: +$('#bot-trail').value || 0, stopType: $('#bot-stoptype').value, atrMult: +$('#bot-atr').value || 2, tp1Pct: +$('#bot-tp1').value || 0, tp1SellPct: +$('#bot-tp1sell').value || 50, sizeMode: $('#bot-size').value, riskAmount: +$('#bot-riskamt').value || 200, regimeFilter: $('#bot-regime').checked, breakeven: $('#bot-be').checked });
+  const saveCfg = () => N.bot.setCfg({ mode: $('#bot-mode').value, strategy: $('#bot-strat').value, qty: +$('#bot-qty').value || 1, intervalMin: +$('#bot-int').value || 15, interval: $('#bot-candle').value, symbols: $('#bot-syms').value.split(',').map((s) => s.trim()).filter(Boolean), useSentiment: $('#bot-sent').checked, confirmTf: $('#bot-mtf').value, stopLossPct: +$('#bot-sl').value || 0, takeProfitPct: +$('#bot-tp').value || 0, trailingPct: +$('#bot-trail').value || 0, stopType: $('#bot-stoptype').value, atrMult: +$('#bot-atr').value || 2, tp1Pct: +$('#bot-tp1').value || 0, tp1SellPct: +$('#bot-tp1sell').value || 50, sizeMode: $('#bot-size').value, riskAmount: +$('#bot-riskamt').value || 200, regimeFilter: $('#bot-regime').checked, breakeven: $('#bot-be').checked, shadowMode: $('#bot-shadow').checked });
   $('#bot-bt').onclick = async () => {
     const c2 = await N.bot.cfg(); const sym = (c2.symbols[0] || 'AAPL'); const res = $('#bot-bt-res');
     res.innerHTML = '<span class="spin">⏳</span> ' + esc(t('bot.btRun')) + ' ' + esc(sym);
@@ -2467,7 +2469,7 @@ async function renderBotCard() {
   };
   $$('#bot-body [data-prof]').forEach((b) => b.onclick = async () => { await N.bot.applyProfile(b.dataset.prof); toast('🤖', t('bot.profileSet') + ': ' + b.textContent.trim(), 'ok'); renderBotCard(); });
   bindToggle('bot-enable', async (v) => { if (v && !await confirmModal('🤖 ' + t('bot.title'), t('bot.enableWarn'))) return renderBotCard(); await N.bot.setCfg({ enabled: v }); renderBotCard(); });
-  ['#bot-mode', '#bot-strat', '#bot-qty', '#bot-int', '#bot-candle', '#bot-syms', '#bot-mtf', '#bot-sl', '#bot-tp', '#bot-trail', '#bot-stoptype', '#bot-atr', '#bot-tp1', '#bot-tp1sell', '#bot-size', '#bot-riskamt', '#bot-regime', '#bot-be'].forEach((s) => { const e = $(s); if (e) { const ev = e.type === 'checkbox' ? 'onchange' : 'onchange'; e[ev] = async () => { await saveCfg(); if (s === '#bot-mode' || s === '#bot-stoptype' || s === '#bot-size') renderBotCard(); }; } });
+  ['#bot-mode', '#bot-strat', '#bot-qty', '#bot-int', '#bot-candle', '#bot-syms', '#bot-mtf', '#bot-sl', '#bot-tp', '#bot-trail', '#bot-stoptype', '#bot-atr', '#bot-tp1', '#bot-tp1sell', '#bot-size', '#bot-riskamt', '#bot-regime', '#bot-be', '#bot-shadow'].forEach((s) => { const e = $(s); if (e) e.onchange = async () => { await saveCfg(); if (s === '#bot-mode' || s === '#bot-stoptype' || s === '#bot-size' || s === '#bot-shadow') renderBotCard(); }; });
   bindToggle('bot-sent', () => saveCfg());
   $('#bot-once').onclick = async () => { $('#bot-status').textContent = '⏳'; await N.bot.runOnce(); $('#bot-status').textContent = '✓ ' + t('bot.evaluated'); renderPaperCard(); };
 }
@@ -2599,6 +2601,14 @@ async function renderJournal() {
   listBox.innerHTML = all.slice(0, 30).map((e) => `<div class="al-item"><span>${new Date(e.date).toLocaleDateString()} <b>${esc(e.symbol)}</b> ${esc(e.side)} ${e.qty}@${e.price}${e.pnl != null ? ` · <span class="${e.pnl >= 0 ? 'mk-up' : 'mk-down'}">P&L ${e.pnl}</span>` : ''} <small class="muted">${esc(e.reason || '')}</small></span><button class="btn ghost sm" data-rm="${esc(e.id)}" style="margin-left:auto">✕</button></div>`).join('');
   $$('#jr-list [data-rm]').forEach((b) => b.onclick = async () => { await N.journal.remove(b.dataset.rm); renderJournal(); });
 }
+// Теневая лаборатория бота: живой рейтинг стратегий по наблюдаемому активу.
+N.on('bot:shadow', ({ symbol, board, current }) => {
+  if (state.view !== 'trading') return;
+  const panel = $('#bot-shadow-panel'); if (!panel) return;
+  if (!window.__shadow) window.__shadow = {};
+  window.__shadow[symbol] = { board, current };
+  panel.innerHTML = Object.entries(window.__shadow).slice(-6).map(([sym, d]) => `<div class="shadow-row"><b>${esc(sym)}</b> ${d.board.slice(0, 3).map((b) => `<span class="${b.strategy === d.current ? 'shadow-cur' : ''} ${b.return >= 0 ? 'mk-up' : 'mk-down'}">${esc(b.strategy)} ${b.return >= 0 ? '+' : ''}${b.return}%</span>`).join(' · ')}</div>`).join('');
+});
 N.on('bot:event', (e) => {
   const log = $('#bot-log');
   if (log && state.view === 'trading') {
@@ -3200,8 +3210,15 @@ async function viewMarkets() {
         </div>
         <div id="sc-result" class="muted">${esc(t('sc.hint'))}</div>
       </div>
+      <div class="card" style="grid-column:1/-1">
+        <div class="row between"><h3>🧬 ${esc(t('lab.title'))}</h3><span><label class="mk-ind"><input type="checkbox" id="lab-track"> ${esc(t('lab.track'))}</label><button class="btn ghost sm" id="lab-run">▶ ${esc(t('lab.run'))}</button></span></div>
+        <p class="muted" style="font-size:12px;margin:4px 0">${esc(t('lab.sub'))}</p>
+        <div id="lab-result" class="muted">${esc(t('lab.hint'))}</div>
+      </div>
     </div>`;
 
+  $('#lab-run').onclick = runLab;
+  $('#lab-track').onchange = async (e) => { if (e.target.checked) await N.lab.track(mk.symbol); else await N.lab.untrack(mk.symbol); };
   N.screener.breadth().then((b) => { const el2 = $('#sc-breadth'); if (el2 && b.ok) el2.innerHTML = `🌡 ${esc(t('sc.breadthLbl'))}: <b class="${b.regime === 'risk-on' ? 'mk-up' : 'mk-down'}">${b.pct}% — ${esc(b.label)}</b>`; });
   const SC_FILTERS = { dip: { rsiMax: 35 }, momentum: { trendUp: true, minChange: 5 }, breakout: { breakout: true }, trend: { trendUp: true } };
   $$('#content [data-screen]').forEach((b) => b.onclick = async () => {
@@ -3252,6 +3269,19 @@ async function initBacktest() {
   $('#bt-run').onclick = runBacktest;
   $('#bt-opt').onclick = runOptimize;
 }
+async function runLab() {
+  const mk = state.market; const box = $('#lab-result');
+  box.classList.remove('muted'); box.innerHTML = '<span class="spin">⏳</span> ' + esc(t('lab.running'));
+  const r = await N.lab.run({ symbol: mk.symbol, interval: mk.interval, range: mk.range });
+  if (!r.ok) { box.innerHTML = `<span class="mk-down">⚠️ ${esc(r.error)}</span>`; return; }
+  if ($('#lab-track')) $('#lab-track').checked = r.tracked;
+  // Накладываем точки входа/выхода лучшей стратегии на график.
+  state.market.markers = r.bestMarkers; drawMarket();
+  const fwd = r.forward ? `<p class="muted" style="font-size:12px;margin-top:6px">📈 ${esc(t('lab.forward'))} (с ${new Date(r.forward.since).toLocaleDateString()}): ${r.forward.board.slice(0, 3).map((b) => `${esc(b.strategy)} ${b.return >= 0 ? '+' : ''}${b.return}%`).join(', ')}</p>` : '';
+  box.innerHTML = `<p style="margin-bottom:6px">🏆 ${esc(t('lab.best'))}: <b>${esc(r.bestStrategy)}</b> — ${esc(t('lab.markersOn'))}</p>
+    <table class="tr-pf-tbl"><tr><th>${esc(t('lab.strategy'))}</th><th>Return</th><th>Sharpe</th><th>PF</th><th>${esc(t('bt.trades'))}</th></tr>${r.board.map((b, i) => `<tr><td>${i === 0 ? '🏆 ' : ''}<a class="wikilink" data-labstrat="${esc(b.strategy)}">${esc(b.name)}</a></td><td class="${b.return >= 0 ? 'mk-up' : 'mk-down'}">${b.return}%</td><td>${b.sharpe}</td><td>${b.profitFactor}</td><td>${b.trades}</td></tr>`).join('')}</table>${fwd}`;
+  $$('#lab-result [data-labstrat]').forEach((a) => a.onclick = async () => { const m = await N.lab.markers({ symbol: mk.symbol, interval: mk.interval, range: mk.range, strategy: a.dataset.labstrat }); if (m.ok) { state.market.markers = m.markers.slice(-50); drawMarket(); toast('🧬', a.dataset.labstrat, 'ok'); } });
+}
 async function runOptimize() {
   const mk = state.market; const box = $('#bt-result'); const wf = $('#bt-wf') && $('#bt-wf').checked;
   box.innerHTML = '<span class="spin">⏳</span> ' + esc(t('bt.optimizing'));
@@ -3281,6 +3311,7 @@ async function runBacktest() {
     </div>
     <div class="bt-chart-wrap"><canvas id="bt-canvas"></canvas></div>`;
   drawEquity(r);
+  if (r.markers) { state.market.markers = r.markers.slice(-50); drawMarket(); }
 }
 function drawEquity(r) {
   const cv = $('#bt-canvas'); if (!cv) return;
@@ -3308,6 +3339,7 @@ function drawEquity(r) {
 
 async function loadMarket(silent) {
   const mk = state.market;
+  if (!silent) mk.markers = null; // сброс маркеров при смене тикера/таймфрейма
   if (!silent) { const l = $('#mk-loading'); if (l) l.style.display = 'flex'; }
   const d = await N.markets.candles({ symbol: mk.symbol, interval: mk.interval, range: mk.range });
   const l = $('#mk-loading'); if (l) l.style.display = 'none';
@@ -3393,6 +3425,20 @@ function drawMarket() {
   const drawLine = (vals, color) => { ctx.strokeStyle = color; ctx.lineWidth = 1.4; ctx.beginPath(); let started = false; for (let i = 0; i < vals.length; i++) { if (vals[i] == null) continue; const px = x(i), py = y(vals[i]); if (!started) { ctx.moveTo(px, py); started = true; } else ctx.lineTo(px, py); } ctx.stroke(); };
   if (mk.sma20) drawLine(smaCalc(closes, 20), '#f7b733');
   if (mk.sma50) drawLine(smaCalc(closes, 50), '#7c5cff');
+  // Точки входа/выхода стратегии (маркеры): ▲ покупка, ▼ продажа.
+  if (mk.markers && mk.markers.length) {
+    const tIndex = new Map(c.map((k, i) => [k.t, i]));
+    for (const mrk of mk.markers) {
+      let idx = tIndex.has(mrk.t) ? tIndex.get(mrk.t) : null;
+      if (idx == null) continue;
+      const mx = x(idx), my = y(mrk.price), buy = mrk.type === 'buy';
+      ctx.fillStyle = buy ? '#26a69a' : '#ef5350';
+      ctx.beginPath();
+      if (buy) { ctx.moveTo(mx, my + 9); ctx.lineTo(mx - 5, my + 17); ctx.lineTo(mx + 5, my + 17); }
+      else { ctx.moveTo(mx, my - 9); ctx.lineTo(mx - 5, my - 17); ctx.lineTo(mx + 5, my - 17); }
+      ctx.closePath(); ctx.fill();
+    }
+  }
   // Линия последней цены.
   const lastP = closes[closes.length - 1]; ctx.strokeStyle = 'rgba(124,92,255,.6)'; ctx.setLineDash([4, 3]);
   ctx.beginPath(); ctx.moveTo(padL, y(lastP)); ctx.lineTo(padL + chartW, y(lastP)); ctx.stroke(); ctx.setLineDash([]);

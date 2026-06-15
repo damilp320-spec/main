@@ -113,7 +113,9 @@ async function run({ symbol, interval, range, strategy, params }) {
   const c = d.candles;
   if (c.length < 30) return { ok: false, error: 'Недостаточно данных для бэктеста.' };
   const r = simulate(c, strategy || 'sma_cross', params || {});
-  return { ok: true, symbol: d.symbol, strategy: strategy || 'sma_cross', ...r.m, equity: r.equity, times: c.map((x) => x.t), closes: c.map((x) => x.c), tradeList: r.trades.slice(-20) };
+  const sig = signals(strategy || 'sma_cross', c, params || {});
+  const markers = []; for (let i = 0; i < sig.length; i++) if (sig[i]) markers.push({ t: c[i].t, type: sig[i], price: +c[i].c.toFixed(2) });
+  return { ok: true, symbol: d.symbol, strategy: strategy || 'sma_cross', ...r.m, equity: r.equity, times: c.map((x) => x.t), closes: c.map((x) => x.c), tradeList: r.trades.slice(-20), markers };
 }
 
 // Авто-выбор лучшей стратегии для тикера по риск-доходности (Sharpe).

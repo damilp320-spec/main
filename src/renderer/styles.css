@@ -378,6 +378,11 @@ body.compact .view-head { margin-bottom: 10px; }
 .mk-spark { width: 80px; height: 22px; }
 .mk-wl-q { font-size: 12px; font-family: 'Consolas', monospace; min-width: 96px; text-align: right; }
 
+/* ---------- Shadow lab ---------- */
+.bot-shadow { margin: 8px 0; font-size: 12px; font-family: 'Consolas', monospace; }
+.shadow-row { padding: 3px 0; border-bottom: 1px solid var(--border); }
+.shadow-cur { text-decoration: underline; font-weight: 700; }
+
 /* ---------- Copilot proposals ---------- */
 #cp-card { border: 1px solid rgba(124,92,255,.35); background: rgba(124,92,255,.05); }
 .cp-prop { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid var(--border); }

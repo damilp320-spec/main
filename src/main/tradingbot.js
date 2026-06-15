@@ -46,6 +46,7 @@ function cfg() {
     regimeFilter: c.regimeFilter === true,   // лонги только при risk-on (широта рынка)
     sizeMode: c.sizeMode === 'risk' ? 'risk' : 'fixed', // сайзинг: фикс или по риску/волатильности
     riskAmount: +c.riskAmount || 200,        // риск на сделку для sizeMode=risk
+    shadowMode: c.shadowMode === true,       // параллельно тестировать все стратегии «вхолостую»
     _state: c._state || {}
   };
 }
@@ -99,6 +100,12 @@ async function evaluate() {
       if (!d.ok || d.candles.length < 30) continue;
       const price = d.candles[d.candles.length - 1].c;
       let st = state[symbol] || {};
+
+      // Теневая лаборатория: параллельно прогоняем ВСЕ стратегии на уже
+      // загруженных свечах (без денег) и показываем рейтинг — бесплатно.
+      if (c.shadowMode) {
+        try { const board = require('./shadowlab').boardFromCandles(d.candles); emit('shadow', { symbol, board: board.slice(0, 6), current: (c.strategy === 'auto' ? (STRAT_CACHE.get(symbol) || {}).strategy : c.strategy) }); } catch {}
+      }
 
       // Синхронизация состояния с бумажной позицией (на случай рестарта).
       if (c.mode === 'paper') {

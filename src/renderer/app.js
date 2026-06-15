@@ -165,7 +165,7 @@ async function render() {
   content.className = 'content fade-in';
   // Останавливаем авто-обновление рынков при уходе с раздела.
   if (state.view !== 'markets' && window.__marketTimer) { clearInterval(window.__marketTimer); window.__marketTimer = null; }
-  const map = { today: viewToday, dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scenarios: viewScenarios, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, smarthome: viewSmartHome, knowledge: viewKnowledge, swarm: viewSwarm, queue: viewQueue, skills: viewSkills, dispatch: viewDispatch, prompts: viewPrompts, voice: viewVoice, operator: viewOperator, automation: viewAutomation, markets: viewMarkets, cockpit: viewCockpit, trading: viewTrading, code: viewCode, images: viewImages, notes: viewNotes, data: viewData, rss: viewRss, calendar: viewCalendar, email: viewEmail, connections: viewConnections, playground: viewPlayground, engines: viewEngines, vault: viewVault, graph: viewGraph, diagnostics: viewDiagnostics, developer: viewDeveloper, settings: viewSettings };
+  const map = { today: viewToday, dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scenarios: viewScenarios, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, smarthome: viewSmartHome, knowledge: viewKnowledge, swarm: viewSwarm, queue: viewQueue, skills: viewSkills, dispatch: viewDispatch, prompts: viewPrompts, voice: viewVoice, operator: viewOperator, automation: viewAutomation, markets: viewMarkets, cockpit: viewCockpit, trading: viewTrading, code: viewCode, terminal: viewTerminal, images: viewImages, notes: viewNotes, data: viewData, rss: viewRss, calendar: viewCalendar, email: viewEmail, connections: viewConnections, playground: viewPlayground, engines: viewEngines, vault: viewVault, graph: viewGraph, diagnostics: viewDiagnostics, developer: viewDeveloper, settings: viewSettings };
   const fn = map[state.view] || viewDashboard;
   // Граница ошибок: сбой одной вкладки не «вешает» весь интерфейс.
   try {
@@ -1730,7 +1730,10 @@ async function viewSettings() {
     deepReasoning: await g('deepReasoning', false),
     reflexion: await g('reflexion', false),
     semanticFewShot: await g('semanticFewShot', false),
-    criticDebate: await g('criticDebate', false)
+    criticDebate: await g('criticDebate', false),
+    treeOfThoughts: await g('treeOfThoughts', false),
+    verifyCode: await g('verifyCode', false),
+    factCheck: await g('factCheck', false)
   };
   const docCaps = await N.docs.capabilities();
   const cloudKey = await N.cloud.hasKey();
@@ -1834,8 +1837,14 @@ async function viewSettings() {
         <hr style="border:0;border-top:1px solid var(--border);margin:10px 0"><b style="font-size:13px">🧠 ${esc(t('set.boosters'))}</b>
         ${toggleRow('set-adaptive', t('set.adaptiveEffort'), s.adaptiveEffort)}
         <p class="muted" style="margin:6px 0">${esc(t('set.adaptiveEffortNote'))}</p>
+        ${toggleRow('set-tot', t('set.treeOfThoughts'), s.treeOfThoughts)}
+        <p class="muted" style="margin:6px 0">${esc(t('set.treeOfThoughtsNote'))}</p>
         ${toggleRow('set-deep', t('set.deepReasoning'), s.deepReasoning)}
         <p class="muted" style="margin:6px 0">${esc(t('set.deepReasoningNote'))}</p>
+        ${toggleRow('set-verifycode', t('set.verifyCode'), s.verifyCode)}
+        <p class="muted" style="margin:6px 0">${esc(t('set.verifyCodeNote'))}</p>
+        ${toggleRow('set-factcheck', t('set.factCheck'), s.factCheck)}
+        <p class="muted" style="margin:6px 0">${esc(t('set.factCheckNote'))}</p>
         ${toggleRow('set-reflexion', t('set.reflexion'), s.reflexion)}
         <p class="muted" style="margin:6px 0">${esc(t('set.reflexionNote'))}</p>
         ${toggleRow('set-selfcons', t('set.selfConsistency'), s.selfConsistency)}
@@ -1931,6 +1940,9 @@ async function viewSettings() {
   bindToggle('set-selfcons', (v) => N.store.set('settings.selfConsistency', v));
   bindToggle('set-learnhist', (v) => N.store.set('settings.learnFromHistory', v));
   bindToggle('set-deep', (v) => N.store.set('settings.deepReasoning', v));
+  bindToggle('set-tot', (v) => N.store.set('settings.treeOfThoughts', v));
+  bindToggle('set-verifycode', (v) => N.store.set('settings.verifyCode', v));
+  bindToggle('set-factcheck', (v) => N.store.set('settings.factCheck', v));
   bindToggle('set-reflexion', (v) => N.store.set('settings.reflexion', v));
   bindToggle('set-semfew', (v) => N.store.set('settings.semanticFewShot', v));
   bindToggle('set-debate', (v) => N.store.set('settings.criticDebate', v));
@@ -3323,6 +3335,38 @@ function renderImgGallery() {
 }
 
 /* ---------- Мини-IDE: код ---------- */
+/* ---------- Встроенный терминал / CLI ---------- */
+async function viewTerminal() {
+  if (!state.term) state.term = { hist: [], hp: 0, lines: [] };
+  const st = await N.term.state();
+  content.innerHTML = `
+    <div class="view-head"><h1>⌨️ ${esc(t('term.title'))}</h1><p>${esc(t('term.sub'))} · <span class="muted">${esc(st.root)}</span></p></div>
+    <div class="card term-card">
+      <div id="term-out" class="term-out"></div>
+      <div class="term-input"><span id="term-prompt" class="term-prompt">${esc(st.prompt)}</span><input id="term-in" autocomplete="off" spellcheck="false" placeholder="${esc(t('term.ph'))}"></div>
+    </div>
+    <p class="muted" style="font-size:11px;margin-top:6px">${esc(t('term.note'))}</p>`;
+  const out = $('#term-out');
+  const render = () => { out.innerHTML = state.term.lines.map((l) => `<div class="term-line term-${l.k}">${esc(l.t)}</div>`).join(''); out.scrollTop = out.scrollHeight; };
+  render();
+  const inp = $('#term-in'); inp.focus();
+  inp.addEventListener('keydown', async (e) => {
+    if (e.key === 'Enter') {
+      const line = inp.value; if (!line.trim()) return; inp.value = '';
+      state.term.hist.push(line); state.term.hp = state.term.hist.length;
+      state.term.lines.push({ k: 'cmd', t: $('#term-prompt').textContent + ' ' + line });
+      if (line.trim() === 'clear' || line.trim() === 'cls') { state.term.lines = []; await N.term.run(line); render(); return; }
+      render();
+      const r = await N.term.run(line);
+      if (r.out) state.term.lines.push({ k: r.ok ? 'ok' : 'err', t: r.out });
+      $('#term-prompt').textContent = r.prompt || $('#term-prompt').textContent;
+      state.term.lines = state.term.lines.slice(-300);
+      render();
+    } else if (e.key === 'ArrowUp') { e.preventDefault(); if (state.term.hp > 0) { state.term.hp--; inp.value = state.term.hist[state.term.hp] || ''; } }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); if (state.term.hp < state.term.hist.length - 1) { state.term.hp++; inp.value = state.term.hist[state.term.hp] || ''; } else { state.term.hp = state.term.hist.length; inp.value = ''; } }
+  });
+}
+
 async function viewCode() {
   if (!state.code) state.code = { openPath: null, expanded: {} };
   content.innerHTML = `
@@ -4168,6 +4212,7 @@ function buildCommands() {
     nav('swarm', '🐝', t('nav.swarm')),
     nav('skills', '🧩', t('nav.skills')),
     nav('code', '📝', t('nav.code')),
+    nav('terminal', '⌨️', t('nav.terminal')),
     nav('images', '🎨', t('nav.images')),
     nav('data', '🗃️', t('nav.data')),
     nav('rss', '📰', t('nav.rss')),

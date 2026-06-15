@@ -74,14 +74,62 @@ async function deepReason({ model, messages, message, finalText, sendToUI, sessi
   } catch { return finalText; }
 }
 
+// Tree-of-Thoughts: несколько подходов → оценка → развёртка лучшего (поиск+отсечение).
+async function treeOfThoughts({ model, messages, message, finalText, sendToUI, sessionId }) {
+  try {
+    const r = await ollama.chatStream({ model, messages: [{ role: 'system', content: 'Предложи 3 РАЗНЫХ подхода к решению задачи. Верни ТОЛЬКО JSON: {"approaches":["...","...","..."]}' }, { role: 'user', content: String(message) }], options: { temperature: 0.8, format: 'json' } }, null);
+    let appr = []; try { appr = (JSON.parse(r.content || '{}').approaches || []).slice(0, 3); } catch {}
+    if (appr.length < 2) return finalText;
+    sendToUI && sendToUI('agents:reason', { sessionId, note: `Tree-of-Thoughts: ${appr.length} подходов` });
+    const scored = [];
+    for (const a of appr) {
+      const s = await ollama.chatStream({ model, messages: [{ role: 'system', content: 'Оцени перспективность подхода для решения задачи числом от 0 до 10. Ответь ТОЛЬКО JSON: {"score": N}' }, { role: 'user', content: 'Задача: ' + message + '\nПодход: ' + a }], options: { temperature: 0, format: 'json' } }, null);
+      let n = 0; try { n = +JSON.parse(s.content || '{}').score || 0; } catch {}
+      scored.push({ a, n });
+    }
+    scored.sort((x, y) => y.n - x.n);
+    const ex = await ollama.chatStream({ model, messages: [...messages, { role: 'user', content: 'Реши задачу, следуя самому перспективному подходу, и дай окончательный ответ:\n' + scored[0].a }], options: { temperature: 0.4 } }, null);
+    return (ex.content && ex.content.length > 20) ? ex.content : finalText;
+  } catch { return finalText; }
+}
+
+// Верификация кода: запускаем Python из ответа; при ошибке — чиним.
+async function verifyCode({ model, messages, finalText, sendToUI, sessionId }) {
+  const m = /```(?:python|py)\s*\n([\s\S]*?)```/i.exec(finalText || '');
+  if (!m) return finalText;
+  try {
+    const out = await require('./system').callTool('run_python', { code: m[1] });
+    if (/Traceback|Error:|Exception|ОШИБКА|SyntaxError/i.test(out) && !/код выхода: 0/.test(out)) {
+      sendToUI && sendToUI('agents:reason', { sessionId, note: 'код упал при запуске → исправляю' });
+      const fix = await ollama.chatStream({ model, messages: [...messages, { role: 'assistant', content: finalText }, { role: 'user', content: 'Код выдал ошибку при запуске:\n' + String(out).slice(0, 800) + '\nИсправь и дай рабочий окончательный ответ.' }], options: { temperature: 0.3 } }, null);
+      if (fix.content && fix.content.length > 20) return fix.content;
+    } else { sendToUI && sendToUI('agents:reason', { sessionId, note: 'код проверен запуском ✓' }); }
+  } catch { /* нет python — пропускаем */ }
+  return finalText;
+}
+
+// Фактчек: сверка ответа с результатами веб-поиска.
+async function factCheck({ model, message, finalText, sendToUI, sessionId }) {
+  try {
+    const res = await require('./system').callTool('web_search', { query: String(message).slice(0, 200) });
+    if (!res || /^ошибк|^error/i.test(String(res))) return finalText;
+    sendToUI && sendToUI('agents:reason', { sessionId, note: 'фактчек по веб-поиску' });
+    const r = await ollama.chatStream({ model, messages: [{ role: 'system', content: 'Сверь ответ с результатами поиска. Если есть фактические расхождения — исправь. Если всё верно — верни как есть. Дай ТОЛЬКО окончательный ответ.' }, { role: 'user', content: 'Запрос: ' + message + '\n\nПоиск:\n' + String(res).slice(0, 1500) + '\n\nОтвет: ' + String(finalText).slice(0, 1200) }], options: { temperature: 0.3 } }, null);
+    if (r.content && r.content.length > 20) return r.content;
+  } catch {}
+  return finalText;
+}
+
 // Уточнение финального ответа: deep-reasoning → self-consistency → критик.
 async function refine({ messages, model, finalText, effort, hard, message, sendToUI, sessionId }) {
   let out = finalText;
   if (!out || out.length < 30) return out;
   const deep = effort === 'max' || hard;
 
-  // Глубокий ризонинг (декомпозиция) — для сложных задач.
-  if (store.get('settings.deepReasoning', false) && deep) {
+  // Ризонинг: Tree-of-Thoughts (поиск по подходам) ИЛИ декомпозиция.
+  if (store.get('settings.treeOfThoughts', false) && deep) {
+    out = await treeOfThoughts({ model, messages, message, finalText: out, sendToUI, sessionId });
+  } else if (store.get('settings.deepReasoning', false) && deep) {
     out = await deepReason({ model, messages, message, finalText: out, sendToUI, sessionId });
   }
 
@@ -128,7 +176,12 @@ async function refine({ messages, model, finalText, effort, hard, message, sendT
       }
     } catch { /* best effort */ }
   }
+
+  // Верификация кода запуском (если есть Python-блок).
+  if (store.get('settings.verifyCode', false)) out = await verifyCode({ model, messages, finalText: out, sendToUI, sessionId });
+  // Фактчек через веб-поиск (для сложных/максимум).
+  if (store.get('settings.factCheck', false) && deep) out = await factCheck({ model, message, finalText: out, sendToUI, sessionId });
   return out;
 }
 
-module.exports = { difficulty, fewShotContext, reflexion, deepReason, refine };
+module.exports = { difficulty, fewShotContext, reflexion, deepReason, treeOfThoughts, verifyCode, factCheck, refine };

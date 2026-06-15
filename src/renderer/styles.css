@@ -378,6 +378,16 @@ body.compact .view-head { margin-bottom: 10px; }
 .mk-spark { width: 80px; height: 22px; }
 .mk-wl-q { font-size: 12px; font-family: 'Consolas', monospace; min-width: 96px; text-align: right; }
 
+/* ---------- Terminal ---------- */
+.term-card { padding: 0; overflow: hidden; }
+.term-out { background: #0a0c12; font-family: 'Consolas', monospace; font-size: 12.5px; line-height: 1.5; padding: 12px; height: 56vh; overflow-y: auto; white-space: pre-wrap; word-break: break-word; }
+.term-line.term-cmd { color: var(--accent); }
+.term-line.term-ok { color: #c8d0e0; }
+.term-line.term-err { color: #ff9b9b; }
+.term-input { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--border); padding: 8px 12px; background: #0d1018; }
+.term-prompt { color: var(--accent-2); font-family: 'Consolas', monospace; font-size: 12.5px; white-space: nowrap; }
+.term-input input { flex: 1; background: transparent; border: 0; outline: none; color: #eef1f8; font-family: 'Consolas', monospace; font-size: 12.5px; }
+
 /* ---------- Automation control ---------- */
 .en-row { display: flex; align-items: center; gap: 12px; border-left: 3px solid var(--border); }
 .en-row.en-on { border-left-color: #26a69a; }

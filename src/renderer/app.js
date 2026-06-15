@@ -93,6 +93,20 @@ function modal(html, onMount) {
   return back;
 }
 
+// Пресеты облачных провайдеров (OpenAI-совместимые) — модель-агностично.
+// z.ai/GLM добавлен, чтобы можно было подключить GLM-модели в один клик.
+const CLOUD_PRESETS = [
+  { id: 'custom', name: '— выбрать пресет —', url: '' },
+  { id: 'openai', name: 'OpenAI', provider: 'openai', url: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
+  { id: 'anthropic', name: 'Anthropic (Claude)', provider: 'anthropic', url: 'https://api.anthropic.com', model: 'claude-3-5-sonnet-latest' },
+  { id: 'zai', name: 'z.ai (GLM)', provider: 'openai', url: 'https://api.z.ai/api/paas/v4', model: 'glm-4-flash', note: 'впишите актуальное имя GLM-модели' },
+  { id: 'bigmodel', name: 'Zhipu BigModel (GLM, CN)', provider: 'openai', url: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4-flash' },
+  { id: 'deepseek', name: 'DeepSeek', provider: 'openai', url: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
+  { id: 'openrouter', name: 'OpenRouter', provider: 'openai', url: 'https://openrouter.ai/api/v1', model: 'meta-llama/llama-3.3-70b-instruct' },
+  { id: 'groq', name: 'Groq', provider: 'openai', url: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile' },
+  { id: 'together', name: 'Together AI', provider: 'openai', url: 'https://api.together.xyz/v1', model: 'meta-llama/Llama-3.3-70B-Instruct-Turbo' }
+];
+
 /* ---------------- Themes ---------------- */
 // Все темы доступны (Pro-режим временно отключён).
 const ACCENTS = {
@@ -1795,6 +1809,7 @@ async function viewSettings() {
         <h3>☁️ ${esc(t('set.cloud'))}</h3>
         ${toggleRow('set-cloud', t('set.cloudEnabled'), s.cloudEnabled)}
         <p class="muted" style="margin:6px 0">${esc(t('set.cloudNote'))}</p>
+        <label class="field"><span>${esc(t('set.cloudPreset'))}</span><select id="set-cloudpreset">${CLOUD_PRESETS.map((p) => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}</select></label>
         <label class="field"><span>${esc(t('set.cloudProvider'))}</span><select id="set-cloudprov">
           <option value="openai" ${s.cloudProvider === 'openai' ? 'selected' : ''}>OpenAI-совместимый</option>
           <option value="anthropic" ${s.cloudProvider === 'anthropic' ? 'selected' : ''}>Anthropic</option>
@@ -1878,6 +1893,12 @@ async function viewSettings() {
   $('#set-cloudprov').onchange = (e) => N.store.set('settings.cloudProvider', e.target.value);
   $('#set-cloudmodel').onchange = (e) => N.store.set('settings.cloudModel', e.target.value.trim());
   $('#set-cloudurl').onchange = (e) => N.store.set('settings.cloudBaseUrl', e.target.value.trim());
+  $('#set-cloudpreset').onchange = async (e) => {
+    const p = CLOUD_PRESETS.find((x) => x.id === e.target.value); if (!p || !p.url) return;
+    $('#set-cloudprov').value = p.provider; $('#set-cloudurl').value = p.url; $('#set-cloudmodel').value = p.model;
+    await N.store.set('settings.cloudProvider', p.provider); await N.store.set('settings.cloudBaseUrl', p.url); await N.store.set('settings.cloudModel', p.model);
+    toast('☁️', p.name + (p.note ? ' · ' + p.note : ''), 'ok');
+  };
   $('#cloud-savekey').onclick = async () => { const k = $('#set-cloudkey').value.trim(); if (!k) return; const r = await N.cloud.setKey(k); $('#set-cloudkey').value = ''; toast('☁️', r.encrypted ? 'OK (зашифрован)' : 'OK', 'ok'); };
   $('#cloud-test').onclick = async () => { $('#cloud-status').textContent = '…'; const r = await N.cloud.test(); $('#cloud-status').textContent = r.ok ? ('✅ ' + (r.model || '')) : ('❌ ' + (r.error || '')); };
   $('#set-viewconst').onclick = showConstitution;

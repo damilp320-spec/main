@@ -410,6 +410,17 @@ body.compact .view-head { margin-bottom: 10px; }
 .act-item.act-warn { border-left: 3px solid #e0a93a; }
 .act-item.act-success { border-left: 3px solid #26a69a; }
 
+/* ---------- Insights / Analytics ---------- */
+.ins-chart { display: flex; align-items: flex-end; gap: 6px; height: 140px; margin-top: 12px; }
+.ins-bar { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; }
+.ins-bar i { display: block; width: 100%; min-height: 2px; background: linear-gradient(180deg, var(--accent), var(--accent-2, #6c5ce7)); border-radius: 4px 4px 0 0; transition: height .3s; }
+.ins-bar label { font-size: 9px; color: var(--muted, #8a93a6); margin-top: 4px; transform: rotate(-45deg); white-space: nowrap; }
+.ins-row { display: flex; align-items: center; gap: 10px; padding: 5px 0; }
+.ins-name { flex: 0 0 130px; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'Consolas', monospace; }
+.ins-track { flex: 1; height: 8px; background: rgba(255,255,255,.06); border-radius: 5px; overflow: hidden; }
+.ins-track i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2, #6c5ce7)); border-radius: 5px; }
+.ins-row b { min-width: 30px; text-align: right; font-size: 12.5px; }
+
 /* ---------- Automation control ---------- */
 .en-row { display: flex; align-items: center; gap: 12px; border-left: 3px solid var(--border); }
 .en-row.en-on { border-left-color: #26a69a; }

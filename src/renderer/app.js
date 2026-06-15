@@ -165,7 +165,7 @@ async function render() {
   content.className = 'content fade-in';
   // Останавливаем авто-обновление рынков при уходе с раздела.
   if (state.view !== 'markets' && window.__marketTimer) { clearInterval(window.__marketTimer); window.__marketTimer = null; }
-  const map = { today: viewToday, dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scenarios: viewScenarios, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, smarthome: viewSmartHome, knowledge: viewKnowledge, swarm: viewSwarm, queue: viewQueue, skills: viewSkills, dispatch: viewDispatch, prompts: viewPrompts, voice: viewVoice, operator: viewOperator, automation: viewAutomation, markets: viewMarkets, cockpit: viewCockpit, trading: viewTrading, code: viewCode, terminal: viewTerminal, activity: viewActivity, images: viewImages, notes: viewNotes, data: viewData, rss: viewRss, calendar: viewCalendar, email: viewEmail, connections: viewConnections, playground: viewPlayground, engines: viewEngines, vault: viewVault, graph: viewGraph, diagnostics: viewDiagnostics, developer: viewDeveloper, settings: viewSettings };
+  const map = { today: viewToday, dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scenarios: viewScenarios, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, smarthome: viewSmartHome, knowledge: viewKnowledge, swarm: viewSwarm, queue: viewQueue, skills: viewSkills, dispatch: viewDispatch, prompts: viewPrompts, voice: viewVoice, operator: viewOperator, automation: viewAutomation, markets: viewMarkets, cockpit: viewCockpit, trading: viewTrading, code: viewCode, terminal: viewTerminal, activity: viewActivity, insights: viewInsights, images: viewImages, notes: viewNotes, data: viewData, rss: viewRss, calendar: viewCalendar, email: viewEmail, connections: viewConnections, playground: viewPlayground, engines: viewEngines, vault: viewVault, graph: viewGraph, diagnostics: viewDiagnostics, developer: viewDeveloper, settings: viewSettings };
   const fn = map[state.view] || viewDashboard;
   // Граница ошибок: сбой одной вкладки не «вешает» весь интерфейс.
   try {
@@ -3438,6 +3438,42 @@ async function viewActivity() {
 // Живое обновление ленты активности, если раздел открыт.
 N.on('activity:added', () => { if (state.view === 'activity') viewActivity(); });
 
+async function viewInsights() {
+  const s = await N.insights.summary();
+  const fmtNum = (n) => (n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'k' : String(n));
+  const fmtMs = (ms) => (ms >= 1000 ? (ms / 1000).toFixed(1) + 's' : ms + 'ms');
+  const maxDay = Math.max(1, ...s.days.map((d) => d.runs));
+  const dayBars = s.days.map((d) => `<div class="ins-bar" title="${esc(d.day)}: ${d.runs}"><i style="height:${Math.round((d.runs / maxDay) * 100)}%"></i><label>${esc(d.day.slice(5))}</label></div>`).join('');
+  const maxTool = Math.max(1, ...s.tools.map((x) => x.n));
+  const toolRows = s.tools.length ? s.tools.map((x) => `<div class="ins-row"><span class="ins-name">${esc(x.name)}</span><div class="ins-track"><i style="width:${Math.round((x.n / maxTool) * 100)}%"></i></div><b>${x.n}</b></div>`).join('') : `<div class="empty">${esc(t('ins.noData'))}</div>`;
+  const maxAg = Math.max(1, ...s.agents.map((x) => x.runs));
+  const agentRows = s.agents.length ? s.agents.map((x) => `<div class="ins-row"><span class="ins-name">${esc(x.name)}</span><div class="ins-track"><i style="width:${Math.round((x.runs / maxAg) * 100)}%"></i></div><b>${x.runs}</b><span class="muted" style="font-size:11px;min-width:60px;text-align:right">${fmtMs(x.avgMs)}</span></div>`).join('') : `<div class="empty">${esc(t('ins.noData'))}</div>`;
+  const modelChips = s.models.length ? s.models.map((m) => `<span class="chip">${esc(m.name)} <b>${m.n}</b></span>`).join(' ') : `<span class="muted">${esc(t('ins.noData'))}</span>`;
+  content.innerHTML = `
+    <div class="view-head"><h1>📊 ${esc(t('ins.title'))}</h1><p>${esc(t('ins.sub'))}</p></div>
+    <div class="stat-row" style="flex-wrap:wrap">
+      <div class="stat-pill"><span>${fmtNum(s.runs)}</span><label>${esc(t('ins.runs'))}</label></div>
+      <div class="stat-pill"><span>${fmtNum(s.totalTokens)}</span><label>${esc(t('ins.tokens'))}</label></div>
+      <div class="stat-pill"><span>${fmtMs(s.avgMs)}</span><label>${esc(t('ins.avgLatency'))}</label></div>
+      <div class="stat-pill"><span>${s.avgTps}</span><label>${esc(t('ins.tps'))}</label></div>
+      <div class="stat-pill"><span>${fmtNum(s.totalToolCalls)}</span><label>${esc(t('ins.toolCalls'))}</label></div>
+      <div class="stat-pill ${s.errors ? 'bad' : ''}"><span>${s.errors}</span><label>${esc(t('ins.errors'))}</label></div>
+    </div>
+    <div class="card">
+      <h3>${esc(t('ins.runsPerDay'))}</h3>
+      <div class="ins-chart">${dayBars}</div>
+    </div>
+    <div class="grid cols-2">
+      <div class="card"><h3>🔧 ${esc(t('ins.topTools'))}</h3>${toolRows}</div>
+      <div class="card"><h3>🤖 ${esc(t('ins.topAgents'))}</h3>${agentRows}</div>
+    </div>
+    <div class="card">
+      <h3>🧠 ${esc(t('ins.models'))}</h3>
+      <div class="row" style="flex-wrap:wrap;gap:6px;margin-top:6px">${modelChips}</div>
+      <p class="muted" style="font-size:12px;margin-top:10px">${esc(t('ins.reasoning'))}: <b>${s.reasoning}</b> · ${esc(t('ins.trades'))}: <b>${s.trades}</b> · ${esc(t('ins.actToday'))}: <b>${s.actToday}</b></p>
+    </div>`;
+}
+
 async function viewCode() {
   if (!state.code) state.code = { openPath: null, expanded: {} };
   content.innerHTML = `
@@ -4285,6 +4321,7 @@ function buildCommands() {
     nav('code', '📝', t('nav.code')),
     nav('terminal', '⌨️', t('nav.terminal')),
     nav('activity', '📜', t('nav.activity')),
+    nav('insights', '📊', t('nav.insights')),
     nav('images', '🎨', t('nav.images')),
     nav('data', '🗃️', t('nav.data')),
     nav('rss', '📰', t('nav.rss')),

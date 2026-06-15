@@ -401,6 +401,9 @@ contextBridge.exposeInMainWorld('mythera', {
     stats: () => invoke('activity:stats'),
     clear: () => invoke('activity:clear')
   },
+  insights: {
+    summary: () => invoke('insights:summary')
+  },
   vault: {
     list: () => invoke('vault:list'),
     get: (id) => invoke('vault:get', id),

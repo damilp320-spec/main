@@ -697,6 +697,7 @@ ipcMain.handle('term:state', () => terminal.state());
 ipcMain.handle('activity:list', (_e, q) => activity.list(q || {}));
 ipcMain.handle('activity:stats', () => activity.stats());
 ipcMain.handle('activity:clear', () => activity.clear());
+ipcMain.handle('insights:summary', () => require('./insights').summary());
 ipcMain.handle('engines:status', () => engines.status());
 ipcMain.handle('engines:stopAll', () => engines.stopAll());
 ipcMain.handle('vault:list', () => vault.list());

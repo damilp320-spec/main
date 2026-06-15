@@ -377,6 +377,23 @@ contextBridge.exposeInMainWorld('mythera', {
     review: () => invoke('journal:review')
   },
   marketsCorrelation: (symbols) => invoke('markets:correlation', symbols),
+  backtestBot: (o) => invoke('backtest:runBot', o),
+  screener: {
+    scan: (f, c) => invoke('screener:scan', f, c),
+    breadth: () => invoke('screener:breadth')
+  },
+  rebalance: {
+    plan: (t, q) => invoke('portfolio:rebalancePlan', t, q),
+    apply: (t, q) => invoke('portfolio:rebalanceApply', t, q)
+  },
+  copilot: {
+    cfg: () => invoke('copilot:cfg'),
+    setCfg: (p) => invoke('copilot:setCfg', p),
+    proposals: () => invoke('copilot:proposals'),
+    act: (id) => invoke('copilot:act', id),
+    dismiss: (id) => invoke('copilot:dismiss', id),
+    monitor: () => invoke('copilot:monitor')
+  },
   paper: {
     valuation: (q) => invoke('paper:valuation', q),
     history: () => invoke('paper:history'),

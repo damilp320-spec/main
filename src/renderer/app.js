@@ -2237,6 +2237,7 @@ async function viewTrading() {
       <span class="muted" style="margin-left:8px">${c.dryRun ? '· ' + esc(t('tr.dryOn')) : '· ' + esc(t('tr.dryOff'))}</span>
       <p class="muted" style="margin-top:6px">${esc(t('tr.disclaimer'))}</p>
     </div>
+    <div class="card" id="cp-card"><h3>🧭 ${esc(t('cp.title'))}</h3><div id="cp-body"></div></div>
     <div class="grid cols-2">
       <div class="card">
         <h3>🔌 ${esc(t('tr.connection'))}</h3>
@@ -2281,7 +2282,7 @@ async function viewTrading() {
       </div>
       <div class="card" id="bot-card"><h3>🤖 ${esc(t('bot.title'))}</h3><div id="bot-body"></div></div>
       <div class="card" id="paper-card"><h3>🧪 ${esc(t('bot.paper'))}</h3><div id="paper-body"></div></div>
-      <div class="card" id="pa-card" style="grid-column:1/-1"><div class="row between"><h3>📊 ${esc(t('pa.title'))}</h3><button class="btn ghost sm" id="pa-refresh">↻</button></div><div id="pa-body" class="muted"></div></div>
+      <div class="card" id="pa-card" style="grid-column:1/-1"><div class="row between"><h3>📊 ${esc(t('pa.title'))}</h3><span><button class="btn ghost sm" id="pa-rebal">⚖️ ${esc(t('rb.title'))}</button><button class="btn ghost sm" id="pa-refresh">↻</button></span></div><div id="pa-body" class="muted"></div></div>
       <div class="card" id="dca-card">
         <h3>💵 ${esc(t('dca.title'))}</h3>
         <div class="row" style="gap:6px;flex-wrap:wrap;align-items:flex-end">
@@ -2310,12 +2311,14 @@ async function viewTrading() {
         <div id="tr-log" class="tr-log"></div>
       </div>
     </div>`;
+  renderCopilot();
   renderBotCard();
   renderPaperCard();
   renderPortfolioAnalytics();
   renderDca();
   renderJournal();
   $('#pa-refresh').onclick = renderPortfolioAnalytics;
+  $('#pa-rebal').onclick = rebalanceModal;
   $('#dca-add').onclick = async () => { const sym = $('#dca-sym').value.trim(); if (!sym) return; await N.dca.save({ symbol: sym, amount: +$('#dca-amt').value || 100, everyHours: +$('#dca-hrs').value || 168, mode: 'paper' }); $('#dca-sym').value = ''; renderDca(); };
   $('#corr-run').onclick = renderCorrelation;
   $('#jr-sync').onclick = async () => { const r = await N.journal.syncPaper(); toast('📒', t('jr.synced') + ': ' + r.added, 'ok'); renderJournal(); };
@@ -2415,15 +2418,27 @@ async function renderBotCard() {
       <label class="field"><span>${esc(t('bot.tp'))} %</span><input id="bot-tp" type="number" value="${c.takeProfitPct}"></label>
       <label class="field"><span>${esc(t('bot.trail'))}${c.stopType === 'atr' ? '' : ' %'}</span><input id="bot-trail" type="number" value="${c.trailingPct}"></label>
     </div>
+    <div class="row" style="gap:8px">
+      <label class="field"><span>${esc(t('bot.tp1'))} %</span><input id="bot-tp1" type="number" value="${c.tp1Pct}" title="${esc(t('bot.tp1Hint'))}"></label>
+      <label class="field"><span>${esc(t('bot.tp1sell'))} %</span><input id="bot-tp1sell" type="number" value="${c.tp1SellPct}"></label>
+    </div>
     ${toggleRow('bot-sent', t('bot.sentiment'), c.useSentiment)}
     ${c.mode === 'broker' && safe ? `<div class="card ${safe.live && !safe.dryRun ? 'tr-live' : 'tr-safe'}" style="margin:6px 0;font-size:12px"><b>${safe.live ? '🔴 LIVE' : '🟢 sandbox'}</b>${safe.dryRun ? ' · 🧪 dry-run' : ''} · ${safe.confirm ? '✅ ' + esc(t('bot.willConfirm')) : '⚠️ ' + esc(t('bot.willAuto'))}</div>` : ''}
-    <div class="row" style="gap:6px"><button class="btn ghost sm" id="bot-once">▶ ${esc(t('bot.runOnce'))}</button><span id="bot-status" class="muted" style="font-size:12px">${c.running ? '🟢 ' + esc(t('bot.running')) : ''}</span></div>
+    <div class="row" style="gap:6px"><button class="btn ghost sm" id="bot-once">▶ ${esc(t('bot.runOnce'))}</button><button class="btn ghost sm" id="bot-bt">🧪 ${esc(t('bot.backtest'))}</button><span id="bot-status" class="muted" style="font-size:12px">${c.running ? '🟢 ' + esc(t('bot.running')) : ''}</span></div>
+    <div id="bot-bt-res" style="margin-top:8px"></div>
     <div id="bot-log" class="op-log" style="max-height:150px;margin-top:8px"></div>
     <p class="muted" style="font-size:11px;margin-top:6px">${esc(t('bot.note'))}</p>`;
-  const saveCfg = () => N.bot.setCfg({ mode: $('#bot-mode').value, strategy: $('#bot-strat').value, qty: +$('#bot-qty').value || 1, intervalMin: +$('#bot-int').value || 15, interval: $('#bot-candle').value, symbols: $('#bot-syms').value.split(',').map((s) => s.trim()).filter(Boolean), useSentiment: $('#bot-sent').checked, confirmTf: $('#bot-mtf').value, stopLossPct: +$('#bot-sl').value || 0, takeProfitPct: +$('#bot-tp').value || 0, trailingPct: +$('#bot-trail').value || 0, stopType: $('#bot-stoptype').value, atrMult: +$('#bot-atr').value || 2 });
+  const saveCfg = () => N.bot.setCfg({ mode: $('#bot-mode').value, strategy: $('#bot-strat').value, qty: +$('#bot-qty').value || 1, intervalMin: +$('#bot-int').value || 15, interval: $('#bot-candle').value, symbols: $('#bot-syms').value.split(',').map((s) => s.trim()).filter(Boolean), useSentiment: $('#bot-sent').checked, confirmTf: $('#bot-mtf').value, stopLossPct: +$('#bot-sl').value || 0, takeProfitPct: +$('#bot-tp').value || 0, trailingPct: +$('#bot-trail').value || 0, stopType: $('#bot-stoptype').value, atrMult: +$('#bot-atr').value || 2, tp1Pct: +$('#bot-tp1').value || 0, tp1SellPct: +$('#bot-tp1sell').value || 50 });
+  $('#bot-bt').onclick = async () => {
+    const c2 = await N.bot.cfg(); const sym = (c2.symbols[0] || 'AAPL'); const res = $('#bot-bt-res');
+    res.innerHTML = '<span class="spin">⏳</span> ' + esc(t('bot.btRun')) + ' ' + esc(sym);
+    const r = await N.backtestBot({ symbol: sym, interval: c2.interval, range: c2.range, strategy: c2.strategy, params: c2.params, stopLossPct: c2.stopLossPct, takeProfitPct: c2.takeProfitPct, trailingPct: c2.trailingPct, tp1Pct: c2.tp1Pct, tp1SellPct: c2.tp1SellPct, stopType: c2.stopType, atrMult: c2.atrMult });
+    if (!r.ok) { res.innerHTML = `<span class="mk-down">⚠️ ${esc(r.error)}</span>`; return; }
+    res.innerHTML = `<div class="bt-stats"><div class="bt-stat"><span>${esc(sym)} ${esc(t('bt.return'))}</span><b class="${r.return >= 0 ? 'mk-up' : 'mk-down'}">${r.return}%</b></div><div class="bt-stat"><span>B&H</span><b>${r.buyHold}%</b></div><div class="bt-stat"><span>${esc(t('bt.trades'))}</span><b>${r.trades}${r.partials ? '+' + r.partials + 'ч' : ''}</b></div><div class="bt-stat"><span>${esc(t('bt.winRate'))}</span><b>${r.winRate}%</b></div><div class="bt-stat"><span>${esc(t('bt.maxDD'))}</span><b class="mk-down">-${r.maxDrawdown}%</b></div></div>`;
+  };
   $$('#bot-body [data-prof]').forEach((b) => b.onclick = async () => { await N.bot.applyProfile(b.dataset.prof); toast('🤖', t('bot.profileSet') + ': ' + b.textContent.trim(), 'ok'); renderBotCard(); });
   bindToggle('bot-enable', async (v) => { if (v && !await confirmModal('🤖 ' + t('bot.title'), t('bot.enableWarn'))) return renderBotCard(); await N.bot.setCfg({ enabled: v }); renderBotCard(); });
-  ['#bot-mode', '#bot-strat', '#bot-qty', '#bot-int', '#bot-candle', '#bot-syms', '#bot-mtf', '#bot-sl', '#bot-tp', '#bot-trail', '#bot-stoptype', '#bot-atr'].forEach((s) => { const e = $(s); if (e) e.onchange = async () => { await saveCfg(); if (s === '#bot-mode' || s === '#bot-stoptype') renderBotCard(); }; });
+  ['#bot-mode', '#bot-strat', '#bot-qty', '#bot-int', '#bot-candle', '#bot-syms', '#bot-mtf', '#bot-sl', '#bot-tp', '#bot-trail', '#bot-stoptype', '#bot-atr', '#bot-tp1', '#bot-tp1sell'].forEach((s) => { const e = $(s); if (e) e.onchange = async () => { await saveCfg(); if (s === '#bot-mode' || s === '#bot-stoptype') renderBotCard(); }; });
   bindToggle('bot-sent', () => saveCfg());
   $('#bot-once').onclick = async () => { $('#bot-status').textContent = '⏳'; await N.bot.runOnce(); $('#bot-status').textContent = '✓ ' + t('bot.evaluated'); renderPaperCard(); };
 }
@@ -2464,6 +2479,68 @@ async function renderPortfolioAnalytics() {
       ${a.best ? `<div class="bt-stat"><span>${esc(t('pa.best'))}</span><b class="mk-up">${esc(a.best.symbol)} +${a.best.pnlPct}%</b></div>` : ''}
       ${a.worst ? `<div class="bt-stat"><span>${esc(t('pa.worst'))}</span><b class="mk-down">${esc(a.worst.symbol)} ${a.worst.pnlPct}%</b></div>` : ''}
     </div>`;
+}
+// «ИИ за рулём» — супервайзер + лента предложений.
+async function renderCopilot() {
+  const box = $('#cp-body'); if (!box) return;
+  const c = await N.copilot.cfg();
+  const models = await N.installer.listModels();
+  const modelOpts = (models.length ? models.map((m) => m.name) : [c.model]).map((n) => `<option value="${esc(n)}" ${n === c.model ? 'selected' : ''}>${esc(n)}</option>`).join('');
+  box.innerHTML = `
+    <p class="muted" style="font-size:12px;margin-bottom:8px">${esc(t('cp.sub'))}</p>
+    ${toggleRow('cp-enable', t('cp.enable'), c.enabled)}
+    <label class="field"><span>${esc(t('cp.goal'))}</span><textarea id="cp-goal" rows="2" placeholder="${esc(t('cp.goalPh'))}">${esc(c.goal)}</textarea></label>
+    <div class="row" style="gap:8px">
+      <label class="field"><span>${esc(t('cp.model'))}</span><select id="cp-model">${modelOpts}</select></label>
+      <label class="field" style="max-width:150px"><span>${esc(t('cp.risk'))}</span><select id="cp-risk"><option value="conservative" ${c.risk === 'conservative' ? 'selected' : ''}>${esc(t('cp.conservative'))}</option><option value="balanced" ${c.risk === 'balanced' ? 'selected' : ''}>${esc(t('cp.balanced'))}</option><option value="aggressive" ${c.risk === 'aggressive' ? 'selected' : ''}>${esc(t('cp.aggressive'))}</option></select></label>
+      <label class="field" style="max-width:120px"><span>${esc(t('cp.minConf'))}</span><input id="cp-conf" type="number" value="${c.minConfidence}"></label>
+    </div>
+    <div class="row" style="gap:8px;align-items:center">
+      ${toggleRow('cp-auto', t('cp.autoPaper'), c.autoActPaper)}
+      <button class="btn ghost sm" id="cp-monitor">🔍 ${esc(t('cp.monitorNow'))}</button><span id="cp-status" class="muted" style="font-size:12px"></span>
+    </div>
+    <p class="muted" style="font-size:11px;margin:4px 0 10px">${esc(t('cp.note'))}</p>
+    <h4 style="margin:8px 0 4px">📥 ${esc(t('cp.proposals'))}</h4>
+    <div id="cp-props"></div>`;
+  const save = () => N.copilot.setCfg({ goal: $('#cp-goal').value.trim(), model: $('#cp-model').value, risk: $('#cp-risk').value, minConfidence: +$('#cp-conf').value || 60, autoActPaper: $('#cp-auto').checked });
+  bindToggle('cp-enable', async (v) => { if (v && !await confirmModal('🧭 ' + t('cp.title'), t('cp.enableWarn'))) return renderCopilot(); await N.copilot.setCfg({ enabled: v }); renderCopilot(); });
+  ['#cp-goal', '#cp-model', '#cp-risk', '#cp-conf'].forEach((s) => { const e = $(s); if (e) e.onchange = save; });
+  bindToggle('cp-auto', save);
+  $('#cp-monitor').onclick = async () => { $('#cp-status').textContent = '⏳ ' + t('cp.scanning'); await N.copilot.monitor(); $('#cp-status').textContent = '✓'; renderProposals(); };
+  renderProposals();
+}
+async function renderProposals() {
+  const box = $('#cp-props'); if (!box) return;
+  const props = (await N.copilot.proposals()).filter((p) => p.status === 'pending').slice(-8).reverse();
+  box.innerHTML = props.length ? props.map((p) => `<div class="cp-prop"><div><b class="${p.action === 'buy' ? 'mk-up' : 'mk-down'}">${p.action.toUpperCase()} ${esc(p.symbol)}</b> <span class="muted">@ ${(p.price || 0).toFixed ? p.price.toFixed(2) : p.price} · ${esc(t('mk.confidence'))} ${p.confidence}%</span><div class="muted" style="font-size:12px;margin-top:2px">${esc(p.reasoning)}</div></div><span style="white-space:nowrap"><button class="btn primary sm" data-act="${esc(p.id)}">✓</button><button class="btn ghost sm" data-dis="${esc(p.id)}">✕</button></span></div>`).join('') : `<p class="muted">${esc(t('cp.noProps'))}</p>`;
+  $$('#cp-props [data-act]').forEach((b) => b.onclick = async () => { const r = await N.copilot.act(b.dataset.act); toast('🧭', r.ok ? (r.message || t('cp.executed')) : (r.error || ''), r.ok ? 'ok' : 'err'); renderProposals(); if (state.view === 'trading') renderPaperCard(); });
+  $$('#cp-props [data-dis]').forEach((b) => b.onclick = async () => { await N.copilot.dismiss(b.dataset.dis); renderProposals(); });
+}
+N.on('copilot:proposal', () => { if (state.view === 'trading') renderProposals(); });
+N.on('copilot:status', ({ stage }) => { const s = $('#cp-status'); if (s && state.view === 'trading') s.textContent = stage === 'scanning' ? '⏳ ' + t('cp.scanning') : ''; });
+
+async function rebalanceModal() {
+  modal(`<h2>⚖️ ${esc(t('rb.title'))}</h2>
+    <p class="muted">${esc(t('rb.sub'))}</p>
+    <label class="field"><span>${esc(t('rb.targets'))}</span><input id="rb-in" placeholder="AAPL:40, MSFT:30, BTC-USD:30"></label>
+    <div id="rb-plan" class="muted" style="margin:8px 0"></div>
+    <div class="modal-actions"><button class="btn ghost" id="rb-cancel">${esc(t('btn.cancel'))}</button><button class="btn primary" id="rb-apply" disabled>${esc(t('rb.apply'))}</button></div>`,
+    (m, close) => {
+      let targets = {}, quotes = {};
+      const parse = () => { targets = {}; $('#rb-in', m).value.split(',').forEach((p) => { const [s, v] = p.split(':'); if (s && v) targets[s.trim().toUpperCase()] = +v; }); };
+      const preview = async () => {
+        parse(); if (!Object.keys(targets).length) return;
+        $('#rb-plan', m).innerHTML = '<span class="spin">⏳</span>';
+        quotes = {};
+        for (const s of Object.keys(targets)) { const d = await N.markets.candles({ symbol: s, interval: '1d', range: '5d' }); if (d.ok && d.candles.length) quotes[s] = d.candles[d.candles.length - 1].c; }
+        const r = await N.rebalance.plan(targets, quotes);
+        $('#rb-plan', m).innerHTML = r.plan.length ? r.plan.map((x) => `<div class="${x.side === 'buy' ? 'mk-up' : 'mk-down'}">${x.side === 'buy' ? '🟢' : '🔴'} ${x.side} ${x.qty} ${esc(x.symbol)} @ ${x.price || '?'}</div>`).join('') : `<span class="muted">${esc(t('rb.balanced'))}</span>`;
+        $('#rb-apply', m).disabled = !r.plan.length;
+      };
+      $('#rb-in', m).onchange = preview;
+      $('#rb-cancel', m).onclick = close;
+      $('#rb-apply', m).onclick = async () => { const r = await N.rebalance.apply(targets, quotes); toast('⚖️', t('rb.done') + ': ' + r.executed, 'ok'); close(); if (state.view === 'trading') { renderPaperCard(); renderPortfolioAnalytics(); } };
+    });
 }
 async function renderDca() {
   const box = $('#dca-list'); if (!box) return;
@@ -3086,7 +3163,23 @@ async function viewMarkets() {
         <div id="mk-sent" class="muted" style="margin:6px 0;font-size:13px"></div>
         <div id="mk-news" class="mk-news muted">${esc(t('news.hint'))}</div>
       </div>
+      <div class="card" style="grid-column:1/-1">
+        <div class="row between"><h3>🔎 ${esc(t('sc.title'))}</h3><span id="sc-breadth" class="muted" style="font-size:12px"></span></div>
+        <div class="row" style="gap:6px;flex-wrap:wrap;margin:6px 0">
+          ${[['dip', '📉 ' + t('sc.dip')], ['momentum', '🚀 ' + t('sc.momentum')], ['breakout', '⚡ ' + t('sc.breakout')], ['trend', '📈 ' + t('sc.trend')]].map(([id, lbl]) => `<button class="btn ghost sm" data-screen="${id}">${esc(lbl)}</button>`).join('')}
+        </div>
+        <div id="sc-result" class="muted">${esc(t('sc.hint'))}</div>
+      </div>
     </div>`;
+
+  N.screener.breadth().then((b) => { const el2 = $('#sc-breadth'); if (el2 && b.ok) el2.innerHTML = `🌡 ${esc(t('sc.breadthLbl'))}: <b class="${b.regime === 'risk-on' ? 'mk-up' : 'mk-down'}">${b.pct}% — ${esc(b.label)}</b>`; });
+  const SC_FILTERS = { dip: { rsiMax: 35 }, momentum: { trendUp: true, minChange: 5 }, breakout: { breakout: true }, trend: { trendUp: true } };
+  $$('#content [data-screen]').forEach((b) => b.onclick = async () => {
+    const box = $('#sc-result'); box.classList.remove('muted'); box.innerHTML = '<span class="spin">⏳</span> ' + esc(t('sc.scanning'));
+    const r = await N.screener.scan(SC_FILTERS[b.dataset.screen]);
+    box.innerHTML = r.matches.length ? `<table class="data-tbl"><tr><th>Тикер</th><th>Цена</th><th>RSI</th><th>Тренд</th><th>Мес%</th></tr>${r.matches.slice(0, 15).map((m) => `<tr><td><a class="wikilink" data-loadsym="${esc(m.symbol)}">${esc(m.symbol)}</a></td><td>${m.price}</td><td>${m.rsi}</td><td class="${m.trend === 'up' ? 'mk-up' : 'mk-down'}">${m.trend}</td><td class="${m.change1m >= 0 ? 'mk-up' : 'mk-down'}">${m.change1m >= 0 ? '+' : ''}${m.change1m}%</td></tr>`).join('')}</table>` : `<span class="muted">${esc(t('sc.none'))}</span>`;
+    $$('#sc-result [data-loadsym]').forEach((a) => a.onclick = () => { mk.symbol = a.dataset.loadsym; $('#mk-sym').value = mk.symbol; loadMarket(); });
+  });
 
   const load = async (sym) => { if (sym) mk.symbol = sym; mk.interval = $('#mk-int').value; mk.range = $('#mk-rng').value; $('#mk-sym').value = mk.symbol; await loadMarket(); };
   $('#mk-load').onclick = () => load($('#mk-sym').value.trim());

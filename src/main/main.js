@@ -61,6 +61,8 @@ const portfolio = require('./portfolio');
 const alerts = require('./alerts');
 const dca = require('./dca');
 const journal = require('./journal');
+const screener = require('./screener');
+const copilot = require('./copilot');
 const fs = require('fs');
 
 let win = null;
@@ -224,6 +226,8 @@ app.whenReady().then(async () => {
   alerts.init({ notify: (p) => sendToUI('watcher:fired', p) });
   // DCA-автопокупки по расписанию.
   dca.init({ notify: (p) => sendToUI('watcher:fired', p) });
+  // «ИИ за рулём» — проактивный супервайзер.
+  copilot.init({ sendToUI });
 
   // Очередь задач: пробрасываем события в UI и возобновляем незавершённые.
   taskQueue.load();
@@ -619,6 +623,17 @@ ipcMain.handle('journal:syncPaper', () => journal.syncPaper());
 ipcMain.handle('journal:stats', () => journal.stats());
 ipcMain.handle('journal:review', () => journal.review());
 ipcMain.handle('markets:correlation', (_e, symbols) => markets.correlation(symbols));
+ipcMain.handle('backtest:runBot', (_e, opts) => backtest.runBot(opts));
+ipcMain.handle('screener:scan', (_e, filters, custom) => screener.scan(filters, custom));
+ipcMain.handle('screener:breadth', () => screener.breadth());
+ipcMain.handle('portfolio:rebalancePlan', (_e, t, q) => portfolio.rebalancePlan(t, q));
+ipcMain.handle('portfolio:rebalanceApply', (_e, t, q) => portfolio.rebalanceApply(t, q));
+ipcMain.handle('copilot:cfg', () => copilot.publicCfg());
+ipcMain.handle('copilot:setCfg', (_e, patch) => copilot.setCfg(patch));
+ipcMain.handle('copilot:proposals', () => copilot.proposals());
+ipcMain.handle('copilot:act', (_e, id) => copilot.act(id));
+ipcMain.handle('copilot:dismiss', (_e, id) => copilot.dismiss(id));
+ipcMain.handle('copilot:monitor', () => copilot.monitor());
 ipcMain.handle('paper:valuation', (_e, quotes) => paper.valuation(quotes));
 ipcMain.handle('paper:history', () => paper.history());
 ipcMain.handle('paper:reset', (_e, cash) => paper.reset(cash));

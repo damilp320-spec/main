@@ -32,6 +32,33 @@ function analyze(quotes) {
   };
 }
 
+// План ребалансировки к целевым долям (targets: { symbol: pct }).
+function rebalancePlan(targets, quotes) {
+  const v = paper.valuation(quotes || {});
+  const equity = v.equity || 1;
+  const curVal = {}; const curPrice = {};
+  v.positions.forEach((p) => { curVal[p.symbol] = p.value; curPrice[p.symbol] = p.price; });
+  const plan = [];
+  for (const [s0, pct] of Object.entries(targets || {})) {
+    const sym = s0.toUpperCase();
+    const price = (quotes && quotes[sym]) || curPrice[sym];
+    if (!price) { plan.push({ symbol: sym, side: 'buy', qty: 0, note: 'нет цены' }); continue; }
+    const diff = equity * (pct / 100) - (curVal[sym] || 0);
+    if (Math.abs(diff) > equity * 0.01) { const qty = Math.floor(Math.abs(diff) / price); if (qty >= 1) plan.push({ symbol: sym, side: diff > 0 ? 'buy' : 'sell', qty, price: +price.toFixed(2), value: +(qty * price).toFixed(2) }); }
+  }
+  // Закрываем позиции вне целей.
+  for (const p of v.positions) if (!(p.symbol in (targets || {})) && !(p.symbol.toLowerCase() in (targets || {}))) plan.push({ symbol: p.symbol, side: 'sell', qty: p.qty, price: p.price, value: p.value });
+  return { ok: true, equity: v.equity, plan };
+}
+function rebalanceApply(targets, quotes) {
+  const { plan } = rebalancePlan(targets, quotes);
+  // Сначала продажи (освобождаем кэш), потом покупки.
+  let done = 0;
+  for (const it of plan.filter((x) => x.side === 'sell')) { if (paper.trade({ symbol: it.symbol, side: 'sell', qty: it.qty, price: it.price, reason: 'rebalance', source: 'rebalance' }).ok) done++; }
+  for (const it of plan.filter((x) => x.side === 'buy' && x.qty)) { if (paper.trade({ symbol: it.symbol, side: 'buy', qty: it.qty, price: it.price, reason: 'rebalance', source: 'rebalance' }).ok) done++; }
+  return { ok: true, executed: done, plan };
+}
+
 const toolSchemas = [
   { type: 'function', function: { name: 'portfolio_analytics', description: 'Аналитика бумажного портфеля: распределение, концентрация, диверсификация, P&L, винрейт.', parameters: { type: 'object', properties: {} } } }
 ];
@@ -43,4 +70,4 @@ const toolHandlers = {
   }
 };
 
-module.exports = { analyze, toolSchemas, toolHandlers };
+module.exports = { analyze, rebalancePlan, rebalanceApply, toolSchemas, toolHandlers };

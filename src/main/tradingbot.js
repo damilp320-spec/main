@@ -40,6 +40,8 @@ function cfg() {
     trailingPct: +c.trailingPct || 0,        // трейлинг-стоп, % от пика (или флаг вкл для ATR)
     stopType: c.stopType === 'atr' ? 'atr' : 'percent', // тип стопа
     atrMult: +c.atrMult || 2,                // множитель ATR
+    tp1Pct: +c.tp1Pct || 0,                  // первая цель (частичный выход), %
+    tp1SellPct: +c.tp1SellPct || 50,         // сколько % позиции продать на первой цели
     _state: c._state || {}
   };
 }
@@ -82,10 +84,16 @@ async function evaluate() {
         if (!pos && st.side === 'buy') st = { side: null };
       }
 
-      // 1) Управление открытой позицией: тейк-профит / стоп-лосс / трейлинг-стоп.
-      //    Стоп — фиксированный % ИЛИ адаптивный по ATR (волатильности).
+      // 1) Управление открытой позицией: лесенка ТП / тейк-профит / стоп / трейлинг.
       if (st.side === 'buy' && st.entry) {
         st.peak = Math.max(st.peak || st.entry, price);
+        // Лесенка тейк-профита: частичный выход на первой цели.
+        if (c.tp1Pct && !st.tp1Done && price >= st.entry * (1 + c.tp1Pct / 100)) {
+          await sellPartial(c, symbol, price, c.tp1SellPct);
+          st.tp1Done = true; state[symbol] = st;
+          emit('exit', { symbol, reason: `take-profit-1 (${c.tp1SellPct}%)`, price });
+          continue;
+        }
         const av = c.stopType === 'atr' ? backtest.atr(d.candles, 14) : null;
         let exit = null;
         if (c.takeProfitPct && price >= st.entry * (1 + c.takeProfitPct / 100)) exit = 'take-profit';
@@ -115,6 +123,14 @@ async function evaluate() {
           if (tr.ok && tr.trend === 'down') { emit('skip', { symbol, message: `пропуск buy: старший ТФ ${c.confirmTf} вниз` }); state[symbol] = { side: null }; continue; }
           emit('confirm', { symbol, message: `${c.confirmTf} тренд: ${tr.trend || '?'}` });
         }
+        // «ИИ за рулём»: сигнал идёт не в сделку, а на оценку нейросети-супервайзеру.
+        const copilot = require('./copilot');
+        if (copilot.enabled()) {
+          emit('toAI', { symbol, message: 'сигнал buy → на анализ ИИ-супервайзеру' });
+          await copilot.consider({ symbol, action: 'buy', signal: 'bot', price, reason: c.strategy });
+          state[symbol] = { side: null };
+          continue;
+        }
         await buy(c, symbol, price);
         state[symbol] = { side: 'buy', entry: price, peak: price, at: Date.now() };
       } else { // sell-сигнал
@@ -136,6 +152,12 @@ async function sell(c, symbol, price, reason) {
   if (c.mode === 'paper') {
     const pos = paper.valuation().positions.find((p) => p.symbol === symbol.toUpperCase());
     if (pos) { const r = paper.trade({ symbol, side: 'sell', qty: pos.qty, price, reason, source: 'bot' }); report(symbol, 'sell', pos.qty, price, r); }
+  } else await brokerOrder(c, symbol, 'sell');
+}
+async function sellPartial(c, symbol, price, pct) {
+  if (c.mode === 'paper') {
+    const pos = paper.valuation().positions.find((p) => p.symbol === symbol.toUpperCase());
+    if (pos) { const qty = Math.max(1, Math.floor(pos.qty * (pct / 100))); const r = paper.trade({ symbol, side: 'sell', qty, price, reason: 'take-profit-1', source: 'bot' }); report(symbol, 'sell', qty, price, r); }
   } else await brokerOrder(c, symbol, 'sell');
 }
 async function brokerOrder(c, symbol, dir) {

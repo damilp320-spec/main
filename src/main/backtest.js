@@ -168,5 +168,43 @@ async function optimize({ symbol, interval, range, strategy }) {
   return { ok: true, best, top: results.slice(0, 8) };
 }
 
-module.exports = { run, optimize, signals, lastSignal, atr, STRATEGIES };
+function atrAt(c, i, n) { if (i < n) return null; let s = 0; for (let j = i - n + 1; j <= i; j++) s += Math.max(c[j].h - c[j].l, Math.abs(c[j].h - c[j - 1].c), Math.abs(c[j].l - c[j - 1].c)); return s / n; }
+
+// Бэктест ВСЕЙ логики бота: сигналы + лесенка ТП + стоп-лосс/трейлинг (%, ATR).
+async function runBot(opts) {
+  const d = await markets.candles(opts);
+  if (!d.ok) return { ok: false, error: d.error };
+  const c = d.candles; if (c.length < 30) return { ok: false, error: 'Мало данных.' };
+  const p = opts.params || {};
+  const sig = signals(opts.strategy || 'macd', c, p);
+  const START = 10000;
+  let cash = START, units = 0, entry = 0, peak = 0, tp1Done = false;
+  const equity = [], trades = [];
+  const slP = +opts.stopLossPct || 0, tpP = +opts.takeProfitPct || 0, trP = +opts.trailingPct || 0;
+  const tp1 = +opts.tp1Pct || 0, tp1Sell = +opts.tp1SellPct || 50, atrMode = opts.stopType === 'atr', atrMult = +opts.atrMult || 2;
+  for (let i = 0; i < c.length; i++) {
+    const price = c[i].c;
+    if (units > 0) {
+      peak = Math.max(peak, price);
+      const av = atrMode ? atrAt(c, i, 14) : null;
+      if (tp1 && !tp1Done && price >= entry * (1 + tp1 / 100)) { const sold = units * (tp1Sell / 100); cash += sold * price; trades.push({ at: c[i].t, pnl: +((price - entry) / entry * 100).toFixed(2), partial: true }); units -= sold; tp1Done = true; }
+      let exit = null;
+      if (tpP && price >= entry * (1 + tpP / 100)) exit = 1;
+      else if (slP) { const lvl = atrMode && av ? entry - atrMult * av : entry * (1 - slP / 100); if (price <= lvl) exit = 1; }
+      if (!exit && trP) { const lvl = atrMode && av ? peak - atrMult * av : peak * (1 - trP / 100); if (price <= lvl) exit = 1; }
+      if (!exit && sig[i] === 'sell') exit = 1;
+      if (exit) { cash += units * price; trades.push({ at: c[i].t, pnl: +((price - entry) / entry * 100).toFixed(2) }); units = 0; }
+    } else if (sig[i] === 'buy') { units = cash / price; cash = 0; entry = price; peak = price; tp1Done = false; }
+    equity.push(cash + units * price);
+  }
+  if (units > 0) { trades.push({ at: c[c.length - 1].t, pnl: +((c[c.length - 1].c - entry) / entry * 100).toFixed(2), open: true }); }
+  const finalEq = equity[equity.length - 1];
+  const ret = (finalEq / START - 1) * 100;
+  const buyHold = (c[c.length - 1].c / c[0].c - 1) * 100;
+  let pk = -Infinity, maxDD = 0; for (const e of equity) { if (e > pk) pk = e; const dd = (pk - e) / pk * 100; if (dd > maxDD) maxDD = dd; }
+  const full = trades.filter((t) => !t.partial); const wins = full.filter((t) => t.pnl > 0).length;
+  return { ok: true, symbol: d.symbol, return: +ret.toFixed(2), buyHold: +buyHold.toFixed(2), maxDrawdown: +maxDD.toFixed(2), trades: full.length, partials: trades.length - full.length, winRate: full.length ? +((wins / full.length) * 100).toFixed(1) : 0, equity, closes: c.map((x) => x.c) };
+}
+
+module.exports = { run, runBot, optimize, signals, lastSignal, atr, STRATEGIES };
 

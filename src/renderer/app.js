@@ -1559,6 +1559,8 @@ async function viewVoice() {
   const wakeWord = await N.store.get('settings.wakeWord', 'Mythera');
   const ttsEngine = await N.store.get('settings.ttsEngine', 'web');
   const sttEngine = await N.store.get('settings.sttEngine', 'web');
+  const rate = await N.store.get('settings.voiceRate', 1);
+  const pitch = await N.store.get('settings.voicePitch', 1);
   const sp = await N.speech.detect();
   content.innerHTML = `
     <div class="view-head"><h1>${esc(t('nav.voice'))}</h1><p>${esc(t('voice.sub'))}</p></div>
@@ -1566,13 +1568,16 @@ async function viewVoice() {
       <div class="voice-stage">
         <div class="orb ${state.voiceListening ? 'listening' : ''}" id="orb">${state.voiceListening ? '👂' : '🎙️'}</div>
         <div class="voice-transcript" id="vt">${state.voiceListening ? (wakeOn ? 'Скажите «' + esc(wakeWord) + '»…' : 'Слушаю…') : 'Нажмите, чтобы начать'}</div>
-        <div class="row">
+        <div class="row" style="flex-wrap:wrap;justify-content:center">
           <button class="btn primary" id="voice-toggle">${state.voiceListening ? '⏹ Остановить' : '🎤 Начать слушать'}</button>
-          <button class="btn ghost" id="voice-test">🔊 Проверить голос</button>
+          <button class="btn ghost" id="voice-test">🔊 ${esc(t('voice.testVoice'))}</button>
+          <button class="btn ghost" id="voice-brief">🗣️ ${esc(t('voice.briefing'))}</button>
+          <button class="btn ghost" id="voice-reset">🔄 ${esc(t('voice.newConv'))}</button>
         </div>
         <p class="voice-hint">Горячая клавиша: Ctrl+Shift+Space</p>
         <label class="row" style="gap:10px"><label class="switch"><input type="checkbox" id="vreplies" ${replies ? 'checked' : ''}><span class="slider"></span></label><span class="muted">${esc(t('set.voiceReplies'))}</span></label>
       </div>
+      <div class="voice-log" id="voice-log"></div>
     </div>
     <div class="grid cols-2" style="margin-top:16px">
       <div class="card">
@@ -1591,6 +1596,9 @@ async function viewVoice() {
           <option value="web" ${sttEngine === 'web' ? 'selected' : ''}>Web Speech (быстро)</option>
           <option value="whisper" ${sttEngine === 'whisper' ? 'selected' : ''}>Faster-Whisper — точнее, оффлайн ${sp.whisper.available ? '✅' : '⚠️ не настроен'}</option>
         </select></label>
+        <label class="field"><span>${esc(t('voice.voicePick'))}</span><select id="tts-voice"><option value="">${esc(t('voice.voiceAuto'))}</option></select></label>
+        <label class="field"><span>${esc(t('voice.rate'))}: <b id="rate-val">${rate}</b></span><input type="range" id="voice-rate" min="0.5" max="2" step="0.1" value="${rate}"></label>
+        <label class="field"><span>${esc(t('voice.pitch'))}: <b id="pitch-val">${pitch}</b></span><input type="range" id="voice-pitch" min="0.5" max="1.5" step="0.1" value="${pitch}"></label>
         <p class="muted">${sp.piper.available ? '' : 'Piper: ' + esc(sp.piper.hint) + '<br>'}${sp.whisper.available ? '' : 'Whisper: ' + esc(sp.whisper.hint)}</p>
         <button class="btn" id="speech-install" style="margin-top:8px">⬇️ Установить локальную речь (Piper + Faster-Whisper)</button>
       </div>
@@ -1622,7 +1630,24 @@ async function viewVoice() {
   $('#tr2-note').onclick = async () => { if (!transcript) return; await N.notes.save({ title: 'Транскрипция ' + new Date().toLocaleDateString(), body: transcript, tags: ['транскрипция'] }); toast('📓', t('notes.saved'), 'ok'); };
   $('#tr2-kb').onclick = async () => { if (!transcript) return; const r = await N.rag.add('kb', transcript, 'транскрипция'); toast('📚', r.ok ? 'OK' : r.error, r.ok ? 'ok' : 'err'); };
   $('#voice-toggle').onclick = toggleVoice;
-  $('#voice-test').onclick = () => speakOut('Mythera voice assistant is ready.');
+  $('#voice-test').onclick = () => speakOut(t('voice.testPhrase'));
+  $('#voice-brief').onclick = async () => { const b = await N.voice.briefing(); pushVoiceLog('assistant', b); lastVoiceReply = b; const vt = $('#vt'); if (vt) vt.textContent = '🤖 ' + b; speakOut(b); };
+  $('#voice-reset').onclick = async () => { await N.voice.reset(); state.voiceLog = []; refreshVoiceLog(); toast('🔄', t('voice.newConv'), 'ok'); };
+  refreshVoiceLog();
+  // Список системных голосов TTS.
+  const fillVoices = () => {
+    const sel = $('#tts-voice'); if (!sel) return;
+    const lang = VOICE_LANG().slice(0, 2);
+    const voices = (window.speechSynthesis ? speechSynthesis.getVoices() : []).filter((v) => !v.lang || v.lang.startsWith(lang) || v.lang.startsWith('en'));
+    N.store.get('settings.ttsVoiceName', '').then((want) => {
+      sel.innerHTML = `<option value="">${esc(t('voice.voiceAuto'))}</option>` + voices.map((v) => `<option value="${esc(v.name)}" ${v.name === want ? 'selected' : ''}>${esc(v.name)} (${esc(v.lang || '')})</option>`).join('');
+    });
+  };
+  fillVoices();
+  if (window.speechSynthesis) speechSynthesis.onvoiceschanged = fillVoices;
+  $('#tts-voice').onchange = (e) => N.store.set('settings.ttsVoiceName', e.target.value);
+  $('#voice-rate').oninput = (e) => { $('#rate-val').textContent = e.target.value; N.store.set('settings.voiceRate', +e.target.value); };
+  $('#voice-pitch').oninput = (e) => { $('#pitch-val').textContent = e.target.value; N.store.set('settings.voicePitch', +e.target.value); };
   $('#vreplies').onchange = (e) => N.store.set('settings.voiceReplies', e.target.checked);
   $('#wake-on').onchange = (e) => N.store.set('settings.wakeEnabled', e.target.checked);
   $('#wake-word').onchange = (e) => N.store.set('settings.wakeWord', e.target.value.trim() || 'Mythera');
@@ -2197,6 +2222,39 @@ function updateVoiceUI() {
   const vt = $('#vt'); if (vt && !state.voiceListening) vt.textContent = 'Нажмите, чтобы начать';
 }
 
+// Сопоставление голосовых фраз с разделами для навигации голосом.
+const VOICE_NAV = [
+  { re: /(настройк|settings)/i, view: 'settings' },
+  { re: /(торговл|трейд|trading)/i, view: 'trading' },
+  { re: /(рынк|markets)/i, view: 'markets' },
+  { re: /(аналитик|инсайт|insights)/i, view: 'insights' },
+  { re: /(активност|журнал действ|activity)/i, view: 'activity' },
+  { re: /(агент|agents)/i, view: 'agents' },
+  { re: /(календар|calendar)/i, view: 'calendar' },
+  { re: /(заметк|notes)/i, view: 'notes' },
+  { re: /(термина|terminal|консол)/i, view: 'terminal' },
+  { re: /(подключени|connections)/i, view: 'connections' },
+  { re: /(кокпит|cockpit)/i, view: 'cockpit' },
+  { re: /(сегодня|today)/i, view: 'today' },
+  { re: /(главн|домой|dashboard|home)/i, view: 'dashboard' }
+];
+// Быстрые локальные команды без обращения к модели — мгновенная реакция.
+async function voiceIntent(text) {
+  const t0 = text.toLowerCase().trim();
+  const say = (s, vt = '🤖') => { const el = $('#vt'); if (el) el.textContent = vt + ' ' + s; speakOut(s); };
+  if (/\b(стоп|стой|замолчи|хватит|тихо|молчи|stop|silence|quiet)\b/i.test(t0)) { speakInterrupt(); const el = $('#vt'); if (el) el.textContent = '🤫 ок'; return true; }
+  if (/\b(повтори|повторите|ещё раз|repeat|again)\b/i.test(t0)) { if (lastVoiceReply) speakOut(lastVoiceReply); return true; }
+  if (/\b(новый разговор|сбрось|забудь|очисти контекст|new conversation|reset|forget)\b/i.test(t0)) { await N.voice.reset(); state.voiceLog = []; refreshVoiceLog(); say('Контекст очищен.'); return true; }
+  if (/\b(брифинг|сводка|briefing|brief|статус)\b/i.test(t0)) { const b = await N.voice.briefing(); pushVoiceLog('assistant', b); say(b); return true; }
+  if (/\b(быстрее|побыстрее|faster|speed up)\b/i.test(t0)) { const r = Math.min(2, (await N.store.get('settings.voiceRate', 1)) + 0.2); await N.store.set('settings.voiceRate', +r.toFixed(1)); say('Говорю быстрее.'); return true; }
+  if (/\b(медленнее|помедленнее|slower|slow down)\b/i.test(t0)) { const r = Math.max(0.5, (await N.store.get('settings.voiceRate', 1)) - 0.2); await N.store.set('settings.voiceRate', +r.toFixed(1)); say('Говорю медленнее.'); return true; }
+  if (/\b(открой|открыть|перейди|перейти|покажи|open|go to|show)\b/i.test(t0)) {
+    const hit = VOICE_NAV.find((n) => n.re.test(t0));
+    if (hit) { navigate(hit.view); const el = $('#vt'); if (el) el.textContent = '➡️ ' + hit.view; return true; }
+  }
+  return false;
+}
+
 async function handleVoiceCommand(rawText) {
   let text = rawText.trim();
   // Активация по имени: реагируем только если фраза начинается с «имени».
@@ -2210,9 +2268,24 @@ async function handleVoiceCommand(rawText) {
     text = text.slice(idx + wake.length).replace(/^[\s,.:!—-]+/, '').trim();
     if (!text) { const vt = $('#vt'); if (vt) vt.textContent = '👂 да?'; return; }
   }
+  // Сначала пробуем мгновенные локальные команды.
+  if (await voiceIntent(text)) return;
   const vt = $('#vt'); if (vt) vt.textContent = '💬 ' + text;
+  pushVoiceLog('user', text);
   N.voice.reportCommand(text);
-  toast('Команда', text);
+}
+
+// Журнал голосового диалога для панели транскрипта.
+function pushVoiceLog(role, text) {
+  if (!state.voiceLog) state.voiceLog = [];
+  state.voiceLog.push({ role, text, at: Date.now() });
+  if (state.voiceLog.length > 40) state.voiceLog = state.voiceLog.slice(-40);
+  refreshVoiceLog();
+}
+function refreshVoiceLog() {
+  const box = $('#voice-log'); if (!box) return;
+  box.innerHTML = (state.voiceLog || []).slice(-12).map((m) => `<div class="vlog-${m.role}"><b>${m.role === 'user' ? '🗣' : '🤖'}</b> ${esc(m.text)}</div>`).join('');
+  box.scrollTop = box.scrollHeight;
 }
 
 let ttsActive = false;        // сейчас говорит TTS (для barge-in в дуплексе)
@@ -2230,7 +2303,24 @@ async function afterSpeak() {
   const cont = duplex || await N.store.get('settings.autoListen', false);
   if (state.voiceListening && !recognitionRunning && cont) { try { recognition && recognition.start(); } catch {} }
 }
+// Готовим текст к озвучке: убираем markdown/код/ссылки/эмодзи, чтобы TTS
+// не читал «звёздочка звёздочка» и не зачитывал блоки кода целиком.
+function cleanForSpeech(s) {
+  return String(s || '')
+    .replace(/```[\s\S]*?```/g, '. (код пропущен) ')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/https?:\/\/\S+/g, ' ссылка ')
+    .replace(/[*_#>~|`]/g, '')
+    .replace(/^\s*[-•]\s*/gm, '')
+    .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}]/gu, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
 async function speakOut(text) {
+  text = cleanForSpeech(text);
+  if (!text) { ttsActive = false; return; }
   // Piper (локальный TTS) — если включён и настроен; иначе Web Speech API.
   const engine = await N.store.get('settings.ttsEngine', 'web');
   ttsActive = true;
@@ -2250,7 +2340,10 @@ async function speakOut(text) {
   const u = new SpeechSynthesisUtterance(text);
   u.lang = VOICE_LANG();
   u.rate = await N.store.get('settings.voiceRate', 1);
-  const v = speechSynthesis.getVoices().find((x) => x.lang && x.lang.startsWith(u.lang.slice(0, 2)));
+  u.pitch = await N.store.get('settings.voicePitch', 1);
+  const voices = speechSynthesis.getVoices();
+  const want = await N.store.get('settings.ttsVoiceName', '');
+  const v = (want && voices.find((x) => x.name === want)) || voices.find((x) => x.lang && x.lang.startsWith(u.lang.slice(0, 2)));
   if (v) u.voice = v;
   u.onend = () => afterSpeak();
   speechSynthesis.cancel();
@@ -4673,7 +4766,10 @@ N.on('installer:progress', (p) => {
   });
 });
 
+let lastVoiceReply = '';
 N.on('voice:reply', (text) => {
+  lastVoiceReply = text;
+  pushVoiceLog('assistant', text);
   const vt = $('#vt'); if (vt) vt.textContent = '🤖 ' + text;
 });
 N.on('voice:speak-request', (text) => speakOut(text));

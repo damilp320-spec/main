@@ -407,6 +407,8 @@ ipcMain.handle('voice:state', () => voice.getState());
 // Рендерер сообщает распознанную фразу / финальную команду.
 ipcMain.handle('voice:transcript', (_e, text) => { voice.handleTranscript(text); return true; });
 ipcMain.handle('voice:command', (_e, text) => { voice.handleCommand(text); return true; });
+ipcMain.handle('voice:reset', () => agent.resetVoiceContext());
+ipcMain.handle('voice:briefing', () => agent.voiceBriefing());
 
 /* ---------------- IPC: task queue ---------------- */
 ipcMain.handle('taskq:list', () => taskQueue.list());

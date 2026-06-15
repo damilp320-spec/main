@@ -498,7 +498,9 @@ contextBridge.exposeInMainWorld('mythera', {
     speak: (t) => invoke('voice:speak', t),
     state: () => invoke('voice:state'),
     reportTranscript: (t) => invoke('voice:transcript', t),
-    reportCommand: (t) => invoke('voice:command', t)
+    reportCommand: (t) => invoke('voice:command', t),
+    reset: () => invoke('voice:reset'),
+    briefing: () => invoke('voice:briefing')
   },
   // События из главного процесса
   on

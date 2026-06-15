@@ -468,10 +468,41 @@ async function chat({ agentId, sessionId, message, history, effort }, sendToUI) 
 }
 
 // Быстрый вопрос без UI-сессии (используется голосовым ассистентом).
+// Голосовой ассистент держит короткую память диалога, чтобы понимать
+// уточнения («а завтра?», «расскажи подробнее»). Буфер ограничен.
+let voiceHistory = [];
+const VOICE_TURNS = 6; // помним до 6 пар «вопрос-ответ»
+function resetVoiceContext() { voiceHistory = []; return { ok: true }; }
+
 async function quickAsk(text, sendToUI) {
   const voiceAgent = listAgents().find((a) => a.id === 'tpl-voice') || TEMPLATES[4];
-  const r = await chat({ agentId: voiceAgent.id, message: text, history: [] }, sendToUI);
+  const history = voiceHistory.slice(-VOICE_TURNS * 2);
+  const r = await chat({ agentId: voiceAgent.id, message: text, history }, sendToUI);
+  voiceHistory.push({ role: 'user', content: text }, { role: 'assistant', content: r.text });
+  if (voiceHistory.length > VOICE_TURNS * 2) voiceHistory = voiceHistory.slice(-VOICE_TURNS * 2);
   return r.text;
+}
+
+// Короткая голосовая сводка из локальных данных (портфель, сделки, календарь).
+// Собирается шаблонно — быстро, без обращения к модели, защищённо по каждому блоку.
+function voiceBriefing() {
+  const parts = [];
+  try {
+    const v = require('./paper').valuation();
+    parts.push(`Бумажный портфель: капитал ${Math.round(v.equity)}, ${v.totalPnl >= 0 ? 'прибыль' : 'убыток'} ${Math.abs(Math.round(v.totalPnl))}, открыто ${v.positions.length} позиций.`);
+  } catch {}
+  try {
+    const s = require('./journal').stats();
+    if (s && s.count) parts.push(`Винрейт ${s.winRate} процентов за ${s.count} сделок.`);
+  } catch {}
+  try {
+    const now = Date.now();
+    const ev = require('./calendar').list(now, now + 24 * 3600 * 1000);
+    if (ev && ev.length) parts.push(`В календаре на ближайшие сутки ${ev.length}: ${ev.slice(0, 3).map((e) => e.title).join(', ')}.`);
+    else parts.push('В календаре на ближайшие сутки ничего нет.');
+  } catch {}
+  if (!parts.length) return 'Пока нечего рассказать. Добавьте данные в портфель или календарь.';
+  return 'Брифинг. ' + parts.join(' ');
 }
 
 // Запуск задачи планировщика через агента.
@@ -484,5 +515,5 @@ async function runScheduledTask(task, sendToUI) {
 module.exports = {
   getTemplates, listAgents, saveAgent, deleteAgent, exportAgent, importAgent, addFromTemplate,
   getHistory, clearHistory, stopSession,
-  chat, quickAsk, runScheduledTask, dispatchTool
+  chat, quickAsk, resetVoiceContext, voiceBriefing, runScheduledTask, dispatchTool
 };

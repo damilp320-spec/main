@@ -506,6 +506,11 @@ body.compact .view-head { margin-bottom: 10px; }
 @keyframes breathe { 0%,100%{ transform: scale(1) } 50%{ transform: scale(1.08) } }
 .voice-transcript { min-height: 28px; font-size: 18px; text-align: center; color: var(--text); }
 .voice-hint { color: var(--muted); font-size: 13px; }
+.voice-log { max-height: 220px; overflow-y: auto; margin: 4px 16px 16px; display: flex; flex-direction: column; gap: 6px; }
+.voice-log:empty { display: none; }
+.voice-log > div { font-size: 13px; line-height: 1.45; padding: 7px 11px; border-radius: 10px; max-width: 86%; word-break: break-word; }
+.vlog-user { align-self: flex-end; background: var(--accent); color: #fff; }
+.vlog-assistant { align-self: flex-start; background: var(--card-2, #161a24); border: 1px solid var(--border); }
 
 /* ---------- Voice FAB ---------- */
 .voice-fab {

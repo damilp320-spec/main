@@ -243,5 +243,37 @@ async function runBot(opts) {
   return { ok: true, symbol: d.symbol, return: +ret.toFixed(2), buyHold: +buyHold.toFixed(2), maxDrawdown: +maxDD.toFixed(2), trades: full.length, partials: trades.length - full.length, winRate: full.length ? +((wins.length / full.length) * 100).toFixed(1) : 0, sharpe, profitFactor: gl ? +(gp / gl).toFixed(2) : (gp ? 99 : 0), equity, closes: c.map((x) => x.c) };
 }
 
-module.exports = { run, runBot, optimize, simulate, bestStrategy, signals, lastSignal, atr, STRATEGIES };
+// Монте-Карло риска: бутстрэп последовательности сделок → распределение итогов,
+// просадок, вероятность убытка и «риск разорения». Честная оценка неопределённости.
+async function montecarlo({ symbol, interval, range, strategy, params, iterations, ruinPct }) {
+  const d = await markets.candles({ symbol, interval, range });
+  if (!d.ok) return d;
+  if (d.candles.length < 40) return { ok: false, error: 'Мало данных.' };
+  const sim = simulate(d.candles, strategy || 'macd', params || {});
+  const rets = sim.trades.filter((t) => t.pnl != null).map((t) => t.pnl);
+  if (rets.length < 5) return { ok: false, error: 'Слишком мало сделок для Монте-Карло (нужно 5+).' };
+  const N = Math.min(5000, Math.max(200, +iterations || 1000));
+  const ruin = +ruinPct || 50;
+  const finals = [], dds = []; let losses = 0, ruined = 0;
+  for (let it = 0; it < N; it++) {
+    let eq = 1, peak = 1, maxdd = 0;
+    for (let k = 0; k < rets.length; k++) { eq *= (1 + rets[Math.floor(Math.random() * rets.length)] / 100); if (eq > peak) peak = eq; const dd = (peak - eq) / peak * 100; if (dd > maxdd) maxdd = dd; if (eq <= 0) { eq = 0.0001; break; } }
+    const fr = (eq - 1) * 100; finals.push(fr); dds.push(maxdd);
+    if (fr < 0) losses++; if (maxdd >= ruin) ruined++;
+  }
+  finals.sort((a, b) => a - b); dds.sort((a, b) => a - b);
+  const pct = (arr, p) => arr[Math.min(arr.length - 1, Math.floor(arr.length * p))];
+  // Гистограмма итоговых доходностей (20 корзин).
+  const lo = finals[0], hi = finals[finals.length - 1], span = (hi - lo) || 1, bins = new Array(20).fill(0);
+  for (const f of finals) bins[Math.min(19, Math.floor((f - lo) / span * 20))]++;
+  const hist = bins.map((count, i) => ({ x: +(lo + (i + 0.5) / 20 * span).toFixed(1), count }));
+  return {
+    ok: true, symbol: d.symbol, iterations: N, tradesUsed: rets.length,
+    median: +pct(finals, 0.5).toFixed(1), p5: +pct(finals, 0.05).toFixed(1), p95: +pct(finals, 0.95).toFixed(1),
+    pLoss: +(losses / N * 100).toFixed(1), riskOfRuin: +(ruined / N * 100).toFixed(1), ruinPct: ruin,
+    medianDD: +pct(dds, 0.5).toFixed(1), worstDD: +pct(dds, 0.95).toFixed(1), hist
+  };
+}
+
+module.exports = { run, runBot, optimize, montecarlo, simulate, bestStrategy, signals, lastSignal, atr, STRATEGIES };
 

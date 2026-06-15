@@ -378,6 +378,19 @@ body.compact .view-head { margin-bottom: 10px; }
 .mk-spark { width: 80px; height: 22px; }
 .mk-wl-q { font-size: 12px; font-family: 'Consolas', monospace; min-width: 96px; text-align: right; }
 
+/* ---------- Automation control ---------- */
+.en-row { display: flex; align-items: center; gap: 12px; border-left: 3px solid var(--border); }
+.en-row.en-on { border-left-color: #26a69a; }
+.en-dot { font-size: 14px; }
+
+/* ---------- Vault ---------- */
+.vt-item { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.vt-val { font-family: 'Consolas', monospace; color: var(--accent-2); max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- Monte Carlo histogram ---------- */
+.mc-hist { display: flex; align-items: flex-end; gap: 2px; height: 64px; margin: 10px 0 4px; }
+.mc-hist span { flex: 1; border-radius: 2px 2px 0 0; min-height: 2px; }
+
 /* ---------- Shadow lab ---------- */
 .bot-shadow { margin: 8px 0; font-size: 12px; font-family: 'Consolas', monospace; }
 .shadow-row { padding: 3px 0; border-bottom: 1px solid var(--border); }

@@ -380,6 +380,18 @@ contextBridge.exposeInMainWorld('mythera', {
   tradeDigest: () => invoke('trade:digest'),
   backtestBot: (o) => invoke('backtest:runBot', o),
   backtestBest: (o) => invoke('backtest:bestStrategy', o),
+  backtestMC: (o) => invoke('backtest:montecarlo', o),
+  engines: {
+    status: () => invoke('engines:status'),
+    stopAll: () => invoke('engines:stopAll')
+  },
+  vault: {
+    list: () => invoke('vault:list'),
+    get: (id) => invoke('vault:get', id),
+    save: (e) => invoke('vault:save', e),
+    remove: (id) => invoke('vault:remove', id),
+    available: () => invoke('vault:available')
+  },
   lab: {
     run: (o) => invoke('lab:run', o),
     markers: (o) => invoke('lab:markers', o),

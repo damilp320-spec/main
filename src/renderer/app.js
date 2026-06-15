@@ -140,7 +140,7 @@ async function render() {
   content.className = 'content fade-in';
   // Останавливаем авто-обновление рынков при уходе с раздела.
   if (state.view !== 'markets' && window.__marketTimer) { clearInterval(window.__marketTimer); window.__marketTimer = null; }
-  const map = { today: viewToday, dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scenarios: viewScenarios, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, smarthome: viewSmartHome, knowledge: viewKnowledge, swarm: viewSwarm, queue: viewQueue, skills: viewSkills, dispatch: viewDispatch, prompts: viewPrompts, voice: viewVoice, operator: viewOperator, automation: viewAutomation, markets: viewMarkets, cockpit: viewCockpit, trading: viewTrading, code: viewCode, images: viewImages, notes: viewNotes, data: viewData, rss: viewRss, calendar: viewCalendar, email: viewEmail, connections: viewConnections, playground: viewPlayground, diagnostics: viewDiagnostics, developer: viewDeveloper, settings: viewSettings };
+  const map = { today: viewToday, dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scenarios: viewScenarios, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, smarthome: viewSmartHome, knowledge: viewKnowledge, swarm: viewSwarm, queue: viewQueue, skills: viewSkills, dispatch: viewDispatch, prompts: viewPrompts, voice: viewVoice, operator: viewOperator, automation: viewAutomation, markets: viewMarkets, cockpit: viewCockpit, trading: viewTrading, code: viewCode, images: viewImages, notes: viewNotes, data: viewData, rss: viewRss, calendar: viewCalendar, email: viewEmail, connections: viewConnections, playground: viewPlayground, engines: viewEngines, vault: viewVault, graph: viewGraph, diagnostics: viewDiagnostics, developer: viewDeveloper, settings: viewSettings };
   const fn = map[state.view] || viewDashboard;
   // Граница ошибок: сбой одной вкладки не «вешает» весь интерфейс.
   try {
@@ -2503,7 +2503,7 @@ async function renderBotCard() {
     </div>
     ${toggleRow('bot-sent', t('bot.sentiment'), c.useSentiment)}
     ${c.mode === 'broker' && safe ? `<div class="card ${safe.live && !safe.dryRun ? 'tr-live' : 'tr-safe'}" style="margin:6px 0;font-size:12px"><b>${safe.live ? '🔴 LIVE' : '🟢 sandbox'}</b>${safe.dryRun ? ' · 🧪 dry-run' : ''} · ${safe.confirm ? '✅ ' + esc(t('bot.willConfirm')) : '⚠️ ' + esc(t('bot.willAuto'))}</div>` : ''}
-    <div class="row" style="gap:6px"><button class="btn ghost sm" id="bot-once">▶ ${esc(t('bot.runOnce'))}</button><button class="btn ghost sm" id="bot-bt">🧪 ${esc(t('bot.backtest'))}</button><span id="bot-status" class="muted" style="font-size:12px">${c.running ? '🟢 ' + esc(t('bot.running')) : ''}</span></div>
+    <div class="row" style="gap:6px;flex-wrap:wrap"><button class="btn ghost sm" id="bot-once">▶ ${esc(t('bot.runOnce'))}</button><button class="btn ghost sm" id="bot-bt">🧪 ${esc(t('bot.backtest'))}</button><button class="btn ghost sm" id="bot-mc">🎲 ${esc(t('bot.mc'))}</button><span id="bot-status" class="muted" style="font-size:12px">${c.running ? '🟢 ' + esc(t('bot.running')) : ''}</span></div>
     <div id="bot-bt-res" style="margin-top:8px"></div>
     <div id="bot-log" class="op-log" style="max-height:150px;margin-top:8px"></div>
     <p class="muted" style="font-size:11px;margin-top:6px">${esc(t('bot.note'))}</p>`;
@@ -2514,6 +2514,16 @@ async function renderBotCard() {
     const r = await N.backtestBot({ symbol: sym, interval: c2.interval, range: c2.range, strategy: c2.strategy, params: c2.params, stopLossPct: c2.stopLossPct, takeProfitPct: c2.takeProfitPct, trailingPct: c2.trailingPct, tp1Pct: c2.tp1Pct, tp1SellPct: c2.tp1SellPct, stopType: c2.stopType, atrMult: c2.atrMult });
     if (!r.ok) { res.innerHTML = `<span class="mk-down">⚠️ ${esc(r.error)}</span>`; return; }
     res.innerHTML = `<div class="bt-stats"><div class="bt-stat"><span>${esc(sym)} ${esc(t('bt.return'))}</span><b class="${r.return >= 0 ? 'mk-up' : 'mk-down'}">${r.return}%</b></div><div class="bt-stat"><span>B&H</span><b>${r.buyHold}%</b></div><div class="bt-stat"><span>Sharpe</span><b class="${r.sharpe >= 1 ? 'mk-up' : ''}">${r.sharpe}</b></div><div class="bt-stat"><span>${esc(t('bt.pf'))}</span><b>${r.profitFactor}</b></div><div class="bt-stat"><span>${esc(t('bt.trades'))}</span><b>${r.trades}${r.partials ? '+' + r.partials + 'ч' : ''}</b></div><div class="bt-stat"><span>${esc(t('bt.winRate'))}</span><b>${r.winRate}%</b></div><div class="bt-stat"><span>${esc(t('bt.maxDD'))}</span><b class="mk-down">-${r.maxDrawdown}%</b></div></div>`;
+  };
+  $('#bot-mc').onclick = async () => {
+    const c2 = await N.bot.cfg(); const sym = (c2.symbols[0] || 'AAPL'); const res = $('#bot-bt-res');
+    res.innerHTML = '<span class="spin">⏳</span> ' + esc(t('bot.mcRun'));
+    const r = await N.backtestMC({ symbol: sym, interval: c2.interval, range: c2.range, strategy: c2.strategy === 'auto' ? 'macd' : c2.strategy, params: c2.params, iterations: 2000, ruinPct: 50 });
+    if (!r.ok) { res.innerHTML = `<span class="mk-down">⚠️ ${esc(r.error)}</span>`; return; }
+    res.innerHTML = `<p class="muted" style="font-size:12px">🎲 ${esc(sym)} · ${r.iterations} ${esc(t('mc.runs'))} · ${r.tradesUsed} ${esc(t('bt.trades'))}</p>
+      <div class="bt-stats"><div class="bt-stat"><span>${esc(t('mc.median'))}</span><b class="${r.median >= 0 ? 'mk-up' : 'mk-down'}">${r.median}%</b></div><div class="bt-stat"><span>${esc(t('mc.range'))} (5–95%)</span><b>${r.p5}…${r.p95}%</b></div><div class="bt-stat"><span>${esc(t('mc.pLoss'))}</span><b class="${r.pLoss > 40 ? 'mk-down' : ''}">${r.pLoss}%</b></div><div class="bt-stat"><span>${esc(t('mc.ruin'))} (${r.ruinPct}%)</span><b class="${r.riskOfRuin > 5 ? 'mk-down' : 'mk-up'}">${r.riskOfRuin}%</b></div><div class="bt-stat"><span>${esc(t('mc.worstDD'))}</span><b class="mk-down">-${r.worstDD}%</b></div></div>
+      <div class="mc-hist">${r.hist.map((b) => `<span style="height:${Math.max(2, b.count / Math.max(...r.hist.map((x) => x.count)) * 60)}px;background:${b.x >= 0 ? 'var(--accent-2)' : 'var(--danger)'}" title="${b.x}%: ${b.count}"></span>`).join('')}</div>
+      <p class="muted" style="font-size:11px">${esc(t('mc.note'))}</p>`;
   };
   $$('#bot-body [data-prof]').forEach((b) => b.onclick = async () => { await N.bot.applyProfile(b.dataset.prof); toast('🤖', t('bot.profileSet') + ': ' + b.textContent.trim(), 'ok'); renderBotCard(); });
   bindToggle('bot-enable', async (v) => { if (v && !await confirmModal('🤖 ' + t('bot.title'), t('bot.enableWarn'))) return renderBotCard(); await N.bot.setCfg({ enabled: v }); renderBotCard(); });
@@ -2709,7 +2719,7 @@ function mdToHtml(md) {
 async function viewNotes() {
   if (!state.notes) state.notes = { openId: null, q: '' };
   content.innerHTML = `
-    <div class="view-head"><h1>📓 ${esc(t('notes.title'))}</h1><p>${esc(t('notes.sub'))}</p></div>
+    <div class="view-head"><h1>📓 ${esc(t('notes.title'))}</h1><p>${esc(t('notes.sub'))} · <a class="wikilink" id="notes-graph">🕸️ ${esc(t('gr.open'))}</a></p></div>
     <div class="notes-layout">
       <div class="card notes-list-card">
         <div class="row" style="gap:6px"><input id="notes-q" placeholder="${esc(t('notes.search'))}" value="${esc(state.notes.q)}" style="flex:1"><button class="btn sm" id="notes-new">＋</button></div>
@@ -2717,6 +2727,7 @@ async function viewNotes() {
       </div>
       <div class="card notes-edit-card" id="notes-edit"></div>
     </div>`;
+  $('#notes-graph').onclick = () => navigate('graph');
   $('#notes-q').oninput = (e) => { state.notes.q = e.target.value; renderNotesList(); };
   $('#notes-new').onclick = async () => { const n = await N.notes.save({ title: t('notes.untitled'), body: '' }); state.notes.openId = n.id; await renderNotesList(); openNote(n.id); };
   await renderNotesList();
@@ -3042,6 +3053,120 @@ async function viewPlayground() {
       if (r.ok) { out.textContent = r.text || '(пусто)'; stat.textContent = `${(r.ms / 1000).toFixed(1)}с · ${r.tokens} ток · ${r.tps} ток/с`; }
       else { out.innerHTML = `<span class="mk-down">⚠️ ${esc(r.error)}</span>`; stat.textContent = '—'; }
     });
+  };
+}
+
+/* ---------- Пульт автоматизаций ---------- */
+const ENGINE_META = {
+  bot: { ico: '🤖', name: 'Торговый бот', view: 'trading' },
+  copilot: { ico: '🧭', name: 'ИИ за рулём', view: 'trading' },
+  alerts: { ico: '🔔', name: 'Алерты', view: 'markets' },
+  dca: { ico: '💵', name: 'DCA-автопокупки', view: 'trading' },
+  watchers: { ico: '👁', name: 'Наблюдатели', view: 'automation' },
+  flows: { ico: '🪄', name: 'Сценарии', view: 'automation' },
+  dailyDigest: { ico: '📊', name: 'Дневной дайджест', view: 'connections' },
+  dispatch: { ico: '📡', name: 'Удалённый доступ', view: 'dispatch' },
+  mcp: { ico: '🔌', name: 'MCP-серверы', view: 'settings' },
+  calendar: { ico: '📅', name: 'Напоминания', view: 'calendar' }
+};
+async function viewEngines() {
+  content.innerHTML = `
+    <div class="view-head"><h1>🕹️ ${esc(t('en.title'))}</h1><p>${esc(t('en.sub'))}</p></div>
+    <div class="card warn-card"><span>${esc(t('en.stopHint'))}</span><button class="btn danger" id="en-stop" style="margin-left:auto">🛑 ${esc(t('en.stopAll'))}</button></div>
+    <div class="grid cols-2" id="en-list"></div>`;
+  $('#en-stop').onclick = async () => { if (await confirmModal('🛑 ' + t('en.stopAll'), t('en.stopConfirm'))) { const r = await N.engines.stopAll(); toast('🛑', t('en.stopped') + ': ' + (r.stopped || []).join(', '), 'ok'); viewEngines(); } };
+  const s = await N.engines.status();
+  $('#en-list').innerHTML = Object.entries(s).map(([key, e]) => {
+    const m = ENGINE_META[key] || { ico: '•', name: key };
+    return `<div class="card en-row ${e.on ? 'en-on' : ''}"><span class="en-dot">${e.on ? '🟢' : '⚪'}</span><div style="flex:1"><b>${m.ico} ${esc(m.name)}</b><div class="muted" style="font-size:12px">${e.on ? esc(t('en.active')) : esc(t('en.idle'))}${e.detail ? ' · ' + esc(e.detail) : ''}${e.count != null ? ' · ' + e.count : ''}</div></div><button class="btn ghost sm" data-go="${esc(m.view)}">⚙️</button></div>`;
+  }).join('');
+  $$('#en-list [data-go]').forEach((b) => b.onclick = () => navigate(b.dataset.go));
+}
+
+/* ---------- Хранилище секретов ---------- */
+async function viewVault() {
+  const av = await N.vault.available();
+  const agentAccess = await N.store.get('settings.vaultAgentAccess', false);
+  content.innerHTML = `
+    <div class="view-head"><h1>🔐 ${esc(t('vt.title'))}</h1><p>${esc(t('vt.sub'))}</p></div>
+    ${av.encrypted ? '' : `<div class="card warn-card">⚠️ ${esc(t('vt.noEnc'))}</div>`}
+    <div class="card">
+      <div class="row" style="gap:8px;flex-wrap:wrap;align-items:flex-end">
+        <label class="field" style="flex:1;min-width:120px"><span>${esc(t('vt.name'))}</span><input id="vt-name" placeholder="GitHub token"></label>
+        <label class="field" style="max-width:130px"><span>${esc(t('vt.type'))}</span><select id="vt-type"><option value="password">🔑 ${esc(t('vt.pass'))}</option><option value="key">🗝 API key</option><option value="note">📝 ${esc(t('vt.note'))}</option></select></label>
+        <label class="field" style="flex:2;min-width:160px"><span>${esc(t('vt.value'))}</span><input id="vt-value" type="password" placeholder="••••••"></label>
+        <label class="mk-ind" title="${esc(t('vt.agentHint'))}"><input type="checkbox" id="vt-agent"> 🤖 ${esc(t('vt.agentAllow'))}</label>
+        <button class="btn primary" id="vt-add">${esc(t('vt.save'))}</button>
+      </div>
+      ${toggleRow('vt-access', t('vt.agentAccess'), agentAccess)}
+      <p class="muted" style="font-size:11px;margin-top:4px">${esc(t('vt.accessNote'))}</p>
+    </div>
+    <div class="card"><div id="vt-list"></div></div>`;
+  bindToggle('vt-access', (v) => N.store.set('settings.vaultAgentAccess', v));
+  $('#vt-add').onclick = async () => {
+    const name = $('#vt-name').value.trim(), value = $('#vt-value').value;
+    if (!name || !value) return toast('🔐', t('vt.need'), 'err');
+    await N.vault.save({ name, type: $('#vt-type').value, value, agentAllowed: $('#vt-agent').checked });
+    $('#vt-name').value = ''; $('#vt-value').value = ''; $('#vt-agent').checked = false; renderVaultList();
+  };
+  renderVaultList();
+}
+async function renderVaultList() {
+  const box = $('#vt-list'); if (!box) return;
+  const items = await N.vault.list();
+  const ic = { password: '🔑', key: '🗝', note: '📝' };
+  box.innerHTML = items.length ? items.map((v) => `<div class="vt-item"><span>${ic[v.type] || '🔑'} <b>${esc(v.name)}</b>${v.agentAllowed ? ' <span class="muted" title="доступно агентам">🤖</span>' : ''}</span><code class="vt-val" id="vtv-${esc(v.id)}">••••••</code><span style="margin-left:auto;white-space:nowrap"><button class="btn ghost sm" data-reveal="${esc(v.id)}">👁</button><button class="btn ghost sm" data-copy="${esc(v.id)}">📋</button><button class="btn ghost sm" data-rm="${esc(v.id)}">✕</button></span></div>`).join('') : `<p class="muted">${esc(t('vt.empty'))}</p>`;
+  $$('#vt-list [data-reveal]').forEach((b) => b.onclick = async () => { const v = await N.vault.get(b.dataset.reveal); const el2 = $('#vtv-' + b.dataset.reveal); if (el2) el2.textContent = el2.textContent === '••••••' ? (v && v.value || '') : '••••••'; });
+  $$('#vt-list [data-copy]').forEach((b) => b.onclick = async () => { const v = await N.vault.get(b.dataset.copy); try { await navigator.clipboard.writeText(v.value || ''); toast('📋', t('vt.copied'), 'ok'); } catch {} });
+  $$('#vt-list [data-rm]').forEach((b) => b.onclick = async () => { if (await confirmModal(t('vt.del'), '')) { await N.vault.remove(b.dataset.rm); renderVaultList(); } });
+}
+
+/* ---------- Граф знаний (заметки) ---------- */
+async function viewGraph() {
+  content.innerHTML = `
+    <div class="view-head"><h1>🕸️ ${esc(t('gr.title'))}</h1><p>${esc(t('gr.sub'))} · <a class="wikilink" data-go="notes">${esc(t('gr.toNotes'))}</a></p></div>
+    <div class="card" style="padding:0"><canvas id="graph-canvas" style="width:100%;height:70vh;display:block;cursor:grab"></canvas></div>
+    <div id="graph-empty"></div>`;
+  $$('#content [data-go]').forEach((b) => b.onclick = () => navigate(b.dataset.go));
+  const g = await N.notes.graph();
+  if (!g.nodes.length) { $('#graph-empty').innerHTML = `<div class="card muted">${esc(t('gr.empty'))}</div>`; return; }
+  drawGraph(g);
+}
+function drawGraph(g) {
+  const cv = $('#graph-canvas'); if (!cv) return;
+  const W = cv.parentElement.clientWidth, H = Math.round(window.innerHeight * 0.7), dpr = window.devicePixelRatio || 1;
+  cv.width = W * dpr; cv.height = H * dpr; const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  // Инициализация позиций + простая силовая раскладка.
+  const nodes = g.nodes.map((n) => ({ ...n, x: W / 2 + (Math.random() - 0.5) * W * 0.6, y: H / 2 + (Math.random() - 0.5) * H * 0.6, vx: 0, vy: 0 }));
+  const idx = new Map(nodes.map((n, i) => [n.id, i]));
+  const edges = g.edges.filter((e) => idx.has(e.from) && idx.has(e.to)).map((e) => [idx.get(e.from), idx.get(e.to)]);
+  let frame = 0; const css = getComputedStyle(document.body); const acc = css.getPropertyValue('--accent') || '#7c5cff';
+  function step() {
+    // Отталкивание.
+    for (let i = 0; i < nodes.length; i++) for (let j = i + 1; j < nodes.length; j++) {
+      const a = nodes[i], b = nodes[j]; let dx = a.x - b.x, dy = a.y - b.y; let d2 = dx * dx + dy * dy || 1; const f = 1400 / d2;
+      const dd = Math.sqrt(d2); dx /= dd; dy /= dd; a.vx += dx * f; a.vy += dy * f; b.vx -= dx * f; b.vy -= dy * f;
+    }
+    // Притяжение по рёбрам.
+    for (const [i, j] of edges) { const a = nodes[i], b = nodes[j]; const dx = b.x - a.x, dy = b.y - a.y; a.vx += dx * 0.01; a.vy += dy * 0.01; b.vx -= dx * 0.01; b.vy -= dy * 0.01; }
+    // Гравитация к центру + интеграция.
+    for (const n of nodes) { n.vx += (W / 2 - n.x) * 0.002; n.vy += (H / 2 - n.y) * 0.002; n.vx *= 0.85; n.vy *= 0.85; n.x += Math.max(-8, Math.min(8, n.vx)); n.y += Math.max(-8, Math.min(8, n.vy)); n.x = Math.max(20, Math.min(W - 20, n.x)); n.y = Math.max(20, Math.min(H - 20, n.y)); }
+    ctx.clearRect(0, 0, W, H);
+    ctx.strokeStyle = 'rgba(140,150,170,.25)'; ctx.lineWidth = 1;
+    for (const [i, j] of edges) { ctx.beginPath(); ctx.moveTo(nodes[i].x, nodes[i].y); ctx.lineTo(nodes[j].x, nodes[j].y); ctx.stroke(); }
+    for (const n of nodes) {
+      const r = 5 + Math.min(12, (n.links || 0) * 2);
+      ctx.fillStyle = acc; ctx.globalAlpha = 0.85; ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 7); ctx.fill(); ctx.globalAlpha = 1;
+      ctx.fillStyle = css.getPropertyValue('--text') || '#eee'; ctx.font = '11px sans-serif';
+      ctx.fillText(String(n.title).slice(0, 18), n.x + r + 3, n.y + 4);
+    }
+    if (frame++ < 180 && state.view === 'graph') requestAnimationFrame(step);
+  }
+  step();
+  cv.onclick = (e) => {
+    const rect = cv.getBoundingClientRect(); const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    let best = null, bd = 1e9; for (const n of nodes) { const d = (n.x - mx) ** 2 + (n.y - my) ** 2; if (d < bd) { bd = d; best = n; } }
+    if (best && bd < 900) { navigate('notes'); setTimeout(() => openNote(best.id), 250); }
   };
 }
 
@@ -3944,6 +4069,9 @@ function buildCommands() {
     { ico: '💾', label: t('bk.export'), sub: 'Действие', run: backupExport },
     nav('marketplace', '⬇️', t('nav.marketplace')),
     nav('playground', '⚖️', t('nav.playground')),
+    nav('engines', '🕹️', t('nav.engines')),
+    nav('vault', '🔐', t('nav.vault')),
+    nav('graph', '🕸️', t('gr.title')),
     nav('diagnostics', '🩺', t('nav.diagnostics')),
     nav('scenarios', '🎬', t('nav.scenarios')),
     nav('scheduler', '⏰', t('nav.scheduler')),

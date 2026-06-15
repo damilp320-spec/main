@@ -140,7 +140,7 @@ async function render() {
   content.className = 'content fade-in';
   // Останавливаем авто-обновление рынков при уходе с раздела.
   if (state.view !== 'markets' && window.__marketTimer) { clearInterval(window.__marketTimer); window.__marketTimer = null; }
-  const map = { today: viewToday, dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scenarios: viewScenarios, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, smarthome: viewSmartHome, knowledge: viewKnowledge, swarm: viewSwarm, queue: viewQueue, skills: viewSkills, dispatch: viewDispatch, prompts: viewPrompts, voice: viewVoice, operator: viewOperator, automation: viewAutomation, markets: viewMarkets, trading: viewTrading, code: viewCode, images: viewImages, notes: viewNotes, data: viewData, rss: viewRss, calendar: viewCalendar, email: viewEmail, connections: viewConnections, playground: viewPlayground, diagnostics: viewDiagnostics, developer: viewDeveloper, settings: viewSettings };
+  const map = { today: viewToday, dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scenarios: viewScenarios, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, smarthome: viewSmartHome, knowledge: viewKnowledge, swarm: viewSwarm, queue: viewQueue, skills: viewSkills, dispatch: viewDispatch, prompts: viewPrompts, voice: viewVoice, operator: viewOperator, automation: viewAutomation, markets: viewMarkets, cockpit: viewCockpit, trading: viewTrading, code: viewCode, images: viewImages, notes: viewNotes, data: viewData, rss: viewRss, calendar: viewCalendar, email: viewEmail, connections: viewConnections, playground: viewPlayground, diagnostics: viewDiagnostics, developer: viewDeveloper, settings: viewSettings };
   const fn = map[state.view] || viewDashboard;
   // Граница ошибок: сбой одной вкладки не «вешает» весь интерфейс.
   try {
@@ -2247,6 +2247,51 @@ N.on('notif:new', ({ unread }) => {
   if ($('#notif-panel') && $('#notif-panel').style.display === 'flex') renderNotifPanel();
 });
 
+/* ---------- Торговый кокпит: единый командный центр ---------- */
+async function viewCockpit() {
+  content.innerHTML = `
+    <div class="view-head"><h1>🎛️ ${esc(t('ck.title'))}</h1><p>${esc(t('ck.sub'))} · <a class="wikilink" data-go="trading">${esc(t('ck.settings'))}</a></p></div>
+    <div class="grid cols-4">
+      <div class="card stat"><span class="lbl">${esc(t('ck.equity'))}</span><span class="big" id="ck-eq">…</span><span class="muted" id="ck-pnl"></span></div>
+      <div class="card stat"><span class="lbl">${esc(t('ck.bot'))}</span><span class="big" id="ck-bot">…</span><span class="muted" id="ck-botsub"></span></div>
+      <div class="card stat"><span class="lbl">${esc(t('ck.breadth'))}</span><span class="big" id="ck-breadth">…</span><span class="muted" id="ck-breadthsub"></span></div>
+      <div class="card stat"><span class="lbl">${esc(t('ck.copilot'))}</span><span class="big" id="ck-cop">…</span><span class="muted" id="ck-copsub"></span></div>
+    </div>
+    <div class="grid cols-2" style="margin-top:16px">
+      <div class="card"><div class="row between"><h3>🧭 ${esc(t('cp.proposals'))}</h3><button class="btn ghost sm" data-go="trading">→</button></div><div id="ck-props" class="muted">…</div></div>
+      <div class="card"><div class="row between"><h3>📊 ${esc(t('ck.portfolio'))}</h3><button class="btn ghost sm" id="ck-digest">📨 ${esc(t('ck.digest'))}</button></div><div id="ck-port" class="muted">…</div></div>
+      <div class="card"><div class="row between"><h3>🔔 ${esc(t('al.title'))}</h3><button class="btn ghost sm" data-go="markets">→</button></div><div id="ck-alerts" class="muted">…</div></div>
+      <div class="card"><div class="row between"><h3>💵 ${esc(t('dca.title'))}</h3></div><div id="ck-dca" class="muted">…</div></div>
+    </div>`;
+  $$('#content [data-go]').forEach((b) => b.onclick = () => navigate(b.dataset.go));
+  $('#ck-digest').onclick = async () => { await N.tradeDigest(); toast('📊', t('ck.digestSent'), 'ok'); };
+
+  // Портфель + P&L.
+  (async () => {
+    const v0 = await N.paper.valuation(); const q = {};
+    for (const p of v0.positions) { const d = await N.markets.candles({ symbol: p.symbol, interval: '1d', range: '5d' }); if (d.ok && d.candles.length) q[p.symbol] = d.candles[d.candles.length - 1].c; }
+    const v = await N.paper.valuation(q);
+    if (state.view !== 'cockpit') return;
+    $('#ck-eq').textContent = v.equity.toLocaleString();
+    $('#ck-pnl').innerHTML = `<span class="${v.totalPnl >= 0 ? 'mk-up' : 'mk-down'}">${v.totalPnl >= 0 ? '+' : ''}${v.totalPnl} (${v.totalPnlPct}%)</span>`;
+    $('#ck-port').innerHTML = v.positions.length ? v.positions.slice(0, 6).map((p) => `<div class="today-row"><span>${esc(p.symbol)} ×${p.qty}</span><span class="${p.pnl >= 0 ? 'mk-up' : 'mk-down'}">${p.pnlPct >= 0 ? '+' : ''}${p.pnlPct}%</span></div>`).join('') : `<span class="muted">${esc(t('bot.noPos'))}</span>`;
+  })();
+  // Бот.
+  N.bot.cfg().then((c) => { if (state.view !== 'cockpit') return; $('#ck-bot').textContent = c.running ? '🟢' : '⚪'; $('#ck-botsub').textContent = `${c.mode} · ${c.strategy}${c.shadowMode ? ' · тень' : ''}`; });
+  // Широта.
+  N.screener.breadth().then((b) => { if (state.view !== 'cockpit' || !b.ok) return; $('#ck-breadth').textContent = b.pct + '%'; $('#ck-breadth').className = 'big ' + (b.regime === 'risk-on' ? 'mk-up' : 'mk-down'); $('#ck-breadthsub').textContent = b.label; });
+  // Копилот + предложения.
+  N.copilot.cfg().then((c) => { if (state.view !== 'cockpit') return; $('#ck-cop').textContent = c.enabled ? '🟢' : '⚪'; $('#ck-copsub').textContent = c.enabled ? c.risk : t('ck.off'); });
+  N.copilot.proposals().then((ps) => {
+    if (state.view !== 'cockpit') return;
+    const pend = ps.filter((p) => p.status === 'pending').slice(-5).reverse();
+    $('#ck-props').innerHTML = pend.length ? pend.map((p) => `<div class="today-row"><span><b class="${p.action === 'buy' ? 'mk-up' : 'mk-down'}">${p.action}</b> ${esc(p.symbol)}</span><span class="muted">${p.confidence}%</span></div>`).join('') : `<span class="muted">${esc(t('cp.noProps'))}</span>`;
+  });
+  // Алерты + DCA.
+  N.alerts.list().then((al) => { if (state.view !== 'cockpit') return; const on = al.filter((a) => a.enabled !== false); $('#ck-alerts').innerHTML = on.length ? on.slice(0, 6).map((a) => `<div class="today-row"><span>${esc(a.symbol)} ${esc(a.type.replace('_', ' '))} ${a.value}</span>${a._fired ? '<span class="mk-up">●</span>' : ''}</div>`).join('') : `<span class="muted">${esc(t('al.empty'))}</span>`; });
+  N.dca.list().then((dl) => { if (state.view !== 'cockpit') return; $('#ck-dca').innerHTML = dl.length ? dl.slice(0, 6).map((p) => `<div class="today-row"><span>${esc(p.symbol)} ${p.amount}/${p.everyHours}ч</span><span class="muted">${p.enabled !== false ? '🟢' : '⚪'} ${p.runs || 0}×</span></div>`).join('') : `<span class="muted">${esc(t('dca.empty'))}</span>`; });
+}
+
 /* ---------- Торговля: брокер (Tinkoff Invest) + безопасная автоторговля ---------- */
 async function viewTrading() {
   const c = await N.trade.cfg();
@@ -2424,6 +2469,7 @@ async function renderBotCard() {
     <div class="row" style="gap:8px">
       <label class="field" style="max-width:150px"><span>${esc(t('bot.sizeMode'))}</span><select id="bot-size"><option value="fixed" ${c.sizeMode !== 'risk' ? 'selected' : ''}>${esc(t('bot.fixedQty'))}</option><option value="risk" ${c.sizeMode === 'risk' ? 'selected' : ''}>${esc(t('bot.riskSize'))}</option></select></label>
       <label class="field" style="max-width:120px ${c.sizeMode === 'risk' ? '' : 'display:none'}" id="bot-riskwrap"><span>${esc(t('bot.riskAmt'))}</span><input id="bot-riskamt" type="number" value="${c.riskAmount}"></label>
+      <label class="field" style="max-width:150px"><span>${esc(t('bot.maxDD'))} %</span><input id="bot-maxdd" type="number" value="${c.maxDrawdownPct}" title="${esc(t('bot.maxDDHint'))}"></label>
     </div>
     <div class="row" style="gap:14px;flex-wrap:wrap;margin:4px 0">
       <label class="mk-ind"><input type="checkbox" id="bot-regime" ${c.regimeFilter ? 'checked' : ''}> ${esc(t('bot.regime'))}</label>
@@ -2459,7 +2505,7 @@ async function renderBotCard() {
     <div id="bot-bt-res" style="margin-top:8px"></div>
     <div id="bot-log" class="op-log" style="max-height:150px;margin-top:8px"></div>
     <p class="muted" style="font-size:11px;margin-top:6px">${esc(t('bot.note'))}</p>`;
-  const saveCfg = () => N.bot.setCfg({ mode: $('#bot-mode').value, strategy: $('#bot-strat').value, qty: +$('#bot-qty').value || 1, intervalMin: +$('#bot-int').value || 15, interval: $('#bot-candle').value, symbols: $('#bot-syms').value.split(',').map((s) => s.trim()).filter(Boolean), useSentiment: $('#bot-sent').checked, confirmTf: $('#bot-mtf').value, stopLossPct: +$('#bot-sl').value || 0, takeProfitPct: +$('#bot-tp').value || 0, trailingPct: +$('#bot-trail').value || 0, stopType: $('#bot-stoptype').value, atrMult: +$('#bot-atr').value || 2, tp1Pct: +$('#bot-tp1').value || 0, tp1SellPct: +$('#bot-tp1sell').value || 50, sizeMode: $('#bot-size').value, riskAmount: +$('#bot-riskamt').value || 200, regimeFilter: $('#bot-regime').checked, breakeven: $('#bot-be').checked, shadowMode: $('#bot-shadow').checked });
+  const saveCfg = () => N.bot.setCfg({ mode: $('#bot-mode').value, strategy: $('#bot-strat').value, qty: +$('#bot-qty').value || 1, intervalMin: +$('#bot-int').value || 15, interval: $('#bot-candle').value, symbols: $('#bot-syms').value.split(',').map((s) => s.trim()).filter(Boolean), useSentiment: $('#bot-sent').checked, confirmTf: $('#bot-mtf').value, stopLossPct: +$('#bot-sl').value || 0, takeProfitPct: +$('#bot-tp').value || 0, trailingPct: +$('#bot-trail').value || 0, stopType: $('#bot-stoptype').value, atrMult: +$('#bot-atr').value || 2, tp1Pct: +$('#bot-tp1').value || 0, tp1SellPct: +$('#bot-tp1sell').value || 50, sizeMode: $('#bot-size').value, riskAmount: +$('#bot-riskamt').value || 200, regimeFilter: $('#bot-regime').checked, breakeven: $('#bot-be').checked, shadowMode: $('#bot-shadow').checked, maxDrawdownPct: +$('#bot-maxdd').value || 0 });
   $('#bot-bt').onclick = async () => {
     const c2 = await N.bot.cfg(); const sym = (c2.symbols[0] || 'AAPL'); const res = $('#bot-bt-res');
     res.innerHTML = '<span class="spin">⏳</span> ' + esc(t('bot.btRun')) + ' ' + esc(sym);
@@ -2469,7 +2515,7 @@ async function renderBotCard() {
   };
   $$('#bot-body [data-prof]').forEach((b) => b.onclick = async () => { await N.bot.applyProfile(b.dataset.prof); toast('🤖', t('bot.profileSet') + ': ' + b.textContent.trim(), 'ok'); renderBotCard(); });
   bindToggle('bot-enable', async (v) => { if (v && !await confirmModal('🤖 ' + t('bot.title'), t('bot.enableWarn'))) return renderBotCard(); await N.bot.setCfg({ enabled: v }); renderBotCard(); });
-  ['#bot-mode', '#bot-strat', '#bot-qty', '#bot-int', '#bot-candle', '#bot-syms', '#bot-mtf', '#bot-sl', '#bot-tp', '#bot-trail', '#bot-stoptype', '#bot-atr', '#bot-tp1', '#bot-tp1sell', '#bot-size', '#bot-riskamt', '#bot-regime', '#bot-be', '#bot-shadow'].forEach((s) => { const e = $(s); if (e) e.onchange = async () => { await saveCfg(); if (s === '#bot-mode' || s === '#bot-stoptype' || s === '#bot-size' || s === '#bot-shadow') renderBotCard(); }; });
+  ['#bot-mode', '#bot-strat', '#bot-qty', '#bot-int', '#bot-candle', '#bot-syms', '#bot-mtf', '#bot-sl', '#bot-tp', '#bot-trail', '#bot-stoptype', '#bot-atr', '#bot-tp1', '#bot-tp1sell', '#bot-size', '#bot-riskamt', '#bot-regime', '#bot-be', '#bot-shadow', '#bot-maxdd'].forEach((s) => { const e = $(s); if (e) e.onchange = async () => { await saveCfg(); if (s === '#bot-mode' || s === '#bot-stoptype' || s === '#bot-size' || s === '#bot-shadow') renderBotCard(); }; });
   bindToggle('bot-sent', () => saveCfg());
   $('#bot-once').onclick = async () => { $('#bot-status').textContent = '⏳'; await N.bot.runOnce(); $('#bot-status').textContent = '✓ ' + t('bot.evaluated'); renderPaperCard(); };
 }
@@ -2908,6 +2954,8 @@ async function viewConnections() {
         <label class="field"><span>${esc(t('conn.botToken'))}</span><input id="tg-token" type="password" placeholder="123456:ABC…"></label>
         <label class="field"><span>Chat ID</span><input id="tg-chat" value="${esc(st.telegramChat || '')}" placeholder="123456789"></label>
         <div class="row" style="gap:6px"><button class="btn primary" id="tg-save">${esc(t('conn.saveToken'))}</button><button class="btn ghost" id="tg-test">${esc(t('conn.test'))}</button></div>
+        ${toggleRow('tg-trade', t('conn.tradeAlerts'), await N.store.get('settings.tradeAlertsTelegram', false))}
+        ${toggleRow('tg-digest', t('conn.dailyDigest'), await N.store.get('settings.dailyDigest', false))}
       </div>
       <div class="card" style="grid-column:1/-1">
         <h3>🪝 ${esc(t('conn.webhook'))}</h3>
@@ -2925,6 +2973,8 @@ async function viewConnections() {
   };
   $('#tg-save').onclick = async () => { const tk = $('#tg-token').value.trim(); if (tk) await N.conn.setToken('telegram', tk); await N.conn.set('telegramChat', $('#tg-chat').value.trim()); $('#tg-token').value = ''; toast('✈️', t('em.saved'), 'ok'); };
   $('#tg-test').onclick = async () => { const r = await N.conn.telegramTest(); toast(r.ok ? '✅' : '⚠️', r.ok ? t('conn.tgSent') : r.error, r.ok ? 'ok' : 'err'); };
+  bindToggle('tg-trade', (v) => N.store.set('settings.tradeAlertsTelegram', v));
+  bindToggle('tg-digest', (v) => N.store.set('settings.dailyDigest', v));
   $('#wh-send').onclick = async () => { const url = $('#wh-url').value.trim(); if (!url) return; const r = await N.conn.webhook(url, $('#wh-msg').value.trim()); toast(r.ok ? '✅' : '⚠️', r.ok ? 'OK ' + r.status : r.error, r.ok ? 'ok' : 'err'); };
 }
 
@@ -3914,6 +3964,7 @@ function buildCommands() {
     nav('connections', '🔗', t('nav.connections')),
     nav('automation', '🔗', t('nav.automation')),
     nav('markets', '📈', t('nav.markets')),
+    nav('cockpit', '🎛️', t('nav.cockpit')),
     nav('trading', '💹', t('nav.trading')),
     nav('dispatch', '📡', t('nav.dispatch')),
     nav('queue', '📋', t('nav.queue')),

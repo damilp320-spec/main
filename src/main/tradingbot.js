@@ -47,6 +47,7 @@ function cfg() {
     sizeMode: c.sizeMode === 'risk' ? 'risk' : 'fixed', // сайзинг: фикс или по риску/волатильности
     riskAmount: +c.riskAmount || 200,        // риск на сделку для sizeMode=risk
     shadowMode: c.shadowMode === true,       // параллельно тестировать все стратегии «вхолостую»
+    maxDrawdownPct: +c.maxDrawdownPct || 0,  // автостоп: выключиться при просадке счёта выше %
     _state: c._state || {}
   };
 }
@@ -94,11 +95,13 @@ async function evaluate() {
   // Фильтр режима рынка: широта считается один раз за прогон.
   let regimeOff = false;
   if (c.regimeFilter) { try { const b = await require('./screener').breadth(); if (b.ok) regimeOff = b.regime === 'risk-off'; } catch {} }
+  const quotes = {};
   for (const symbol of c.symbols) {
     try {
       const d = await markets.candles({ symbol, interval: c.interval, range: c.range });
       if (!d.ok || d.candles.length < 30) continue;
       const price = d.candles[d.candles.length - 1].c;
+      quotes[symbol.toUpperCase()] = price;
       let st = state[symbol] || {};
 
       // Теневая лаборатория: параллельно прогоняем ВСЕ стратегии на уже
@@ -175,6 +178,20 @@ async function evaluate() {
     } catch (e) { emit('error', { symbol, message: e.message }); }
   }
   saveState(state);
+  // Защитный автостоп: при просадке бумажного счёта выше лимита — выключаемся.
+  if (c.maxDrawdownPct && c.mode === 'paper') {
+    try {
+      const v = paper.valuation(quotes);
+      let peak = store.get('botPeakEquity', v.equity);
+      if (v.equity > peak) { peak = v.equity; store.set('botPeakEquity', peak); }
+      const dd = peak > 0 ? (peak - v.equity) / peak * 100 : 0;
+      if (dd >= c.maxDrawdownPct) {
+        setCfg({ enabled: false });
+        emit('exit', { symbol: '—', reason: `circuit-breaker: просадка ${dd.toFixed(1)}%`, price: 0 });
+        uiSender && uiSender('watcher:fired', { title: '🛑 Бот остановлен (автостоп)', message: `Просадка счёта ${dd.toFixed(1)}% превысила лимит ${c.maxDrawdownPct}%.` });
+      }
+    } catch {}
+  }
 }
 
 async function buy(c, symbol, price, qty) {

@@ -377,6 +377,7 @@ contextBridge.exposeInMainWorld('mythera', {
     review: () => invoke('journal:review')
   },
   marketsCorrelation: (symbols) => invoke('markets:correlation', symbols),
+  tradeDigest: () => invoke('trade:digest'),
   backtestBot: (o) => invoke('backtest:runBot', o),
   backtestBest: (o) => invoke('backtest:bestStrategy', o),
   lab: {

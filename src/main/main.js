@@ -150,7 +150,25 @@ function recordNotification(channel, p) {
 }
 function sendToUI(channel, payload) {
   recordNotification(channel, payload);
+  // Склейка: трейдинговые события → Telegram (если включено в подключениях).
+  if (channel === 'watcher:fired' && payload && store.get('settings.tradeAlertsTelegram', false) && /[🤖🧭💵🔔📈🚪🛑]/.test(payload.title || '')) {
+    connections.telegramSend(((payload.title || '') + '\n' + (payload.message || '')).slice(0, 600)).catch(() => {});
+  }
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
+}
+
+// Ежедневный P&L-дайджест: сводка бумажного портфеля + журнала → уведомление/Telegram.
+function dailyDigest(force) {
+  if (!force && !store.get('settings.dailyDigest', false)) return;
+  const today = new Date().toISOString().slice(0, 10);
+  if (!force && store.get('lastDigestDay', '') === today) return;
+  store.set('lastDigestDay', today);
+  try {
+    const v = paper.valuation();
+    const s = journal.stats();
+    const msg = `Капитал ${v.equity} (P&L ${v.totalPnl >= 0 ? '+' : ''}${v.totalPnl}, ${v.totalPnlPct}%) · позиций ${v.positions.length}` + (s.count ? ` · винрейт ${s.winRate}% за ${s.count} сделок` : '');
+    sendToUI('watcher:fired', { title: '📊 Дневной дайджест', message: msg });
+  } catch {}
 }
 
 app.whenReady().then(async () => {
@@ -229,6 +247,9 @@ app.whenReady().then(async () => {
   dca.init({ notify: (p) => sendToUI('watcher:fired', p) });
   // «ИИ за рулём» — проактивный супервайзер.
   copilot.init({ sendToUI });
+  // Ежедневный дайджест (проверяем раз в час, шлём раз в день).
+  setInterval(dailyDigest, 3600000);
+  setTimeout(dailyDigest, 60000);
 
   // Очередь задач: пробрасываем события в UI и возобновляем незавершённые.
   taskQueue.load();
@@ -628,6 +649,7 @@ ipcMain.handle('backtest:runBot', (_e, opts) => backtest.runBot(opts));
 ipcMain.handle('backtest:bestStrategy', (_e, opts) => backtest.bestStrategy(opts));
 ipcMain.handle('lab:run', (_e, opts) => shadowlab.lab(opts));
 ipcMain.handle('lab:markers', (_e, opts) => shadowlab.markers(opts));
+ipcMain.handle('trade:digest', () => { dailyDigest(true); return { ok: true }; });
 ipcMain.handle('lab:track', (_e, sym) => shadowlab.track(sym));
 ipcMain.handle('lab:untrack', (_e, sym) => shadowlab.untrack(sym));
 ipcMain.handle('screener:scan', (_e, filters, custom) => screener.scan(filters, custom));

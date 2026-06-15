@@ -38,6 +38,8 @@ const BUNDLES = [
     kw: ['мышк', 'мышь', 'курсор', 'клик по', 'нажми клавиш', 'набери текст', 'mouse', 'keyboard', 'горяч клавиш'] },
   { name: 'data', tools: ['read_table', 'run_chart', 'read_document', 'run_python', 'read_file', 'query_data'],
     kw: ['данны', 'таблиц', 'csv', 'excel', 'xlsx', 'график', 'диаграмм', 'chart', 'plot', 'статист', 'метрик', 'анализ', 'pandas', 'matplotlib', 'визуализ', 'документ', 'pdf', 'sql', 'запрос к', 'база данных', 'sqlite'] },
+  { name: 'codebase', tools: ['search_code', 'index_codebase', 'read_file', 'list_dir'],
+    kw: ['проект', 'репозитор', 'кодов', 'codebase', 'по коду', 'в проекте', 'найди функци', 'где определ', 'структур проект', 'проиндексир код'] },
   { name: 'notes', tools: ['save_note', 'search_notes', 'read_note'],
     kw: ['заметк', 'запиши', 'сохрани мысль', 'note', 'второй мозг', 'конспект', 'дневник', 'запомни заметк'] },
   { name: 'markets', tools: ['market_data', 'market_news', 'deep_analysis', 'portfolio_analytics', 'screen_assets', 'market_breadth', 'strategy_lab', 'get_portfolio', 'web_search', 'http_get'],

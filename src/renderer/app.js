@@ -62,6 +62,31 @@ async function setupSidebar() {
     await N.store.set('sidebarCollapsed', now);
   };
   syncNavTitles();
+  await renderFavorites();
+  // ПКМ по разделу меню — закрепить/открепить в «Избранное».
+  $$('.sidebar .nav-item[data-view]').forEach((b) => b.oncontextmenu = async (e) => {
+    e.preventDefault();
+    const v = b.dataset.view; const pins = await N.store.get('pinnedViews', []);
+    const next = pins.includes(v) ? pins.filter((x) => x !== v) : [...pins, v];
+    await N.store.set('pinnedViews', next);
+    toast('★', pins.includes(v) ? t('fav.unpinned') : t('fav.pinned'), 'ok');
+    renderFavorites();
+  });
+}
+async function renderFavorites() {
+  const wrap = $('#nav-fav'), box = $('#fav-items'); if (!wrap || !box) return;
+  const pins = await N.store.get('pinnedViews', []);
+  if (!pins.length) { wrap.style.display = 'none'; box.innerHTML = ''; return; }
+  wrap.style.display = '';
+  box.innerHTML = '';
+  for (const v of pins) {
+    const src = document.querySelector(`.sidebar .nav-group:not(#nav-fav) .nav-item[data-view="${v}"]`);
+    if (!src) continue;
+    const b = src.cloneNode(true); b.classList.toggle('active', state.view === v);
+    b.onclick = () => navigate(v);
+    b.oncontextmenu = async (e) => { e.preventDefault(); await N.store.set('pinnedViews', (await N.store.get('pinnedViews', [])).filter((x) => x !== v)); renderFavorites(); };
+    box.appendChild(b);
+  }
 }
 function applyRail(on) {
   document.body.classList.toggle('rail', on);
@@ -1127,6 +1152,14 @@ async function viewKnowledge() {
       <div id="kb-crawl" class="muted" style="margin-top:8px"></div>
     </div>
     <div class="card" style="margin-top:16px">
+      <h3>🗂 ${esc(t('cb.title'))}</h3>
+      <p class="muted" style="margin-bottom:8px">${esc(t('cb.sub'))}</p>
+      <div class="row" style="gap:8px"><input id="cb-path" placeholder="${esc(t('cb.pathPh'))}" style="flex:1"><button class="btn ghost" id="cb-pick">📂</button><button class="btn primary" id="cb-index">${esc(t('cb.index'))}</button></div>
+      <div id="cb-status" class="muted" style="margin-top:8px"></div>
+      <div class="row" style="gap:8px;margin-top:8px"><input id="cb-q" placeholder="${esc(t('cb.searchPh'))}" style="flex:1"><button class="btn" id="cb-search">🔎 ${esc(t('cb.search'))}</button></div>
+      <div id="cb-results" style="margin-top:8px"></div>
+    </div>
+    <div class="card" style="margin-top:16px">
       <h3>🔎 Проверить поиск</h3>
       <div class="row"><input id="kb-q" placeholder="Запрос для проверки релевантности…"><button class="btn" id="kb-search">Найти</button></div>
       <div id="kb-results" style="margin-top:10px"></div>
@@ -1146,6 +1179,22 @@ async function viewKnowledge() {
     $('#kbf-go', m).onclick = async () => { const r = await N.rag.ingestFile('kb', $('#kbf-path', m).value.trim()); toast(r.ok ? 'OK' : 'Ошибка', r.ok ? `Фрагментов: ${r.added}` : r.error, r.ok ? 'ok' : 'err'); if (r.ok) { close(); viewKnowledge(); } };
   });
   $('#kb-clear').onclick = async () => { if (await confirmModal('Очистить базу знаний?', 'Все документы будут удалены.')) { await N.rag.clear('kb'); viewKnowledge(); } };
+  N.codebase.root().then((r) => { if (r && $('#cb-path')) $('#cb-path').placeholder = r; });
+  $('#cb-pick').onclick = async () => { const d = await N.system.pickFolder({ title: 'Папка с кодом' }); if (d) $('#cb-path').value = d; };
+  $('#cb-index').onclick = async () => {
+    const p = $('#cb-path').value.trim() || ''; const st = $('#cb-status');
+    st.innerHTML = '<span class="spin">⏳</span> ' + esc(t('cb.indexing'));
+    $('#cb-index').disabled = true;
+    const r = await N.codebase.index({ path: p });
+    $('#cb-index').disabled = false;
+    st.innerHTML = r.ok ? `✅ ${t('cb.done')}: ${r.indexed} ${t('cb.files')}, ${r.chunks} фрагм. <span class="muted">(${esc(r.root)})</span>` : `<span class="mk-down">⚠️ ${esc(r.error)}</span>`;
+  };
+  $('#cb-search').onclick = async () => {
+    const q = $('#cb-q').value.trim(); if (!q) return; const box = $('#cb-results');
+    box.innerHTML = '<span class="spin"></span>';
+    const r = await N.codebase.search({ query: q });
+    box.innerHTML = r.hits && r.hits.length ? r.hits.map((h) => `<div class="card" style="margin-bottom:6px"><small class="muted">${esc(h.source)} · ${h.score}</small><pre class="code-out" style="margin-top:4px;max-height:140px">${esc(h.text.slice(0, 500))}</pre></div>`).join('') : `<p class="muted">${esc(t('cb.none'))}</p>`;
+  };
   $('#kb-learn').onclick = async () => {
     const url = $('#kb-url').value.trim(); if (!url) return;
     const status = $('#kb-crawl'); status.innerHTML = '<span class="spin">⏳</span> ' + esc(t('kb.crawling'));
@@ -3881,6 +3930,7 @@ async function initProjectSelector() {
 }
 N.on('learner:skill', ({ skill }) => { toast('🎓 ' + t('learn.new'), (skill && skill.label) || '', 'ok'); });
 N.on('crawler:progress', (p) => { const s = $('#kb-crawl'); if (s && p.stage === 'index') s.innerHTML = `<span class="spin">⏳</span> ${esc(t('kb.crawling'))} ${p.indexed}/${p.max} · ${esc(String(p.url || '').slice(0, 50))}`; });
+N.on('codebase:progress', (p) => { const s = $('#cb-status'); if (s && p.stage === 'index') s.innerHTML = `<span class="spin">⏳</span> ${esc(t('cb.indexing'))} ${p.indexed}/${p.total} · ${esc(String(p.file || '').slice(0, 50))}`; });
 // График из анализа данных → панель артефактов.
 N.on('artifact:image', ({ title, base64 }) => { openArtifact({ kind: 'image', titleText: title, base64 }); });
 // Проактивный наблюдатель сработал.

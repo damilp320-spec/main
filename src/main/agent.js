@@ -31,6 +31,7 @@ const journal = require('./journal');
 const screener = require('./screener');
 const shadowlab = require('./shadowlab');
 const vault = require('./vault');
+const codebase = require('./codebase');
 const imagegen = require('./imagegen');
 const news = require('./news');
 const crawler = require('./crawler');
@@ -70,6 +71,7 @@ function allToolSchemas() {
     ...screener.toolSchemas,
     ...shadowlab.toolSchemas,
     ...(store.get('settings.vaultAgentAccess', false) ? vault.toolSchemas : []),
+    ...codebase.toolSchemas,
     ...news.toolSchemas,
     ...crawler.toolSchemas,
     ...notes.toolSchemas,
@@ -91,7 +93,7 @@ function allToolSchemas() {
   return disabled.length ? all.filter((t) => !disabled.includes(t.function.name)) : all;
 }
 
-const extraHandlers = { ...minecraft.toolHandlers, ...remote.toolHandlers, ...translator.toolHandlers, ...browser.toolHandlers, ...audio.toolHandlers, ...smarthome.toolHandlers, ...appcontrol.toolHandlers, ...webagent.toolHandlers, ...gui.toolHandlers, ...docs.toolHandlers, ...analysis.toolHandlers, ...markets.toolHandlers, ...analyst.toolHandlers, ...portfolio.toolHandlers, ...journal.toolHandlers, ...screener.toolHandlers, ...shadowlab.toolHandlers, ...vault.toolHandlers, ...news.toolHandlers, ...crawler.toolHandlers, ...notes.toolHandlers, ...datastudio.toolHandlers, ...rss.toolHandlers, ...connections.toolHandlers, ...calendar.toolHandlers, ...email.toolHandlers, ...imagegen.toolHandlers, ...trading.toolHandlers };
+const extraHandlers = { ...minecraft.toolHandlers, ...remote.toolHandlers, ...translator.toolHandlers, ...browser.toolHandlers, ...audio.toolHandlers, ...smarthome.toolHandlers, ...appcontrol.toolHandlers, ...webagent.toolHandlers, ...gui.toolHandlers, ...docs.toolHandlers, ...analysis.toolHandlers, ...markets.toolHandlers, ...analyst.toolHandlers, ...portfolio.toolHandlers, ...journal.toolHandlers, ...screener.toolHandlers, ...shadowlab.toolHandlers, ...vault.toolHandlers, ...codebase.toolHandlers, ...news.toolHandlers, ...crawler.toolHandlers, ...notes.toolHandlers, ...datastudio.toolHandlers, ...rss.toolHandlers, ...connections.toolHandlers, ...calendar.toolHandlers, ...email.toolHandlers, ...imagegen.toolHandlers, ...trading.toolHandlers };
 
 async function dispatchTool(name, args) {
   if (mcp.isMcpTool(name)) {

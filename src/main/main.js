@@ -66,6 +66,7 @@ const copilot = require('./copilot');
 const shadowlab = require('./shadowlab');
 const engines = require('./engines');
 const vault = require('./vault');
+const codebase = require('./codebase');
 const fs = require('fs');
 
 let win = null;
@@ -216,6 +217,7 @@ app.whenReady().then(async () => {
 
   // Анализ данных: модуль шлёт построенные графики в панель артефактов.
   analysis.setUISender(sendToUI);
+  codebase.setUISender(sendToUI);
   // Брокер/торговля: подтверждения и аудит-события в UI.
   trading.setUISender(sendToUI);
   // Центр уведомлений.
@@ -657,6 +659,9 @@ ipcMain.handle('vault:get', (_e, id) => vault.get(id));
 ipcMain.handle('vault:save', (_e, e) => vault.save(e));
 ipcMain.handle('vault:remove', (_e, id) => vault.remove(id));
 ipcMain.handle('vault:available', () => vault.available());
+ipcMain.handle('codebase:index', (_e, opts) => codebase.index(opts, (p) => sendToUI('codebase:progress', p)));
+ipcMain.handle('codebase:search', (_e, opts) => codebase.search(opts));
+ipcMain.handle('codebase:root', () => store.get('codebaseRoot', ''));
 ipcMain.handle('lab:run', (_e, opts) => shadowlab.lab(opts));
 ipcMain.handle('lab:markers', (_e, opts) => shadowlab.markers(opts));
 ipcMain.handle('trade:digest', () => { dailyDigest(true); return { ok: true }; });

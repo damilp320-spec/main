@@ -392,6 +392,11 @@ contextBridge.exposeInMainWorld('mythera', {
     remove: (id) => invoke('vault:remove', id),
     available: () => invoke('vault:available')
   },
+  codebase: {
+    index: (o) => invoke('codebase:index', o),
+    search: (o) => invoke('codebase:search', o),
+    root: () => invoke('codebase:root')
+  },
   lab: {
     run: (o) => invoke('lab:run', o),
     markers: (o) => invoke('lab:markers', o),

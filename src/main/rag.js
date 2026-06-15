@@ -85,6 +85,7 @@ async function buildContext(agentId, query) {
   if (!cfg.get('settings.rag', false)) return '';
   // Подмешиваем знания активного проекта (если задан), не смешивая проекты между собой.
   const scopes = [agentId, 'kb'];
+  if (listDocs('code').length) scopes.push('code'); // проиндексированная кодовая база
   try { const ps = require('./projects').activeScope(); if (ps) scopes.push(ps); } catch { /* projects optional */ }
   const hits = await retrieve(scopes, query, TOP_K);
   if (!hits.length) return '';

@@ -29,12 +29,27 @@ function httpsGet(url, redirects = 0) {
   });
 }
 
-// Свечи через Yahoo Finance v8.
-async function candles({ symbol, interval, range }) {
-  symbol = String(symbol || '').trim();
+// Короткоживущий кэш свечей (полировка): множество разделов (кокпит, «Сегодня»,
+// watchlist, бот, лаборатория, скринер) часто запрашивают одни и те же данные —
+// кэш на 20с убирает дублирующие сетевые запросы и ускоряет UI.
+const _cache = new Map();
+function _cacheGet(k) { const e = _cache.get(k); if (e && Date.now() - e.at < 20000) return e.v; return null; }
+function _cacheSet(k, v) { _cache.set(k, { at: Date.now(), v }); if (_cache.size > 200) { const oldest = [..._cache.entries()].sort((a, b) => a[1].at - b[1].at)[0]; if (oldest) _cache.delete(oldest[0]); } }
+
+// Свечи (с кэшем). Кэшируем только успешные ответы.
+async function candles(opts) {
+  const symbol = String((opts && opts.symbol) || '').trim();
   if (!symbol) return { ok: false, error: 'Не указан тикер' };
-  interval = interval || '1d';
-  range = range || '6mo';
+  const interval = (opts && opts.interval) || '1d';
+  const range = (opts && opts.range) || '6mo';
+  const ck = symbol + '|' + interval + '|' + range;
+  const cached = _cacheGet(ck);
+  if (cached) return cached;
+  const r = await candlesRaw({ symbol, interval, range });
+  if (r && r.ok) _cacheSet(ck, r);
+  return r;
+}
+async function candlesRaw({ symbol, interval, range }) {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=${encodeURIComponent(interval)}&range=${encodeURIComponent(range)}`;
   try {
     const r = await httpsGet(url);

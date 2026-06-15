@@ -378,6 +378,7 @@ contextBridge.exposeInMainWorld('mythera', {
   },
   marketsCorrelation: (symbols) => invoke('markets:correlation', symbols),
   backtestBot: (o) => invoke('backtest:runBot', o),
+  backtestBest: (o) => invoke('backtest:bestStrategy', o),
   screener: {
     scan: (f, c) => invoke('screener:scan', f, c),
     breadth: () => invoke('screener:breadth')

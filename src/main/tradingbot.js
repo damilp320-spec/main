@@ -42,6 +42,10 @@ function cfg() {
     atrMult: +c.atrMult || 2,                // множитель ATR
     tp1Pct: +c.tp1Pct || 0,                  // первая цель (частичный выход), %
     tp1SellPct: +c.tp1SellPct || 50,         // сколько % позиции продать на первой цели
+    breakeven: c.breakeven === true,         // после цели 1 — стоп в безубыток
+    regimeFilter: c.regimeFilter === true,   // лонги только при risk-on (широта рынка)
+    sizeMode: c.sizeMode === 'risk' ? 'risk' : 'fixed', // сайзинг: фикс или по риску/волатильности
+    riskAmount: +c.riskAmount || 200,        // риск на сделку для sizeMode=risk
     _state: c._state || {}
   };
 }
@@ -66,10 +70,29 @@ function brokerSafety() {
   catch { return null; }
 }
 
+const STRAT_CACHE = new Map(); // symbol -> { strategy, params, at } для авто-выбора
+
+async function pickStrategy(c, symbol, candles) {
+  if (c.strategy !== 'auto') return { strategy: c.strategy, params: c.params };
+  const cached = STRAT_CACHE.get(symbol);
+  if (cached && Date.now() - cached.at < 6 * 3600000) return cached;
+  let best = null;
+  for (const st of backtest.STRATEGIES) { const def = {}; st.params.forEach(([k, , v]) => def[k] = v); const r = backtest.simulate(candles, st.id, def); const sc = r.m.sharpe * 2 + r.m.return / 10 - r.m.maxDrawdown / 10; if (!best || sc > best.sc) best = { strategy: st.id, params: def, sc, at: Date.now() }; }
+  STRAT_CACHE.set(symbol, best); emit('autoStrat', { symbol, message: `авто-стратегия: ${best.strategy}` });
+  return best;
+}
+function sizeQty(c, candles, price) {
+  if (c.sizeMode === 'risk') { const av = backtest.atr(candles, 14); if (av) { const dist = c.stopType === 'atr' ? c.atrMult * av : price * (c.stopLossPct || 5) / 100; if (dist > 0) return Math.max(1, Math.floor(c.riskAmount / dist)); } }
+  return c.qty;
+}
+
 async function evaluate() {
   const c = cfg();
   if (!c.enabled) return;
   const state = c._state || {};
+  // Фильтр режима рынка: широта считается один раз за прогон.
+  let regimeOff = false;
+  if (c.regimeFilter) { try { const b = await require('./screener').breadth(); if (b.ok) regimeOff = b.regime === 'risk-off'; } catch {} }
   for (const symbol of c.symbols) {
     try {
       const d = await markets.candles({ symbol, interval: c.interval, range: c.range });
@@ -105,16 +128,21 @@ async function evaluate() {
           const lvl = (c.stopType === 'atr' && av) ? st.peak - c.atrMult * av : st.peak * (1 - c.trailingPct / 100);
           if (price <= lvl) exit = 'trailing-stop' + (av ? ' (ATR)' : '');
         }
+        // Стоп в безубыток после первой цели.
+        if (!exit && c.breakeven && st.tp1Done && price <= st.entry) exit = 'breakeven (безубыток)';
         if (exit) { await sell(c, symbol, price, exit); emit('exit', { symbol, reason: exit, price }); state[symbol] = { side: null }; continue; }
       }
 
-      // 2) Сигнал стратегии.
-      const sig = backtest.lastSignal(c.strategy, d.candles, c.params);
+      // 2) Сигнал стратегии (с авто-выбором лучшей под тикер, если включено).
+      const pick = await pickStrategy(c, symbol, d.candles);
+      const sig = backtest.lastSignal(pick.strategy, d.candles, pick.params);
       if (!sig || sig === st.side) { state[symbol] = st; continue; }
       emit('signal', { symbol, signal: sig, price });
 
       if (sig === 'buy') {
         if (st.side === 'buy') { state[symbol] = st; continue; } // уже в позиции
+        // Фильтр режима рынка.
+        if (regimeOff) { emit('skip', { symbol, message: 'пропуск buy: рынок risk-off (широта)' }); state[symbol] = { side: null }; continue; }
         // Фильтр по сентименту.
         if (c.useSentiment) { try { const s = await require('./news').sentiment(symbol); if (s.ok && s.score < -20) { emit('skip', { symbol, message: `пропуск buy: негативный сентимент (${s.score})` }); state[symbol] = { side: null }; continue; } } catch {} }
         // Мульти-таймфрейм подтверждение: старший ТФ не должен быть против покупки.
@@ -131,7 +159,7 @@ async function evaluate() {
           state[symbol] = { side: null };
           continue;
         }
-        await buy(c, symbol, price);
+        await buy(c, symbol, price, sizeQty(c, d.candles, price));
         state[symbol] = { side: 'buy', entry: price, peak: price, at: Date.now() };
       } else { // sell-сигнал
         if (st.side === 'buy') { await sell(c, symbol, price, c.strategy + ' сигнал'); }
@@ -142,10 +170,11 @@ async function evaluate() {
   saveState(state);
 }
 
-async function buy(c, symbol, price) {
+async function buy(c, symbol, price, qty) {
+  qty = Math.max(1, qty || c.qty);
   if (c.mode === 'paper') {
     const pos = paper.valuation().positions.find((p) => p.symbol === symbol.toUpperCase());
-    if (!pos) { const r = paper.trade({ symbol, side: 'buy', qty: c.qty, price, reason: c.strategy, source: 'bot' }); report(symbol, 'buy', c.qty, price, r); }
+    if (!pos) { const r = paper.trade({ symbol, side: 'buy', qty, price, reason: c.strategy, source: 'bot' }); report(symbol, 'buy', qty, price, r); }
   } else await brokerOrder(c, symbol, 'buy');
 }
 async function sell(c, symbol, price, reason) {

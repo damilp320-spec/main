@@ -2419,7 +2419,15 @@ async function renderBotCard() {
     </div>
     <div class="row" style="gap:8px">
       <label class="field"><span>${esc(t('bot.mode'))}</span><select id="bot-mode"><option value="paper" ${c.mode === 'paper' ? 'selected' : ''}>🧪 ${esc(t('bot.modePaper'))}</option><option value="broker" ${c.mode === 'broker' ? 'selected' : ''}>💹 ${esc(t('bot.modeBroker'))}</option></select></label>
-      <label class="field"><span>${esc(t('bot.strategy'))}</span><select id="bot-strat">${strats.map((s) => `<option value="${s.id}" ${s.id === c.strategy ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>
+      <label class="field"><span>${esc(t('bot.strategy'))}</span><select id="bot-strat"><option value="auto" ${c.strategy === 'auto' ? 'selected' : ''}>🤖 ${esc(t('bot.autoStrat'))}</option>${strats.map((s) => `<option value="${s.id}" ${s.id === c.strategy ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>
+    </div>
+    <div class="row" style="gap:8px">
+      <label class="field" style="max-width:150px"><span>${esc(t('bot.sizeMode'))}</span><select id="bot-size"><option value="fixed" ${c.sizeMode !== 'risk' ? 'selected' : ''}>${esc(t('bot.fixedQty'))}</option><option value="risk" ${c.sizeMode === 'risk' ? 'selected' : ''}>${esc(t('bot.riskSize'))}</option></select></label>
+      <label class="field" style="max-width:120px ${c.sizeMode === 'risk' ? '' : 'display:none'}" id="bot-riskwrap"><span>${esc(t('bot.riskAmt'))}</span><input id="bot-riskamt" type="number" value="${c.riskAmount}"></label>
+    </div>
+    <div class="row" style="gap:14px;flex-wrap:wrap;margin:4px 0">
+      <label class="mk-ind"><input type="checkbox" id="bot-regime" ${c.regimeFilter ? 'checked' : ''}> ${esc(t('bot.regime'))}</label>
+      <label class="mk-ind"><input type="checkbox" id="bot-be" ${c.breakeven ? 'checked' : ''}> ${esc(t('bot.breakeven'))}</label>
     </div>
     <div class="row" style="gap:8px">
       <label class="field" style="max-width:100px"><span>${esc(t('bot.qty'))}</span><input id="bot-qty" type="number" value="${c.qty}"></label>
@@ -2449,17 +2457,17 @@ async function renderBotCard() {
     <div id="bot-bt-res" style="margin-top:8px"></div>
     <div id="bot-log" class="op-log" style="max-height:150px;margin-top:8px"></div>
     <p class="muted" style="font-size:11px;margin-top:6px">${esc(t('bot.note'))}</p>`;
-  const saveCfg = () => N.bot.setCfg({ mode: $('#bot-mode').value, strategy: $('#bot-strat').value, qty: +$('#bot-qty').value || 1, intervalMin: +$('#bot-int').value || 15, interval: $('#bot-candle').value, symbols: $('#bot-syms').value.split(',').map((s) => s.trim()).filter(Boolean), useSentiment: $('#bot-sent').checked, confirmTf: $('#bot-mtf').value, stopLossPct: +$('#bot-sl').value || 0, takeProfitPct: +$('#bot-tp').value || 0, trailingPct: +$('#bot-trail').value || 0, stopType: $('#bot-stoptype').value, atrMult: +$('#bot-atr').value || 2, tp1Pct: +$('#bot-tp1').value || 0, tp1SellPct: +$('#bot-tp1sell').value || 50 });
+  const saveCfg = () => N.bot.setCfg({ mode: $('#bot-mode').value, strategy: $('#bot-strat').value, qty: +$('#bot-qty').value || 1, intervalMin: +$('#bot-int').value || 15, interval: $('#bot-candle').value, symbols: $('#bot-syms').value.split(',').map((s) => s.trim()).filter(Boolean), useSentiment: $('#bot-sent').checked, confirmTf: $('#bot-mtf').value, stopLossPct: +$('#bot-sl').value || 0, takeProfitPct: +$('#bot-tp').value || 0, trailingPct: +$('#bot-trail').value || 0, stopType: $('#bot-stoptype').value, atrMult: +$('#bot-atr').value || 2, tp1Pct: +$('#bot-tp1').value || 0, tp1SellPct: +$('#bot-tp1sell').value || 50, sizeMode: $('#bot-size').value, riskAmount: +$('#bot-riskamt').value || 200, regimeFilter: $('#bot-regime').checked, breakeven: $('#bot-be').checked });
   $('#bot-bt').onclick = async () => {
     const c2 = await N.bot.cfg(); const sym = (c2.symbols[0] || 'AAPL'); const res = $('#bot-bt-res');
     res.innerHTML = '<span class="spin">⏳</span> ' + esc(t('bot.btRun')) + ' ' + esc(sym);
     const r = await N.backtestBot({ symbol: sym, interval: c2.interval, range: c2.range, strategy: c2.strategy, params: c2.params, stopLossPct: c2.stopLossPct, takeProfitPct: c2.takeProfitPct, trailingPct: c2.trailingPct, tp1Pct: c2.tp1Pct, tp1SellPct: c2.tp1SellPct, stopType: c2.stopType, atrMult: c2.atrMult });
     if (!r.ok) { res.innerHTML = `<span class="mk-down">⚠️ ${esc(r.error)}</span>`; return; }
-    res.innerHTML = `<div class="bt-stats"><div class="bt-stat"><span>${esc(sym)} ${esc(t('bt.return'))}</span><b class="${r.return >= 0 ? 'mk-up' : 'mk-down'}">${r.return}%</b></div><div class="bt-stat"><span>B&H</span><b>${r.buyHold}%</b></div><div class="bt-stat"><span>${esc(t('bt.trades'))}</span><b>${r.trades}${r.partials ? '+' + r.partials + 'ч' : ''}</b></div><div class="bt-stat"><span>${esc(t('bt.winRate'))}</span><b>${r.winRate}%</b></div><div class="bt-stat"><span>${esc(t('bt.maxDD'))}</span><b class="mk-down">-${r.maxDrawdown}%</b></div></div>`;
+    res.innerHTML = `<div class="bt-stats"><div class="bt-stat"><span>${esc(sym)} ${esc(t('bt.return'))}</span><b class="${r.return >= 0 ? 'mk-up' : 'mk-down'}">${r.return}%</b></div><div class="bt-stat"><span>B&H</span><b>${r.buyHold}%</b></div><div class="bt-stat"><span>Sharpe</span><b class="${r.sharpe >= 1 ? 'mk-up' : ''}">${r.sharpe}</b></div><div class="bt-stat"><span>${esc(t('bt.pf'))}</span><b>${r.profitFactor}</b></div><div class="bt-stat"><span>${esc(t('bt.trades'))}</span><b>${r.trades}${r.partials ? '+' + r.partials + 'ч' : ''}</b></div><div class="bt-stat"><span>${esc(t('bt.winRate'))}</span><b>${r.winRate}%</b></div><div class="bt-stat"><span>${esc(t('bt.maxDD'))}</span><b class="mk-down">-${r.maxDrawdown}%</b></div></div>`;
   };
   $$('#bot-body [data-prof]').forEach((b) => b.onclick = async () => { await N.bot.applyProfile(b.dataset.prof); toast('🤖', t('bot.profileSet') + ': ' + b.textContent.trim(), 'ok'); renderBotCard(); });
   bindToggle('bot-enable', async (v) => { if (v && !await confirmModal('🤖 ' + t('bot.title'), t('bot.enableWarn'))) return renderBotCard(); await N.bot.setCfg({ enabled: v }); renderBotCard(); });
-  ['#bot-mode', '#bot-strat', '#bot-qty', '#bot-int', '#bot-candle', '#bot-syms', '#bot-mtf', '#bot-sl', '#bot-tp', '#bot-trail', '#bot-stoptype', '#bot-atr', '#bot-tp1', '#bot-tp1sell'].forEach((s) => { const e = $(s); if (e) e.onchange = async () => { await saveCfg(); if (s === '#bot-mode' || s === '#bot-stoptype') renderBotCard(); }; });
+  ['#bot-mode', '#bot-strat', '#bot-qty', '#bot-int', '#bot-candle', '#bot-syms', '#bot-mtf', '#bot-sl', '#bot-tp', '#bot-trail', '#bot-stoptype', '#bot-atr', '#bot-tp1', '#bot-tp1sell', '#bot-size', '#bot-riskamt', '#bot-regime', '#bot-be'].forEach((s) => { const e = $(s); if (e) { const ev = e.type === 'checkbox' ? 'onchange' : 'onchange'; e[ev] = async () => { await saveCfg(); if (s === '#bot-mode' || s === '#bot-stoptype' || s === '#bot-size') renderBotCard(); }; } });
   bindToggle('bot-sent', () => saveCfg());
   $('#bot-once').onclick = async () => { $('#bot-status').textContent = '⏳'; await N.bot.runOnce(); $('#bot-status').textContent = '✓ ' + t('bot.evaluated'); renderPaperCard(); };
 }
@@ -3163,6 +3171,7 @@ async function viewMarkets() {
         <div id="bt-params" class="row" style="gap:8px;flex-wrap:wrap"></div>
         <button class="btn primary" id="bt-run">▶ ${esc(t('bt.run'))}</button>
         <button class="btn ghost" id="bt-opt">🔧 ${esc(t('bt.optimize'))}</button>
+        <label class="mk-ind" title="${esc(t('bt.wfHint'))}"><input type="checkbox" id="bt-wf"> Walk-forward</label>
       </div>
       <div id="bt-result" style="margin-top:12px"></div>
       <p class="muted" style="font-size:11px;margin-top:8px">${esc(t('bt.note'))}</p>
@@ -3244,12 +3253,13 @@ async function initBacktest() {
   $('#bt-opt').onclick = runOptimize;
 }
 async function runOptimize() {
-  const mk = state.market; const box = $('#bt-result');
+  const mk = state.market; const box = $('#bt-result'); const wf = $('#bt-wf') && $('#bt-wf').checked;
   box.innerHTML = '<span class="spin">⏳</span> ' + esc(t('bt.optimizing'));
-  const r = await N.backtest.optimize({ symbol: mk.symbol, interval: mk.interval, range: mk.range, strategy: $('#bt-strat').value });
+  const r = await N.backtest.optimize({ symbol: mk.symbol, interval: mk.interval, range: mk.range, strategy: $('#bt-strat').value, walkForward: wf });
   if (!r.ok) { box.innerHTML = `<span class="mk-down">⚠️ ${esc(r.error)}</span>`; return; }
-  box.innerHTML = `<p><b>${esc(t('bt.best'))}:</b> ${esc(JSON.stringify(r.best.params))} → <span class="${r.best.return >= 0 ? 'mk-up' : 'mk-down'}">${r.best.return}%</span> · DD -${r.best.maxDrawdown}% · ${r.best.winRate}% win</p>
-    <table class="tr-pf-tbl"><tr><th>${esc(t('bt.params'))}</th><th>Return</th><th>DD</th><th>Win</th><th>Score</th></tr>${r.top.map((x) => `<tr><td>${esc(JSON.stringify(x.params))}</td><td class="${x.return >= 0 ? 'mk-up' : 'mk-down'}">${x.return}%</td><td>-${x.maxDrawdown}%</td><td>${x.winRate}%</td><td>${x.score}</td></tr>`).join('')}</table>
+  const oos = r.oos ? `<p><b>${esc(t('bt.oos'))}:</b> <span class="${r.oos.return >= 0 ? 'mk-up' : 'mk-down'}">${r.oos.return}%</span> · Sharpe ${r.oos.sharpe} · DD -${r.oos.maxDrawdown}% · ${r.oos.winRate}% win <span class="muted">(${esc(t('bt.oosNote'))})</span></p>` : '';
+  box.innerHTML = `<p><b>${esc(t('bt.best'))}${wf ? ' (train)' : ''}:</b> ${esc(JSON.stringify(r.best.params))} → <span class="${r.best.return >= 0 ? 'mk-up' : 'mk-down'}">${r.best.return}%</span> · Sharpe ${r.best.sharpe} · DD -${r.best.maxDrawdown}%</p>${oos}
+    <table class="tr-pf-tbl"><tr><th>${esc(t('bt.params'))}</th><th>Return</th><th>Sharpe</th><th>DD</th><th>Score</th></tr>${r.top.map((x) => `<tr><td>${esc(JSON.stringify(x.params))}</td><td class="${x.return >= 0 ? 'mk-up' : 'mk-down'}">${x.return}%</td><td>${x.sharpe}</td><td>-${x.maxDrawdown}%</td><td>${x.score}</td></tr>`).join('')}</table>
     <button class="btn ghost sm" id="bt-apply" style="margin-top:8px">${esc(t('bt.apply'))}</button>`;
   $('#bt-apply').onclick = () => { Object.entries(r.best.params).forEach(([k, v]) => { const i = $(`#bt-params [data-bp="${k}"]`); if (i) i.value = v; }); runBacktest(); };
 }

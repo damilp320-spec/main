@@ -624,6 +624,7 @@ ipcMain.handle('journal:stats', () => journal.stats());
 ipcMain.handle('journal:review', () => journal.review());
 ipcMain.handle('markets:correlation', (_e, symbols) => markets.correlation(symbols));
 ipcMain.handle('backtest:runBot', (_e, opts) => backtest.runBot(opts));
+ipcMain.handle('backtest:bestStrategy', (_e, opts) => backtest.bestStrategy(opts));
 ipcMain.handle('screener:scan', (_e, filters, custom) => screener.scan(filters, custom));
 ipcMain.handle('screener:breadth', () => screener.breadth());
 ipcMain.handle('portfolio:rebalancePlan', (_e, t, q) => portfolio.rebalancePlan(t, q));

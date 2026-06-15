@@ -73,42 +73,63 @@ function signals(strategy, c, p) {
   return sig;
 }
 
+// Риск-метрики по кривой капитала и сделкам.
+function metricsOf(c, equity, trades, START) {
+  const finalEq = equity[equity.length - 1] || START;
+  const ret = (finalEq / START - 1) * 100;
+  const buyHold = (c[c.length - 1].c / c[0].c - 1) * 100;
+  let peak = -Infinity, maxDD = 0;
+  for (const e of equity) { if (e > peak) peak = e; const dd = (peak - e) / peak * 100; if (dd > maxDD) maxDD = dd; }
+  const wins = trades.filter((t) => t.pnl > 0);
+  const winRate = trades.length ? (wins.length / trades.length * 100) : 0;
+  // Sharpe по дневным доходностям кривой (годовой, безриск.ставка 0).
+  const rets = []; for (let i = 1; i < equity.length; i++) if (equity[i - 1] > 0) rets.push(equity[i] / equity[i - 1] - 1);
+  const mean = rets.reduce((s, v) => s + v, 0) / (rets.length || 1);
+  const sd = Math.sqrt(rets.reduce((s, v) => s + (v - mean) ** 2, 0) / (rets.length || 1));
+  const sharpe = sd ? +(mean / sd * Math.sqrt(252)).toFixed(2) : 0;
+  // Profit factor = сумма прибылей / |сумма убытков|.
+  const gp = wins.reduce((s, t) => s + t.pnl, 0); const gl = Math.abs(trades.filter((t) => t.pnl <= 0).reduce((s, t) => s + t.pnl, 0));
+  const profitFactor = gl ? +(gp / gl).toFixed(2) : (gp ? 99 : 0);
+  return { return: +ret.toFixed(2), buyHold: +buyHold.toFixed(2), maxDrawdown: +maxDD.toFixed(2), trades: trades.length, winRate: +winRate.toFixed(1), sharpe, profitFactor };
+}
+
+// Симуляция стратегии на массиве свечей (long-only, без рефетча).
+function simulate(c, strategy, params) {
+  const sig = signals(strategy || 'sma_cross', c, params || {});
+  const START = 10000; let cash = START, units = 0, entry = 0; const equity = [], trades = [];
+  for (let i = 0; i < c.length; i++) {
+    const price = c[i].c;
+    if (sig[i] === 'buy' && cash > 0) { units = cash / price; cash = 0; entry = price; }
+    else if (sig[i] === 'sell' && units > 0) { trades.push({ at: c[i].t, pnl: +((price - entry) / entry * 100).toFixed(2) }); cash = units * price; units = 0; }
+    equity.push(cash + units * price);
+  }
+  if (units > 0) trades.push({ at: c[c.length - 1].t, pnl: +((c[c.length - 1].c - entry) / entry * 100).toFixed(2), open: true });
+  return { equity, trades, m: metricsOf(c, equity, trades, START) };
+}
+
 async function run({ symbol, interval, range, strategy, params }) {
   const d = await markets.candles({ symbol, interval, range });
   if (!d.ok) return { ok: false, error: d.error };
   const c = d.candles;
   if (c.length < 30) return { ok: false, error: 'Недостаточно данных для бэктеста.' };
-  const p = params || {};
-  const sig = signals(strategy || 'sma_cross', c, p);
+  const r = simulate(c, strategy || 'sma_cross', params || {});
+  return { ok: true, symbol: d.symbol, strategy: strategy || 'sma_cross', ...r.m, equity: r.equity, times: c.map((x) => x.t), closes: c.map((x) => x.c), tradeList: r.trades.slice(-20) };
+}
 
-  const START = 10000;
-  let cash = START, units = 0, entry = 0;
-  const equity = []; const trades = [];
-  for (let i = 0; i < c.length; i++) {
-    const price = c[i].c;
-    if (sig[i] === 'buy' && cash > 0) { units = cash / price; cash = 0; entry = price; }
-    else if (sig[i] === 'sell' && units > 0) { const pnl = (price - entry) / entry * 100; trades.push({ at: c[i].t, pnl: +pnl.toFixed(2) }); cash = units * price; units = 0; }
-    equity.push(cash + units * price);
+// Авто-выбор лучшей стратегии для тикера по риск-доходности (Sharpe).
+async function bestStrategy({ symbol, interval, range }) {
+  const d = await markets.candles({ symbol, interval, range });
+  if (!d.ok || d.candles.length < 40) return { ok: false, error: d.ok ? 'мало данных' : d.error };
+  let best = null; const all = [];
+  for (const st of STRATEGIES) {
+    const def = {}; st.params.forEach(([k, , v]) => def[k] = v);
+    const r = simulate(d.candles, st.id, def);
+    const score = r.m.sharpe * 2 + r.m.return / 10 - r.m.maxDrawdown / 10;
+    all.push({ strategy: st.id, ...r.m, score: +score.toFixed(2), params: def });
+    if (!best || score > best.score) best = all[all.length - 1];
   }
-  // Закрываем открытую позицию по последней цене.
-  if (units > 0) { const price = c[c.length - 1].c; trades.push({ at: c[c.length - 1].t, pnl: +((price - entry) / entry * 100).toFixed(2), open: true }); }
-
-  const finalEq = equity[equity.length - 1];
-  const ret = (finalEq / START - 1) * 100;
-  const buyHold = (c[c.length - 1].c / c[0].c - 1) * 100;
-  // Максимальная просадка.
-  let peak = -Infinity, maxDD = 0;
-  for (const e of equity) { if (e > peak) peak = e; const dd = (peak - e) / peak * 100; if (dd > maxDD) maxDD = dd; }
-  const wins = trades.filter((t) => t.pnl > 0).length;
-  const winRate = trades.length ? (wins / trades.length * 100) : 0;
-
-  return {
-    ok: true, symbol: d.symbol, strategy: strategy || 'sma_cross',
-    return: +ret.toFixed(2), buyHold: +buyHold.toFixed(2), maxDrawdown: +maxDD.toFixed(2),
-    trades: trades.length, winRate: +winRate.toFixed(1),
-    equity, times: c.map((x) => x.t), closes: c.map((x) => x.c),
-    tradeList: trades.slice(-20)
-  };
+  all.sort((a, b) => b.score - a.score);
+  return { ok: true, symbol: d.symbol, best, all: all.slice(0, 8) };
 }
 
 const STRATEGIES = [
@@ -140,8 +161,9 @@ function lastSignal(strategy, candles, params) {
   return null;
 }
 
-// Оптимизатор: перебор сеток параметров, поиск лучшей по доходности.
-async function optimize({ symbol, interval, range, strategy }) {
+// Оптимизатор: перебор сеток параметров. Walk-forward: подбор на обучающем
+// куске + проверка на «невиданном» (out-of-sample) — защита от переоптимизации.
+async function optimize({ symbol, interval, range, strategy, walkForward }) {
   const grids = {
     sma_cross: [{ k: 'fast', v: [5, 10, 15, 20] }, { k: 'slow', v: [30, 50, 100] }],
     ema_cross: [{ k: 'fast', v: [8, 12, 20] }, { k: 'slow', v: [21, 26, 50] }],
@@ -153,19 +175,27 @@ async function optimize({ symbol, interval, range, strategy }) {
     golden_cross: [{ k: 'fast', v: [20, 50] }, { k: 'slow', v: [100, 200] }]
   }[strategy || 'sma_cross'];
   if (!grids) return { ok: false, error: 'Нет сетки для стратегии' };
-  // Декартово произведение значений параметров.
+  const d = await markets.candles({ symbol, interval, range }); // фетч один раз
+  if (!d.ok) return d;
+  const c = d.candles; if (c.length < 40) return { ok: false, error: 'Мало данных.' };
   let combos = [{}];
-  for (const g of grids) combos = combos.flatMap((c) => g.v.map((val) => ({ ...c, [g.k]: val })));
+  for (const g of grids) combos = combos.flatMap((x) => g.v.map((val) => ({ ...x, [g.k]: val })));
+  combos = combos.slice(0, 60);
+  // Walk-forward: 70% обучение, 30% контроль.
+  const split = Math.floor(c.length * 0.7);
+  const train = walkForward ? c.slice(0, split) : c;
+  const score = (m) => m.return - m.maxDrawdown * 0.3 + m.sharpe * 5;
   let best = null; const results = [];
-  for (const params of combos.slice(0, 60)) {
-    const r = await run({ symbol, interval, range, strategy, params });
-    if (!r.ok) return r;
-    const score = r.return - r.maxDrawdown * 0.3; // штраф за просадку
-    results.push({ params, return: r.return, maxDrawdown: r.maxDrawdown, trades: r.trades, winRate: r.winRate, score: +score.toFixed(2) });
-    if (!best || score > best.score) best = results[results.length - 1];
+  for (const params of combos) {
+    const r = simulate(train, strategy, params);
+    const sc = score(r.m);
+    results.push({ params, return: r.m.return, maxDrawdown: r.m.maxDrawdown, trades: r.m.trades, winRate: r.m.winRate, sharpe: r.m.sharpe, profitFactor: r.m.profitFactor, score: +sc.toFixed(2) });
+    if (!best || sc > best.score) best = results[results.length - 1];
   }
   results.sort((a, b) => b.score - a.score);
-  return { ok: true, best, top: results.slice(0, 8) };
+  let oos = null;
+  if (walkForward && best) { const t = simulate(c.slice(split), strategy, best.params); oos = { return: t.m.return, maxDrawdown: t.m.maxDrawdown, sharpe: t.m.sharpe, trades: t.m.trades, winRate: t.m.winRate }; }
+  return { ok: true, best, top: results.slice(0, 8), oos, walkForward: !!walkForward };
 }
 
 function atrAt(c, i, n) { if (i < n) return null; let s = 0; for (let j = i - n + 1; j <= i; j++) s += Math.max(c[j].h - c[j].l, Math.abs(c[j].h - c[j - 1].c), Math.abs(c[j].l - c[j - 1].c)); return s / n; }
@@ -202,9 +232,14 @@ async function runBot(opts) {
   const ret = (finalEq / START - 1) * 100;
   const buyHold = (c[c.length - 1].c / c[0].c - 1) * 100;
   let pk = -Infinity, maxDD = 0; for (const e of equity) { if (e > pk) pk = e; const dd = (pk - e) / pk * 100; if (dd > maxDD) maxDD = dd; }
-  const full = trades.filter((t) => !t.partial); const wins = full.filter((t) => t.pnl > 0).length;
-  return { ok: true, symbol: d.symbol, return: +ret.toFixed(2), buyHold: +buyHold.toFixed(2), maxDrawdown: +maxDD.toFixed(2), trades: full.length, partials: trades.length - full.length, winRate: full.length ? +((wins / full.length) * 100).toFixed(1) : 0, equity, closes: c.map((x) => x.c) };
+  const full = trades.filter((t) => !t.partial); const wins = full.filter((t) => t.pnl > 0);
+  const rets = []; for (let i = 1; i < equity.length; i++) if (equity[i - 1] > 0) rets.push(equity[i] / equity[i - 1] - 1);
+  const mean = rets.reduce((s, v) => s + v, 0) / (rets.length || 1);
+  const sd = Math.sqrt(rets.reduce((s, v) => s + (v - mean) ** 2, 0) / (rets.length || 1));
+  const sharpe = sd ? +(mean / sd * Math.sqrt(252)).toFixed(2) : 0;
+  const gp = wins.reduce((s, t) => s + t.pnl, 0); const gl = Math.abs(full.filter((t) => t.pnl <= 0).reduce((s, t) => s + t.pnl, 0));
+  return { ok: true, symbol: d.symbol, return: +ret.toFixed(2), buyHold: +buyHold.toFixed(2), maxDrawdown: +maxDD.toFixed(2), trades: full.length, partials: trades.length - full.length, winRate: full.length ? +((wins.length / full.length) * 100).toFixed(1) : 0, sharpe, profitFactor: gl ? +(gp / gl).toFixed(2) : (gp ? 99 : 0), equity, closes: c.map((x) => x.c) };
 }
 
-module.exports = { run, runBot, optimize, signals, lastSignal, atr, STRATEGIES };
+module.exports = { run, runBot, optimize, simulate, bestStrategy, signals, lastSignal, atr, STRATEGIES };
 

@@ -136,6 +136,15 @@ const CATALOG = [
     desc: 'Линейка GLM сильна в terminal-agent и UI/веб-разработке. Версия 9B — компактный вход; старшие GLM-5.x требуют серверного железа.'
   },
   {
+    id: 'codegeex4:9b',
+    name: 'CodeGeeX4 9B (GLM-кодер)',
+    vendor: 'Z.ai / THUDM',
+    size: '5.5 GB',
+    ram: 16,
+    tags: ['код', 'кодоген', 'agentic'],
+    desc: 'Кодерская модель семейства GLM: автодополнение, генерация и объяснение кода. Локальный аналог GLM для разработки. Маршрутизатор моделей подхватит её как кодер.'
+  },
+  {
     id: 'nomic-embed-text',
     name: 'Nomic Embed (эмбеддинги)',
     vendor: 'Nomic',

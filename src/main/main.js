@@ -181,9 +181,12 @@ function captureActivity(channel, payload) {
 function sendToUI(channel, payload) {
   recordNotification(channel, payload);
   captureActivity(channel, payload);
-  // Склейка: трейдинговые события → Telegram (если включено в подключениях).
-  if (channel === 'watcher:fired' && payload && store.get('settings.tradeAlertsTelegram', false) && /[🤖🧭💵🔔📈🚪🛑]/.test(payload.title || '')) {
-    connections.telegramSend(((payload.title || '') + '\n' + (payload.message || '')).slice(0, 600)).catch(() => {});
+  // Склейка: трейдинговые события → внешние каналы (если включено в подключениях).
+  if (channel === 'watcher:fired' && payload && /[🤖🧭💵🔔📈🚪🛑]/.test(payload.title || '')) {
+    const txt = ((payload.title || '') + '\n' + (payload.message || '')).slice(0, 600);
+    if (store.get('settings.tradeAlertsTelegram', false)) connections.telegramSend(txt).catch(() => {});
+    if (store.get('settings.tradeAlertsDiscord', false)) connections.discordSend(txt).catch(() => {});
+    if (store.get('settings.tradeAlertsSlack', false)) connections.slackSend(txt).catch(() => {});
   }
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
 }
@@ -579,6 +582,13 @@ ipcMain.handle('conn:githubIssues', (_e, repo) => connections.githubIssues(repo)
 ipcMain.handle('conn:githubCreateIssue', (_e, repo, title, body) => connections.githubCreateIssue(repo, title, body));
 ipcMain.handle('conn:telegramTest', () => connections.telegramTest());
 ipcMain.handle('conn:webhook', (_e, url, payload) => connections.webhookPost(url, payload));
+ipcMain.handle('conn:githubPRs', (_e, repo) => connections.githubPRs(repo));
+ipcMain.handle('conn:githubCommits', (_e, repo) => connections.githubCommits(repo));
+ipcMain.handle('conn:githubSearch', (_e, q) => connections.githubSearch(q));
+ipcMain.handle('conn:githubNotifications', () => connections.githubNotifications());
+ipcMain.handle('conn:discordTest', () => connections.discordTest());
+ipcMain.handle('conn:slackTest', () => connections.slackTest());
+ipcMain.handle('conn:weather', (_e, place) => connections.weather(place));
 
 /* ---------------- IPC: calendar ---------------- */
 ipcMain.handle('cal:list', (_e, from, to) => calendar.list(from, to));

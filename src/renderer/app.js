@@ -3050,7 +3050,9 @@ async function viewConnections() {
       <div class="card">
         <h3>🐙 GitHub ${st.github ? '<span class="mk-up" style="font-size:12px">● ' + esc(t('conn.connected')) + '</span>' : ''}</h3>
         <label class="field"><span>${esc(t('conn.token'))}</span><input id="gh-token" type="password" placeholder="${st.github ? '•••••• (сохранён)' : 'ghp_…'}"></label>
-        <div class="row" style="gap:6px"><button class="btn primary" id="gh-save">${esc(t('conn.saveToken'))}</button><button class="btn ghost" id="gh-load">${esc(t('conn.loadRepos'))}</button></div>
+        <div class="row" style="gap:6px"><button class="btn primary" id="gh-save">${esc(t('conn.saveToken'))}</button><button class="btn ghost" id="gh-load">${esc(t('conn.loadRepos'))}</button><button class="btn ghost" id="gh-notif">🔔 ${esc(t('conn.ghNotif'))}</button></div>
+        <div class="row" style="gap:6px;margin-top:6px"><input id="gh-repo" placeholder="owner/repo" style="flex:2"><button class="btn ghost sm" id="gh-prs">PRs</button><button class="btn ghost sm" id="gh-commits">${esc(t('conn.ghCommits'))}</button></div>
+        <div class="row" style="gap:6px;margin-top:6px"><input id="gh-q" placeholder="${esc(t('conn.ghSearchPh'))}" style="flex:2"><button class="btn ghost sm" id="gh-search">🔎 ${esc(t('conn.search'))}</button></div>
         <p class="muted" style="font-size:11px;margin-top:6px">${esc(t('conn.ghHint'))}</p>
         <div id="gh-result" style="margin-top:10px"></div>
       </div>
@@ -3062,7 +3064,25 @@ async function viewConnections() {
         ${toggleRow('tg-trade', t('conn.tradeAlerts'), await N.store.get('settings.tradeAlertsTelegram', false))}
         ${toggleRow('tg-digest', t('conn.dailyDigest'), await N.store.get('settings.dailyDigest', false))}
       </div>
-      <div class="card" style="grid-column:1/-1">
+      <div class="card">
+        <h3>💬 Discord ${st.discord ? '<span class="mk-up" style="font-size:12px">●</span>' : ''}</h3>
+        <label class="field"><span>${esc(t('conn.webhookUrl'))}</span><input id="dc-url" type="password" placeholder="${st.discord ? '•••••• (сохранён)' : 'https://discord.com/api/webhooks/…'}"></label>
+        <div class="row" style="gap:6px"><button class="btn primary" id="dc-save">${esc(t('conn.saveToken'))}</button><button class="btn ghost" id="dc-test">${esc(t('conn.test'))}</button></div>
+        ${toggleRow('dc-trade', t('conn.tradeAlerts'), await N.store.get('settings.tradeAlertsDiscord', false))}
+      </div>
+      <div class="card">
+        <h3>💼 Slack ${st.slack ? '<span class="mk-up" style="font-size:12px">●</span>' : ''}</h3>
+        <label class="field"><span>${esc(t('conn.webhookUrl'))}</span><input id="sl-url" type="password" placeholder="${st.slack ? '•••••• (сохранён)' : 'https://hooks.slack.com/services/…'}"></label>
+        <div class="row" style="gap:6px"><button class="btn primary" id="sl-save">${esc(t('conn.saveToken'))}</button><button class="btn ghost" id="sl-test">${esc(t('conn.test'))}</button></div>
+        ${toggleRow('sl-trade', t('conn.tradeAlerts'), await N.store.get('settings.tradeAlertsSlack', false))}
+      </div>
+      <div class="card">
+        <h3>🌤️ ${esc(t('conn.weather'))}</h3>
+        <div class="row" style="gap:8px"><input id="wt-place" placeholder="${esc(t('conn.weatherPh'))}" style="flex:2"><button class="btn" id="wt-go">${esc(t('conn.show'))}</button></div>
+        <div id="wt-result" class="muted" style="margin-top:8px;font-size:13px"></div>
+        <p class="muted" style="font-size:11px;margin-top:6px">${esc(t('conn.weatherHint'))}</p>
+      </div>
+      <div class="card">
         <h3>🪝 ${esc(t('conn.webhook'))}</h3>
         <div class="row" style="gap:8px"><input id="wh-url" placeholder="https://hooks.example.com/..." style="flex:2"><input id="wh-msg" placeholder="${esc(t('conn.message'))}" style="flex:1"><button class="btn" id="wh-send">${esc(t('conn.sendWh'))}</button></div>
         <p class="muted" style="font-size:11px;margin-top:6px">${esc(t('conn.whHint'))}</p>
@@ -3076,11 +3096,25 @@ async function viewConnections() {
     box.innerHTML = r.repos.map((x) => `<div class="gh-repo"><a data-link="${esc(x.url)}"><b>${esc(x.full)}</b></a> ⭐${x.stars} ${esc(x.lang || '')} <span class="muted">· ${x.open_issues} issues</span><div class="muted" style="font-size:12px">${esc(x.desc || '')}</div></div>`).join('');
     $$('#gh-result [data-link]').forEach((a) => a.onclick = () => N.system.openExternal(a.dataset.link));
   };
+  const ghBox = (html) => { const b = $('#gh-result'); b.innerHTML = html; $$('#gh-result [data-link]').forEach((a) => a.onclick = () => N.system.openExternal(a.dataset.link)); };
+  const ghBusy = () => { $('#gh-result').innerHTML = '<span class="spin">⏳</span>'; };
+  $('#gh-prs').onclick = async () => { const repo = $('#gh-repo').value.trim(); if (!repo) return toast('⚠️', t('conn.needRepo'), 'err'); ghBusy(); const r = await N.conn.githubPRs(repo); ghBox(r.ok ? (r.prs.map((p) => `<div class="gh-repo"><a data-link="${esc(p.url)}"><b>#${p.number}</b> ${esc(p.title)}</a> <span class="muted">@${esc(p.user || '')} ${p.draft ? '· draft' : ''} · ${esc(p.head || '')}→${esc(p.base || '')}</span></div>`).join('') || `<span class="muted">${esc(t('conn.noPrs'))}</span>`) : `<span class="mk-down">⚠️ ${esc(r.error)}</span>`); };
+  $('#gh-commits').onclick = async () => { const repo = $('#gh-repo').value.trim(); if (!repo) return toast('⚠️', t('conn.needRepo'), 'err'); ghBusy(); const r = await N.conn.githubCommits(repo); ghBox(r.ok ? r.commits.map((c) => `<div class="gh-repo"><code>${esc(c.sha)}</code> ${esc(c.msg)} <span class="muted">— ${esc(c.author || '')}</span></div>`).join('') : `<span class="mk-down">⚠️ ${esc(r.error)}</span>`); };
+  $('#gh-search').onclick = async () => { const q = $('#gh-q').value.trim(); if (!q) return; ghBusy(); const r = await N.conn.githubSearch(q); ghBox(r.ok ? r.repos.map((x) => `<div class="gh-repo"><a data-link="${esc(x.url)}"><b>${esc(x.full)}</b></a> ⭐${x.stars} ${esc(x.lang || '')}<div class="muted" style="font-size:12px">${esc(x.desc || '')}</div></div>`).join('') : `<span class="mk-down">⚠️ ${esc(r.error)}</span>`); };
+  $('#gh-notif').onclick = async () => { ghBusy(); const r = await N.conn.githubNotifications(); ghBox(r.ok ? (r.items.map((n) => `<div class="gh-repo"><b>${esc(n.repo || '')}</b> ${esc(n.title || '')} <span class="muted">· ${esc(n.reason || '')}</span></div>`).join('') || `<span class="muted">${esc(t('conn.noNotif'))}</span>`) : `<span class="mk-down">⚠️ ${esc(r.error)}</span>`); };
   $('#tg-save').onclick = async () => { const tk = $('#tg-token').value.trim(); if (tk) await N.conn.setToken('telegram', tk); await N.conn.set('telegramChat', $('#tg-chat').value.trim()); $('#tg-token').value = ''; toast('✈️', t('em.saved'), 'ok'); };
   $('#tg-test').onclick = async () => { const r = await N.conn.telegramTest(); toast(r.ok ? '✅' : '⚠️', r.ok ? t('conn.tgSent') : r.error, r.ok ? 'ok' : 'err'); };
   bindToggle('tg-trade', (v) => N.store.set('settings.tradeAlertsTelegram', v));
   bindToggle('tg-digest', (v) => N.store.set('settings.dailyDigest', v));
   $('#wh-send').onclick = async () => { const url = $('#wh-url').value.trim(); if (!url) return; const r = await N.conn.webhook(url, $('#wh-msg').value.trim()); toast(r.ok ? '✅' : '⚠️', r.ok ? 'OK ' + r.status : r.error, r.ok ? 'ok' : 'err'); };
+  $('#dc-save').onclick = async () => { const u = $('#dc-url').value.trim(); if (u) await N.conn.setToken('discordWebhook', u); $('#dc-url').value = ''; toast('💬', t('em.saved'), 'ok'); viewConnections(); };
+  $('#dc-test').onclick = async () => { const r = await N.conn.discordTest(); toast(r.ok ? '✅' : '⚠️', r.ok ? t('conn.sent') : r.error, r.ok ? 'ok' : 'err'); };
+  bindToggle('dc-trade', (v) => N.store.set('settings.tradeAlertsDiscord', v));
+  $('#sl-save').onclick = async () => { const u = $('#sl-url').value.trim(); if (u) await N.conn.setToken('slackWebhook', u); $('#sl-url').value = ''; toast('💼', t('em.saved'), 'ok'); viewConnections(); };
+  $('#sl-test').onclick = async () => { const r = await N.conn.slackTest(); toast(r.ok ? '✅' : '⚠️', r.ok ? t('conn.sent') : r.error, r.ok ? 'ok' : 'err'); };
+  bindToggle('sl-trade', (v) => N.store.set('settings.tradeAlertsSlack', v));
+  $('#wt-go').onclick = async () => { const p = $('#wt-place').value.trim(); if (!p) return; const box = $('#wt-result'); box.innerHTML = '<span class="spin">⏳</span>'; const r = await N.conn.weather(p); box.innerHTML = r.ok ? `🌡️ <b>${esc(r.place)}</b> — ${r.temp}°C, ${esc(r.desc)}, 💨 ${r.wind} км/ч, 💧 ${r.humidity}%` : `<span class="mk-down">⚠️ ${esc(r.error)}</span>`; };
+  $('#wt-place').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#wt-go').click(); });
 }
 
 /* ---------- Конструктор моделей (Modelfile) ---------- */

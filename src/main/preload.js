@@ -315,7 +315,14 @@ contextBridge.exposeInMainWorld('mythera', {
     githubIssues: (repo) => invoke('conn:githubIssues', repo),
     githubCreateIssue: (repo, title, body) => invoke('conn:githubCreateIssue', repo, title, body),
     telegramTest: () => invoke('conn:telegramTest'),
-    webhook: (url, payload) => invoke('conn:webhook', url, payload)
+    webhook: (url, payload) => invoke('conn:webhook', url, payload),
+    githubPRs: (repo) => invoke('conn:githubPRs', repo),
+    githubCommits: (repo) => invoke('conn:githubCommits', repo),
+    githubSearch: (q) => invoke('conn:githubSearch', q),
+    githubNotifications: () => invoke('conn:githubNotifications'),
+    discordTest: () => invoke('conn:discordTest'),
+    slackTest: () => invoke('conn:slackTest'),
+    weather: (place) => invoke('conn:weather', place)
   },
   // Календарь
   cal: {

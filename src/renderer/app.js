@@ -1726,7 +1726,11 @@ async function viewSettings() {
     adaptiveEffort: await g('adaptiveEffort', false),
     selfConsistency: await g('selfConsistency', false),
     learnFromHistory: await g('learnFromHistory', false),
-    criticModel: await g('criticModel', '')
+    criticModel: await g('criticModel', ''),
+    deepReasoning: await g('deepReasoning', false),
+    reflexion: await g('reflexion', false),
+    semanticFewShot: await g('semanticFewShot', false),
+    criticDebate: await g('criticDebate', false)
   };
   const docCaps = await N.docs.capabilities();
   const cloudKey = await N.cloud.hasKey();
@@ -1830,11 +1834,17 @@ async function viewSettings() {
         <hr style="border:0;border-top:1px solid var(--border);margin:10px 0"><b style="font-size:13px">🧠 ${esc(t('set.boosters'))}</b>
         ${toggleRow('set-adaptive', t('set.adaptiveEffort'), s.adaptiveEffort)}
         <p class="muted" style="margin:6px 0">${esc(t('set.adaptiveEffortNote'))}</p>
+        ${toggleRow('set-deep', t('set.deepReasoning'), s.deepReasoning)}
+        <p class="muted" style="margin:6px 0">${esc(t('set.deepReasoningNote'))}</p>
+        ${toggleRow('set-reflexion', t('set.reflexion'), s.reflexion)}
+        <p class="muted" style="margin:6px 0">${esc(t('set.reflexionNote'))}</p>
         ${toggleRow('set-selfcons', t('set.selfConsistency'), s.selfConsistency)}
         <p class="muted" style="margin:6px 0">${esc(t('set.selfConsistencyNote'))}</p>
         ${toggleRow('set-learnhist', t('set.learnHistory'), s.learnFromHistory)}
+        ${toggleRow('set-semfew', t('set.semanticFewShot'), s.semanticFewShot)}
         <p class="muted" style="margin:6px 0">${esc(t('set.learnHistoryNote'))}</p>
         <label class="field"><span>${esc(t('set.criticModel'))}</span><select id="set-critic"><option value="">${esc(t('set.criticOff'))}</option>${(models.length ? models.map((m) => m.name) : []).map((n) => `<option value="${esc(n)}" ${n === s.criticModel ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
+        ${toggleRow('set-debate', t('set.criticDebate'), s.criticDebate)}
         <p class="muted" style="margin:6px 0">${esc(t('set.criticModelNote'))}</p>
       </div>
       <div class="card">
@@ -1920,6 +1930,10 @@ async function viewSettings() {
   bindToggle('set-adaptive', (v) => N.store.set('settings.adaptiveEffort', v));
   bindToggle('set-selfcons', (v) => N.store.set('settings.selfConsistency', v));
   bindToggle('set-learnhist', (v) => N.store.set('settings.learnFromHistory', v));
+  bindToggle('set-deep', (v) => N.store.set('settings.deepReasoning', v));
+  bindToggle('set-reflexion', (v) => N.store.set('settings.reflexion', v));
+  bindToggle('set-semfew', (v) => N.store.set('settings.semanticFewShot', v));
+  bindToggle('set-debate', (v) => N.store.set('settings.criticDebate', v));
   $('#set-critic') && ($('#set-critic').onchange = (e) => N.store.set('settings.criticModel', e.target.value));
   bindToggle('set-artifacts', (v) => { N.store.set('settings.artifacts', v); window.__artifactsOn = v; });
   bindToggle('set-duplex', (v) => N.store.set('settings.duplexVoice', v));

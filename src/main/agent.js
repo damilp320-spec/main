@@ -299,7 +299,7 @@ async function chat({ agentId, sessionId, message, history, effort }, sendToUI) 
   const memCtx = memory.buildContext(agent.id, message);
   let ragCtx = '';
   try { ragCtx = await rag.buildContext(agent.id, message); } catch { /* RAG best effort */ }
-  const fewShot = reasoning.fewShotContext(agent.id, message);
+  let fewShot = ''; try { fewShot = await reasoning.fewShotContext(agent.id, message); } catch {}
   const messages = [{ role: 'system', content: agent.system + constitution.build() + HONESTY + eff.note + memCtx + ragCtx + fewShot }];
   // Сжимаем длинную историю, чтобы контекст жил долго, но не разрастался.
   let hist = history || [];
@@ -414,7 +414,10 @@ async function chat({ agentId, sessionId, message, history, effort }, sendToUI) 
       (agent.autonomy === 'autonomous' || effort === 'thorough' || effort === 'max');
     if (wantVerify) {
       sendToUI && sendToUI('agents:verify', { sessionId, stage: 'start' });
-      messages.push({ role: 'user', content: 'Самопроверка. Внимательно перепроверь: задача выполнена ПОЛНОСТЬЮ и корректно? Все утверждения подтверждены результатами инструментов (созданные файлы существуют, код запущен, ошибок нет)? Если всё в порядке — ответь РОВНО словом «ГОТОВО» без пояснений. Если есть недочёты — кратко назови их, ИСПРАВЬ (вызови нужные инструменты) и доведи до конца.' });
+      // Reflexion: перед повторной попыткой формулируем «урок» из текущего результата.
+      let reflex = '';
+      if (store.get('settings.reflexion', false)) { try { reflex = await reasoning.reflexion(activeModel, message, finalText, 'самопроверка перед финалом'); if (reflex) sendToUI && sendToUI('agents:reason', { sessionId, note: 'урок: ' + reflex.slice(0, 120) }); } catch {} }
+      messages.push({ role: 'user', content: 'Самопроверка. Внимательно перепроверь: задача выполнена ПОЛНОСТЬЮ и корректно? Все утверждения подтверждены результатами инструментов (созданные файлы существуют, код запущен, ошибок нет)?' + (reflex ? '\nУчти урок: ' + reflex : '') + ' Если всё в порядке — ответь РОВНО словом «ГОТОВО» без пояснений. Если есть недочёты — кратко назови их, ИСПРАВЬ (вызови нужные инструменты) и доведи до конца.' });
       const verifyBudget = Math.min(20, Math.max(4, Math.round(maxSteps / 3)));
       await runSteps(verifyBudget);
       // Если модель просто подтвердила «ГОТОВО» — оставляем прежний содержательный ответ.
@@ -429,9 +432,9 @@ async function chat({ agentId, sessionId, message, history, effort }, sendToUI) 
     finalText = 'Ошибка агента: ' + e.message + '\n\nУбедитесь, что Ollama запущена и модель установлена.';
   }
 
-  // Усилители интеллекта: self-consistency + критик-модель (опционально).
+  // Усилители интеллекта: deep-reasoning + self-consistency + критик (опционально).
   if (!sess.stop && !String(finalText).startsWith('Ошибка агента:')) {
-    try { finalText = await reasoning.refine({ messages, model: activeModel, finalText, effort, sendToUI, sessionId }); } catch { /* best effort */ }
+    try { finalText = await reasoning.refine({ messages, model: activeModel, finalText, effort, hard: reasoning.difficulty(message) === 'hard', message, sendToUI, sessionId }); } catch { /* best effort */ }
   }
 
   activeSessions.delete(sessionId);

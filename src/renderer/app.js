@@ -1080,7 +1080,7 @@ async function viewTranslator() {
   const modelOpts = (models.length ? models.map(m => m.name) : ['qwen2.5:7b']).map(n => `<option>${esc(n)}</option>`).join('');
   const langs = ['Русский', 'English', 'Español', '中文', 'Deutsch', 'Français', '日本語', 'Português', 'العربية', 'हिन्दी'];
   content.innerHTML = `
-    <div class="view-head"><h1>${esc(t('tr.title'))}</h1><p>${esc(t('tr.sub'))}</p></div>
+    <div class="view-head"><h1>${esc(t('trn.title'))}</h1><p>${esc(t('trn.sub'))}</p></div>
     <div class="card">
       <div class="row">
         <label class="field" style="flex:1"><span>Модель</span><select id="tr-model">${modelOpts}</select></label>
@@ -3750,7 +3750,8 @@ async function viewMarkets() {
   };
   $('#al-sym').value = mk.symbol;
   renderAlerts();
-  window.addEventListener('resize', drawMarket);
+  // Перерисовка графика при ресайзе — вешаем слушатель один раз (без утечки).
+  if (!window.__mkResizeBound) { window.addEventListener('resize', () => { if (state.view === 'markets') drawMarket(); }); window.__mkResizeBound = true; }
   await renderWatchlist();
   await initBacktest();
   await loadMarket();
@@ -4009,18 +4010,20 @@ function drawSparkline(cv, vals, up) {
   vals.forEach((v, i) => { const x = (i / (vals.length - 1)) * (W - 2) + 1; const y = (1 - (v - lo) / (hi - lo)) * (H - 4) + 2; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
   ctx.stroke();
 }
+const __wlLastPrice = {}; // последняя цена по тикеру (для детекта пересечения порога)
 async function checkAlerts(symbol, price) {
   const wl = await N.markets.watchlist();
   const it = wl.find((w) => w.symbol === symbol);
   if (it && it.alert != null) {
     const key = '__alerted_' + symbol;
-    if (!window[key] && ((it._last != null && ((it._last < it.alert && price >= it.alert) || (it._last > it.alert && price <= it.alert))) || Math.abs(price - it.alert) / it.alert < 0.001)) {
+    const last = __wlLastPrice[symbol];
+    if (!window[key] && ((last != null && ((last < it.alert && price >= it.alert) || (last > it.alert && price <= it.alert))) || Math.abs(price - it.alert) / it.alert < 0.001)) {
       toast('🔔 ' + symbol, `${t('mk.alertHit')} ${it.alert} (${price.toFixed(2)})`, 'ok');
       N.notif.add({ kind: 'alert', title: '🔔 ' + symbol, message: `${t('mk.alertHit')} ${it.alert} (${price.toFixed(2)})` });
       window[key] = true; setTimeout(() => { window[key] = false; }, 300000);
     }
-    it._last = price;
   }
+  __wlLastPrice[symbol] = price;
 }
 
 /* ---------- Автоматизация: сценарии-конвейеры + наблюдатели ---------- */

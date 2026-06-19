@@ -48,6 +48,7 @@ function cfg() {
     riskAmount: +c.riskAmount || 200,        // риск на сделку для sizeMode=risk
     shadowMode: c.shadowMode === true,       // параллельно тестировать все стратегии «вхолостую»
     maxDrawdownPct: +c.maxDrawdownPct || 0,  // автостоп: выключиться при просадке счёта выше %
+    signalRoute: c.signalRoute === 'ai' ? 'ai' : 'direct', // 'direct' — бот торгует сам; 'ai' — через ИИ-супервайзера
     _state: c._state || {}
   };
 }
@@ -161,11 +162,16 @@ async function evaluate() {
           if (tr.ok && tr.trend === 'down') { emit('skip', { symbol, message: `пропуск buy: старший ТФ ${c.confirmTf} вниз` }); state[symbol] = { side: null }; continue; }
           emit('confirm', { symbol, message: `${c.confirmTf} тренд: ${tr.trend || '?'}` });
         }
-        // «ИИ за рулём»: сигнал идёт не в сделку, а на оценку нейросети-супервайзеру.
+        // Маршрут сигнала: по умолчанию бот торгует САМ. Опционально (signalRoute='ai')
+        // сигнал идёт не в сделку, а на оценку нейросети-супервайзеру («ИИ за рулём»).
         const copilot = require('./copilot');
-        if (copilot.enabled()) {
-          emit('toAI', { symbol, message: 'сигнал buy → на анализ ИИ-супервайзеру' });
-          await copilot.consider({ symbol, action: 'buy', signal: 'bot', price, reason: c.strategy });
+        if (c.signalRoute === 'ai' && copilot.enabled()) {
+          emit('toAI', { symbol, message: 'сигнал buy → ИИ-супервайзеру на анализ' });
+          try {
+            const dec = await copilot.consider({ symbol, action: 'buy', signal: 'bot', price, reason: c.strategy });
+            // Возвращаем итог в лог бота, чтобы сигнал не «исчезал» молча.
+            emit('confirm', { symbol, message: dec && dec.approved ? `ИИ одобрил (${dec.confidence}%) → создано предложение` : `ИИ отклонил${dec ? ' (' + dec.confidence + '%)' : ''}: ${(dec && dec.reason) || 'нет ответа'}` });
+          } catch (e) { emit('error', { symbol, message: 'ИИ-супервайзер недоступен: ' + e.message + ' (проверьте, запущен ли Ollama)' }); }
           state[symbol] = { side: null };
           continue;
         }
@@ -234,6 +240,17 @@ function start() { stop(); const c = cfg(); if (!c.enabled) return; timer = setI
 function stop() { if (timer) { clearInterval(timer); timer = null; emit('status', { running: false }); } }
 function restart() { stop(); start(); }
 function init(deps) { if (deps && deps.sendToUI) uiSender = deps.sendToUI; if (cfg().enabled) start(); }
-function runOnce() { return evaluate(); }
+// Ручной прогон с понятной обратной связью (чтобы было видно, что бот «жив»).
+async function runOnce() {
+  const c = cfg();
+  if (!c.enabled) { emit('status', { message: '⚠️ бот выключен — включите «Включить бота»' }); return { ok: false, error: 'disabled' }; }
+  if (!c.symbols.length) { emit('status', { message: '⚠️ нет тикеров — добавьте символы или watchlist' }); return { ok: false, error: 'no symbols' }; }
+  const before = paper.valuation().positions.length;
+  emit('status', { message: `прогон ${c.symbols.length} тикеров (${c.strategy}, ${c.signalRoute === 'ai' ? 'через ИИ' : 'бот сам'})…` });
+  await evaluate();
+  const after = paper.valuation().positions.length;
+  emit('status', { message: `✓ прогон завершён · открытых позиций: ${after}${after === before ? ' (без изменений — нет свежего сигнала)' : ''}` });
+  return { ok: true, positions: after };
+}
 
 module.exports = { init, setUISender, setCfg, applyProfile, publicCfg, start, stop, runOnce, evaluate, PROFILES };

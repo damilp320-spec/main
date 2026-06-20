@@ -3871,8 +3871,11 @@ async function viewMarkets() {
         <div class="row" style="gap:10px">
           <label class="mk-ind"><input type="checkbox" id="mk-sma20" ${mk.sma20 ? 'checked' : ''}> SMA20</label>
           <label class="mk-ind"><input type="checkbox" id="mk-sma50" ${mk.sma50 ? 'checked' : ''}> SMA50</label>
+          <label class="mk-ind"><input type="checkbox" id="mk-bb" ${mk.bb ? 'checked' : ''}> BB</label>
+          <label class="mk-ind"><input type="checkbox" id="mk-ema" ${mk.ema ? 'checked' : ''}> EMA20</label>
           <label class="mk-ind"><input type="checkbox" id="mk-rsi" ${mk.rsi ? 'checked' : ''}> RSI</label>
           <label class="mk-ind"><input type="checkbox" id="mk-macd" ${mk.macd ? 'checked' : ''}> MACD</label>
+          <span class="seg" id="mk-ctype">${[['candles', '📊'], ['line', '📈'], ['area', '🟣']].map(([v, ic]) => `<button data-ct="${v}" title="${v}">${ic}</button>`).join('')}</span>
           <span id="mk-posgrp" class="row" style="gap:4px;display:none">
             <button class="btn ghost sm" id="mk-half" title="${esc(t('mk.closeHalf'))}">½</button>
             <button class="btn ghost sm" id="mk-quarter" title="${esc(t('mk.closeQuarter'))}">¼</button>
@@ -3951,6 +3954,10 @@ async function viewMarkets() {
   $('#mk-sma50').onchange = (e) => { mk.sma50 = e.target.checked; drawMarket(); };
   $('#mk-rsi').onchange = (e) => { mk.rsi = e.target.checked; drawMarket(); };
   $('#mk-macd').onchange = (e) => { mk.macd = e.target.checked; drawMarket(); };
+  $('#mk-bb').onchange = (e) => { mk.bb = e.target.checked; drawMarket(); };
+  $('#mk-ema').onchange = (e) => { mk.ema = e.target.checked; drawMarket(); };
+  const ctSeg = $('#mk-ctype');
+  if (ctSeg) ctSeg.querySelectorAll('[data-ct]').forEach((b) => { b.classList.toggle('on', b.dataset.ct === (mk.chartType || 'candles')); b.onclick = () => { mk.chartType = b.dataset.ct; ctSeg.querySelectorAll('[data-ct]').forEach((x) => x.classList.toggle('on', x.dataset.ct === mk.chartType)); drawMarket(); }; });
   $('#mk-watch').onclick = addToWatchlist;
   $('#mk-buy').onclick = buyFromChart;
   $('#mk-close').onclick = () => closePosition(1);
@@ -4187,20 +4194,44 @@ function drawMarket() {
   }
   // Подпанели индикаторов.
   if (inds.length) drawIndicatorPanels(ctx, c, inds, { padL, chartW, x, volBase, indH, txt });
-  // Свечи.
-  const bw = Math.max(1, (chartW / c.length) * 0.62);
-  for (let i = 0; i < c.length; i++) {
-    const k = c[i]; const up = k.c >= k.o; const col = up ? '#26a69a' : '#ef5350';
-    ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(x(i), y(k.h)); ctx.lineTo(x(i), y(k.l)); ctx.stroke();
-    const yo = y(k.o), yc = y(k.c); const top = Math.min(yo, yc); const hgt = Math.max(1, Math.abs(yc - yo));
-    ctx.fillRect(x(i) - bw / 2, top, bw, hgt);
+  // Цена: свечи / линия / area.
+  const ctype = mk.chartType || 'candles';
+  if (ctype === 'line' || ctype === 'area') {
+    const closesV = c.map((k) => k.c);
+    if (ctype === 'area') {
+      const grad = ctx.createLinearGradient(0, padT, 0, padT + chartH);
+      grad.addColorStop(0, 'rgba(124,92,255,.28)'); grad.addColorStop(1, 'rgba(124,92,255,0)');
+      ctx.beginPath(); closesV.forEach((cl, i) => i ? ctx.lineTo(x(i), y(cl)) : ctx.moveTo(x(i), y(cl)));
+      ctx.lineTo(x(closesV.length - 1), padT + chartH); ctx.lineTo(x(0), padT + chartH); ctx.closePath(); ctx.fillStyle = grad; ctx.fill();
+    }
+    ctx.strokeStyle = '#7c5cff'; ctx.lineWidth = 1.6; ctx.beginPath();
+    closesV.forEach((cl, i) => i ? ctx.lineTo(x(i), y(cl)) : ctx.moveTo(x(i), y(cl))); ctx.stroke();
+  } else {
+    const bw = Math.max(1, (chartW / c.length) * 0.62);
+    for (let i = 0; i < c.length; i++) {
+      const k = c[i]; const up = k.c >= k.o; const col = up ? '#26a69a' : '#ef5350';
+      ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x(i), y(k.h)); ctx.lineTo(x(i), y(k.l)); ctx.stroke();
+      const yo = y(k.o), yc = y(k.c); const top = Math.min(yo, yc); const hgt = Math.max(1, Math.abs(yc - yo));
+      ctx.fillRect(x(i) - bw / 2, top, bw, hgt);
+    }
   }
   // SMA-наложения.
   const closes = c.map((k) => k.c);
   const drawLine = (vals, color) => { ctx.strokeStyle = color; ctx.lineWidth = 1.4; ctx.beginPath(); let started = false; for (let i = 0; i < vals.length; i++) { if (vals[i] == null) continue; const px = x(i), py = y(vals[i]); if (!started) { ctx.moveTo(px, py); started = true; } else ctx.lineTo(px, py); } ctx.stroke(); };
   if (mk.sma20) drawLine(smaCalc(closes, 20), '#f7b733');
   if (mk.sma50) drawLine(smaCalc(closes, 50), '#7c5cff');
+  if (mk.ema) drawLine(emaSeries(closes, 20), '#29b6f6');
+  // Полосы Боллинджера (SMA20 ± 2σ) с лёгкой заливкой между.
+  if (mk.bb) {
+    const ma = smaCalc(closes, 20), sd = stdSeries(closes, 20); const up = [], dn = [];
+    for (let i = 0; i < closes.length; i++) { if (ma[i] == null || sd[i] == null) { up.push(null); dn.push(null); } else { up.push(ma[i] + 2 * sd[i]); dn.push(ma[i] - 2 * sd[i]); } }
+    ctx.fillStyle = 'rgba(120,160,255,.06)'; ctx.beginPath(); let started = false;
+    for (let i = 0; i < up.length; i++) { if (up[i] == null) continue; const px = x(i), py = y(up[i]); started ? ctx.lineTo(px, py) : (ctx.moveTo(px, py), started = true); }
+    for (let i = dn.length - 1; i >= 0; i--) { if (dn[i] == null) continue; ctx.lineTo(x(i), y(dn[i])); }
+    if (started) { ctx.closePath(); ctx.fill(); }
+    drawLine(up, 'rgba(120,160,255,.7)'); drawLine(dn, 'rgba(120,160,255,.7)'); drawLine(ma, 'rgba(120,160,255,.45)');
+  }
   // Точки входа/выхода стратегии (маркеры): ▲ покупка, ▼ продажа.
   if (mk.markers && mk.markers.length) {
     const tIndex = new Map(c.map((k, i) => [k.t, i]));
@@ -4394,6 +4425,7 @@ function calcATR(c, n = 14) {
 }
 // Индикаторы для подпанелей графика.
 function emaSeries(arr, n) { const k = 2 / (n + 1); const out = []; let prev = null; for (let i = 0; i < arr.length; i++) { prev = prev == null ? arr[i] : arr[i] * k + prev * (1 - k); out.push(i >= n - 1 ? prev : null); } return out; }
+function stdSeries(arr, n) { const out = []; for (let i = 0; i < arr.length; i++) { if (i < n - 1) { out.push(null); continue; } let m = 0; for (let j = i - n + 1; j <= i; j++) m += arr[j]; m /= n; let v = 0; for (let j = i - n + 1; j <= i; j++) v += (arr[j] - m) ** 2; out.push(Math.sqrt(v / n)); } return out; }
 function rsiSeries(closes, n = 14) {
   const out = new Array(closes.length).fill(null); let g = 0, l = 0;
   for (let i = 1; i < closes.length; i++) { const d = closes[i] - closes[i - 1]; const gg = d > 0 ? d : 0, ll = d < 0 ? -d : 0; if (i <= n) { g += gg; l += ll; if (i === n) { const rs = l === 0 ? 100 : g / l; out[i] = 100 - 100 / (1 + rs); g /= n; l /= n; } } else { g = (g * (n - 1) + gg) / n; l = (l * (n - 1) + ll) / n; const rs = l === 0 ? 100 : g / l; out[i] = 100 - 100 / (1 + rs); } }

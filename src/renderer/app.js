@@ -2813,6 +2813,7 @@ async function renderEquityCurve() {
     for (let i = 1; i < eqPts.length; i++) if (eqPts[i].at >= at) { const a = eqPts[i - 1], b = eqPts[i]; const f = (at - a.at) / ((b.at - a.at) || 1); return a.v + (b.v - a.v) * f; }
     return eqPts[eqPts.length - 1].v;
   };
+  const eqMarkers = [];
   for (const tr of (hist || [])) {
     if (tr.at < tMin || tr.at > tMax) continue;
     const mx = x(tr.at), my = y(eqAt(tr.at)), buy = tr.side === 'buy';
@@ -2820,11 +2821,36 @@ async function renderEquityCurve() {
     if (buy) { ctx.moveTo(mx, my + 8); ctx.lineTo(mx - 4, my + 15); ctx.lineTo(mx + 4, my + 15); }
     else { ctx.moveTo(mx, my - 8); ctx.lineTo(mx - 4, my - 15); ctx.lineTo(mx + 4, my - 15); }
     ctx.closePath(); ctx.fill();
+    eqMarkers.push({ x: mx, y: buy ? my + 12 : my - 12, tr });
   }
+  bindEqTooltip(cv, eqMarkers);
   // Подписи.
   ctx.fillStyle = txt; ctx.font = '10px Consolas, monospace';
   ctx.fillText(hi.toFixed(0), padL + cw + 4, y(hi) + 4); ctx.fillText(lo.toFixed(0), padL + cw + 4, y(lo) + 4);
   for (let i = 0; i <= 3; i++) { const at = tMin + span * i / 3; const d = new Date(at); ctx.fillText(`${d.getDate()}.${d.getMonth() + 1}`, Math.min(padL + cw * i / 3, padL + cw - 40), H - 4); }
+}
+// Тултип при наведении на маркер сделки на кривой капитала.
+function bindEqTooltip(cv, markers) {
+  const wrap = cv.parentElement; if (!wrap) return;
+  let tip = wrap.querySelector('.eq-tip');
+  if (!tip) { tip = el('div', 'eq-tip'); tip.style.display = 'none'; wrap.appendChild(tip); }
+  cv.onmousemove = (e) => {
+    const mx = e.offsetX, my = e.offsetY;
+    let hit = null, bestD = 144; // радиус ~12px
+    for (const m of markers) { const dx = m.x - mx, dy = m.y - my; const d = dx * dx + dy * dy; if (d < bestD) { bestD = d; hit = m; } }
+    if (!hit) { tip.style.display = 'none'; cv.style.cursor = 'default'; return; }
+    const tr = hit.tr; const buy = tr.side === 'buy';
+    tip.innerHTML = `<b class="${buy ? 'mk-up' : 'mk-down'}">${buy ? '▲ ' + t('tr.buy') : '▼ ' + t('tr.sell')}</b> ${esc(tr.symbol)}<br>`
+      + `${tr.qty} × ${(+tr.price).toFixed(2)}${tr.pnl != null ? ` · P&L <span class="${tr.pnl >= 0 ? 'mk-up' : 'mk-down'}">${tr.pnl >= 0 ? '+' : ''}${tr.pnl}</span>` : ''}<br>`
+      + `<span class="muted">${new Date(tr.at).toLocaleString()}${tr.source ? ' · ' + esc(tr.source) : ''}</span>`;
+    tip.style.display = 'block';
+    const tw = tip.offsetWidth || 150, th = tip.offsetHeight || 40;
+    let lx = hit.x + 10; if (lx + tw > cv.clientWidth) lx = hit.x - tw - 10;
+    let ly = hit.y - th - 6; if (ly < 0) ly = hit.y + 12;
+    tip.style.left = Math.max(2, lx) + 'px'; tip.style.top = ly + 'px';
+    cv.style.cursor = 'pointer';
+  };
+  cv.onmouseleave = () => { tip.style.display = 'none'; cv.style.cursor = 'default'; };
 }
 const csvCell = (v) => { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
 const toCsv = (rows) => rows.map((r) => r.map(csvCell).join(',')).join('\n');

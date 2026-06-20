@@ -383,7 +383,8 @@ body.compact .view-head { margin-bottom: 10px; }
 .seg button + button { border-left: 1px solid var(--border); }
 .seg button:hover { color: #c8d0e0; }
 .seg button.on { background: var(--accent); color: #fff; }
-.ck-eqspark { display: block; margin-top: 8px; opacity: .9; }
+.ck-eqwrap { position: relative; margin-top: 8px; width: 200px; }
+.ck-eqspark { display: block; opacity: .9; cursor: pointer; }
 .mk-spark { width: 80px; height: 22px; }
 .mk-wl-q { font-size: 12px; font-family: 'Consolas', monospace; min-width: 96px; text-align: right; }
 

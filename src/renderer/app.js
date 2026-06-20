@@ -2437,7 +2437,7 @@ async function viewCockpit() {
   content.innerHTML = `
     <div class="view-head"><h1>🎛️ ${esc(t('ck.title'))}</h1><p>${esc(t('ck.sub'))} · <a class="wikilink" data-go="trading">${esc(t('ck.settings'))}</a></p></div>
     <div class="grid cols-4">
-      <div class="card stat"><span class="lbl">${esc(t('ck.equity'))}</span><span class="big" id="ck-eq">…</span><span class="muted" id="ck-pnl"></span><canvas id="ck-eqspark" class="ck-eqspark"></canvas></div>
+      <div class="card stat"><span class="lbl">${esc(t('ck.equity'))}</span><span class="big" id="ck-eq">…</span><span class="muted" id="ck-pnl"></span><div class="ck-eqwrap"><canvas id="ck-eqspark" class="ck-eqspark"></canvas></div></div>
       <div class="card stat"><span class="lbl">${esc(t('ck.bot'))}</span><span class="big" id="ck-bot">…</span><span class="muted" id="ck-botsub"></span></div>
       <div class="card stat"><span class="lbl">${esc(t('ck.breadth'))}</span><span class="big" id="ck-breadth">…</span><span class="muted" id="ck-breadthsub"></span></div>
       <div class="card stat"><span class="lbl">${esc(t('ck.copilot'))}</span><span class="big" id="ck-cop">…</span><span class="muted" id="ck-copsub"></span></div>
@@ -2459,8 +2459,8 @@ async function viewCockpit() {
     if (state.view !== 'cockpit') return;
     $('#ck-eq').textContent = v.equity.toLocaleString();
     $('#ck-pnl').innerHTML = `<span class="${v.totalPnl >= 0 ? 'mk-up' : 'mk-down'}">${v.totalPnl >= 0 ? '+' : ''}${v.totalPnl} (${v.totalPnlPct}%)</span>`;
-    // Мини-кривая капитала.
-    try { const curve = await N.paper.equityCurve(); if (state.view === 'cockpit' && curve && curve.length > 1) { const vals = curve.map((p) => p.equity); drawSparkline($('#ck-eqspark'), vals, vals[vals.length - 1] >= vals[0], 200, 32); } } catch {}
+    // Мини-кривая капитала (с точками сделок и тултипом).
+    renderCockpitEquity();
     $('#ck-port').innerHTML = v.positions.length ? v.positions.slice(0, 6).map((p) => `<div class="today-row"><span>${esc(p.symbol)} ×${p.qty}</span><span class="${p.pnl >= 0 ? 'mk-up' : 'mk-down'}">${p.pnlPct >= 0 ? '+' : ''}${p.pnlPct}%</span></div>`).join('') : `<span class="muted">${esc(t('bot.noPos'))}</span>`;
   })();
   // Бот.
@@ -2885,6 +2885,37 @@ function bindEqTooltip(cv, markers) {
     cv.style.cursor = 'pointer';
   };
   cv.onmouseleave = () => { tip.style.display = 'none'; cv.style.cursor = 'default'; };
+}
+// Интерактивная мини-кривая капитала в «Кокпите»: линия + точки сделок + тултип.
+async function renderCockpitEquity() {
+  const cv = $('#ck-eqspark'); if (!cv) return;
+  const [curve, hist] = await Promise.all([N.paper.equityCurve(), N.paper.history()]);
+  if (state.view !== 'cockpit' || !curve || curve.length < 2) return;
+  const W = 200, H = 40, dpr = window.devicePixelRatio || 1;
+  cv.width = W * dpr; cv.height = H * dpr; cv.style.width = W + 'px'; cv.style.height = H + 'px';
+  const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+  const vals = curve.map((p) => p.equity); const start = vals[0];
+  let lo = Math.min(...vals, start), hi = Math.max(...vals, start); const pad = (hi - lo) * 0.12 || 1; lo -= pad; hi += pad;
+  const tMin = curve[0].at, tMax = curve[curve.length - 1].at; const span = (tMax - tMin) || 1;
+  const x = (at) => (at - tMin) / span * (W - 2) + 1; const y = (v) => (1 - (v - lo) / (hi - lo)) * (H - 6) + 3;
+  const up = vals[vals.length - 1] >= start;
+  ctx.strokeStyle = 'rgba(140,150,170,.25)'; ctx.setLineDash([3, 2]); ctx.beginPath(); ctx.moveTo(1, y(start)); ctx.lineTo(W - 1, y(start)); ctx.stroke(); ctx.setLineDash([]);
+  ctx.strokeStyle = up ? '#26a69a' : '#ef5350'; ctx.lineWidth = 1.3; ctx.beginPath();
+  curve.forEach((p, i) => i ? ctx.lineTo(x(p.at), y(p.equity)) : ctx.moveTo(x(p.at), y(p.equity))); ctx.stroke();
+  const eqAt = (at) => {
+    if (at <= curve[0].at) return curve[0].equity;
+    if (at >= curve[curve.length - 1].at) return curve[curve.length - 1].equity;
+    for (let i = 1; i < curve.length; i++) if (curve[i].at >= at) { const a = curve[i - 1], b = curve[i]; const f = (at - a.at) / ((b.at - a.at) || 1); return a.equity + (b.equity - a.equity) * f; }
+    return curve[curve.length - 1].equity;
+  };
+  const marks = [];
+  for (const tr of (hist || [])) {
+    if (tr.at < tMin || tr.at > tMax) continue;
+    const mx = x(tr.at), my = y(eqAt(tr.at)); ctx.fillStyle = tr.side === 'buy' ? '#26a69a' : '#ef5350';
+    ctx.beginPath(); ctx.arc(mx, my, 2.3, 0, 7); ctx.fill();
+    marks.push({ x: mx, y: my, tr: { ...tr, t: tr.at } });
+  }
+  bindEqTooltip(cv, marks);
 }
 const csvCell = (v) => { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
 const toCsv = (rows) => rows.map((r) => r.map(csvCell).join(',')).join('\n');
@@ -4036,6 +4067,18 @@ async function loadMarket(silent) {
   if (q) q.innerHTML = `<b>${esc(d.symbol)}</b> <span class="mk-price">${last.toFixed(2)} ${esc(d.currency || '')}</span> <span class="${up ? 'mk-up' : 'mk-down'}">${up ? '▲' : '▼'} ${chg.toFixed(2)}%</span> <span class="muted" style="font-size:11px">· ${esc(d.source)}</span>`;
   // Реальные сделки бумажного счёта по этому тикеру — наложим на график.
   try { const sym = (mk.symbol || '').toUpperCase(); const h = await N.paper.history(); mk.trades = (h || []).filter((tr) => (tr.symbol || '').toUpperCase() === sym).map((tr) => ({ t: tr.at, price: +tr.price, side: tr.side, qty: tr.qty, pnl: tr.pnl })); } catch { mk.trades = []; }
+  // Уровни бота: если по тикеру открыта бумажная позиция — вход/стоп/тейк из настроек бота.
+  try {
+    const sym = (mk.symbol || '').toUpperCase();
+    const v = await N.paper.valuation(); const pos = (v.positions || []).find((p) => p.symbol === sym);
+    if (pos) {
+      const bc = await N.bot.cfg(); const entry = pos.avg; const lv = { entry, atr: bc.stopType === 'atr' };
+      if (bc.stopLossPct && bc.stopType !== 'atr') lv.stop = entry * (1 - bc.stopLossPct / 100);
+      if (bc.takeProfitPct) lv.tp = entry * (1 + bc.takeProfitPct / 100);
+      if (bc.tp1Pct) lv.tp1 = entry * (1 + bc.tp1Pct / 100);
+      mk.levels = lv;
+    } else mk.levels = null;
+  } catch { mk.levels = null; }
   drawMarket();
   checkAlerts(d.symbol, last);
   if (!silent) loadNews();
@@ -4126,17 +4169,35 @@ function drawMarket() {
       ctx.closePath(); ctx.fill();
     }
   }
+  // Уровни бота (вход/стоп/тейк) при открытой позиции по тикеру.
+  const mkTradeMarks = [];
+  if (mk.levels && mk.levels.entry) {
+    const lv = mk.levels;
+    const hline = (price, color, label) => {
+      if (price == null || price < lo || price > hi) return;
+      const ly = y(price);
+      ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.setLineDash([6, 4]);
+      ctx.beginPath(); ctx.moveTo(padL, ly); ctx.lineTo(padL + chartW, ly); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = color; ctx.font = '9px Consolas, monospace';
+      ctx.fillText(label + ' ' + price.toFixed(2), padL + 3, ly - 2);
+    };
+    hline(lv.entry, 'rgba(124,92,255,.9)', t('mk.lvEntry'));
+    hline(lv.stop, 'rgba(239,83,80,.85)', t('mk.lvStop'));
+    hline(lv.tp1, 'rgba(224,169,58,.9)', t('mk.lvTp1'));
+    hline(lv.tp, 'rgba(38,166,154,.9)', t('mk.lvTp'));
+  }
   // Реальные сделки бумажного счёта по тикеру: кружок с кольцом (▲/▼ — стратегия).
   if (mk.trades && mk.trades.length && c.length) {
-    const t0 = c[0].t, slot = chartW / c.length;
+    const t0 = c[0].t, tLast = c[c.length - 1].t;
     for (const tr of mk.trades) {
-      if (tr.t < t0 - 86400000 || tr.t > c[c.length - 1].t + 86400000) continue;
-      let idx = Math.round((tr.t - t0) / ((c[c.length - 1].t - t0) || 1) * (c.length - 1));
-      idx = Math.max(0, Math.min(c.length - 1, idx));
+      if (tr.t < t0 - 7 * 86400000) continue; // сделка задолго до начала графика — пропускаем
+      let idx = Math.round((tr.t - t0) / ((tLast - t0) || 1) * (c.length - 1));
+      idx = Math.max(0, Math.min(c.length - 1, idx)); // свежие сделки — у правого края
       const mx = x(idx), my = y(tr.price), buy = tr.side === 'buy';
       ctx.fillStyle = buy ? 'rgba(38,166,154,.9)' : 'rgba(239,83,80,.9)';
       ctx.beginPath(); ctx.arc(mx, my, 3.5, 0, 7); ctx.fill();
       ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(mx, my, 5.5, 0, 7); ctx.stroke();
+      mkTradeMarks.push({ x: mx, y: my, tr });
     }
   }
   // Линия последней цены.
@@ -4149,7 +4210,7 @@ function drawMarket() {
     const lbl = (mk.interval.includes('m') || mk.interval.includes('h')) ? `${d.getDate()}.${d.getMonth() + 1} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` : `${d.getDate()}.${d.getMonth() + 1}.${String(d.getFullYear()).slice(2)}`;
     ctx.fillText(lbl, Math.min(x(idx) - 18, padL + chartW - 60), H - 6);
   }
-  bindMarketTooltip(cv, c, { padL, padT, chartW, chartH, lo, hi, interval: mk.interval, x, y });
+  bindMarketTooltip(cv, c, { padL, padT, chartW, chartH, lo, hi, interval: mk.interval, x, y, tradeMarks: mkTradeMarks });
 }
 // Тултип со свечой OHLC + кроссхейр при наведении на график «Рынки».
 function bindMarketTooltip(cv, candles, geo) {
@@ -4159,12 +4220,27 @@ function bindMarketTooltip(cv, candles, geo) {
   const ov = wrap.querySelector('#mk-overlay'); const dpr = window.devicePixelRatio || 1;
   let octx = null;
   if (ov) { ov.width = cv.width; ov.height = cv.height; ov.style.width = cv.style.width; ov.style.height = cv.style.height; octx = ov.getContext('2d'); octx.setTransform(dpr, 0, 0, dpr, 0, 0); }
-  const { padL, padT, chartW, chartH, lo, hi, interval, x, y } = geo;
+  const { padL, padT, chartW, chartH, lo, hi, interval, x, y, tradeMarks } = geo;
   const slot = chartW / candles.length;
   const fmtV = (v) => v >= 1e9 ? (v / 1e9).toFixed(1) + 'B' : v >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : v >= 1e3 ? (v / 1e3).toFixed(1) + 'K' : String(v || 0);
   const W = cv.clientWidth, H = cv.clientHeight;
   cv.onmousemove = (e) => {
     const mx = e.offsetX, my = e.offsetY;
+    // Сначала — наведение на кружок реальной сделки: показываем детали (объём/P&L).
+    let near = null, bestD = 81; // радиус ~9px
+    for (const m of (tradeMarks || [])) { const dx = m.x - mx, dy = m.y - my; const d = dx * dx + dy * dy; if (d < bestD) { bestD = d; near = m; } }
+    if (near) {
+      const tr = near.tr; const buy = tr.side === 'buy';
+      tip.innerHTML = `<b class="${buy ? 'mk-up' : 'mk-down'}">${buy ? '▲ ' + t('tr.buy') : '▼ ' + t('tr.sell')}</b><br>`
+        + `${tr.qty} × ${(+tr.price).toFixed(2)}${tr.pnl != null ? ` · P&L <span class="${tr.pnl >= 0 ? 'mk-up' : 'mk-down'}">${tr.pnl >= 0 ? '+' : ''}${tr.pnl}</span>` : ''}<br>`
+        + `<span class="muted">${new Date(tr.t).toLocaleString()}</span>`;
+      tip.style.display = 'block';
+      const tw0 = tip.offsetWidth || 130; let lx0 = near.x + 12; if (lx0 + tw0 > W) lx0 = near.x - tw0 - 12;
+      tip.style.left = Math.max(2, lx0) + 'px'; tip.style.top = Math.max(2, near.y - 40) + 'px';
+      if (octx) octx.clearRect(0, 0, W, H);
+      cv.style.cursor = 'pointer'; return;
+    }
+    cv.style.cursor = 'crosshair';
     let i = Math.round((mx - padL) / slot - 0.5);
     if (i < 0 || i >= candles.length || mx < padL || mx > padL + chartW) { tip.style.display = 'none'; if (octx) octx.clearRect(0, 0, W, H); return; }
     const k = candles[i]; const d = new Date(k.t);

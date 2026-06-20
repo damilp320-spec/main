@@ -3871,6 +3871,7 @@ async function viewMarkets() {
         <div class="row" style="gap:10px">
           <label class="mk-ind"><input type="checkbox" id="mk-sma20" ${mk.sma20 ? 'checked' : ''}> SMA20</label>
           <label class="mk-ind"><input type="checkbox" id="mk-sma50" ${mk.sma50 ? 'checked' : ''}> SMA50</label>
+          <button class="btn danger sm" id="mk-close" style="display:none">✖ ${esc(t('mk.closePos'))}</button>
           <button class="btn ghost sm" id="mk-watch">⭐ ${esc(t('mk.watch'))}</button>
         </div>
       </div>
@@ -4072,13 +4073,16 @@ async function loadMarket(silent) {
     const sym = (mk.symbol || '').toUpperCase();
     const v = await N.paper.valuation(); const pos = (v.positions || []).find((p) => p.symbol === sym);
     if (pos) {
-      const bc = await N.bot.cfg(); const entry = pos.avg; const lv = { entry, atr: bc.stopType === 'atr' };
-      if (bc.stopLossPct && bc.stopType !== 'atr') lv.stop = entry * (1 - bc.stopLossPct / 100);
+      const bc = await N.bot.cfg(); const entry = pos.avg; const lv = { entry, qty: pos.qty, atr: bc.stopType === 'atr' };
+      if (bc.stopType === 'atr') { const av = calcATR(c, 14); if (av) lv.stop = entry - (bc.atrMult || 2) * av; }
+      else if (bc.stopLossPct) lv.stop = entry * (1 - bc.stopLossPct / 100);
       if (bc.takeProfitPct) lv.tp = entry * (1 + bc.takeProfitPct / 100);
       if (bc.tp1Pct) lv.tp1 = entry * (1 + bc.tp1Pct / 100);
       mk.levels = lv;
     } else mk.levels = null;
   } catch { mk.levels = null; }
+  // Кнопка «закрыть позицию» — показываем только при открытой позиции.
+  const cb = $('#mk-close'); if (cb) { cb.style.display = mk.levels ? '' : 'none'; cb.onclick = closePosition; }
   drawMarket();
   checkAlerts(d.symbol, last);
   if (!silent) loadNews();
@@ -4134,6 +4138,13 @@ function drawMarket() {
     ctx.beginPath(); ctx.moveTo(padL, gy); ctx.lineTo(padL + chartW, gy); ctx.stroke();
     ctx.fillText(price.toFixed(2), padL + chartW + 4, gy + 3);
   }
+  // Зоны прибыли/убытка между входом и тейком/стопом (под свечами).
+  if (mk.levels && mk.levels.entry) {
+    const lv = mk.levels; const clampY = (v) => Math.max(padT, Math.min(padT + chartH, y(v)));
+    const ey = clampY(lv.entry);
+    if (lv.tp != null) { const ty = clampY(lv.tp); ctx.fillStyle = 'rgba(38,166,154,.08)'; ctx.fillRect(padL, Math.min(ey, ty), chartW, Math.abs(ey - ty)); }
+    if (lv.stop != null) { const sy = clampY(lv.stop); ctx.fillStyle = 'rgba(239,83,80,.08)'; ctx.fillRect(padL, Math.min(ey, sy), chartW, Math.abs(ey - sy)); }
+  }
   // Объёмы.
   for (let i = 0; i < c.length; i++) {
     const vh = vMax ? (c[i].v / vMax) * (volH - 4) : 0;
@@ -4182,7 +4193,7 @@ function drawMarket() {
       ctx.fillText(label + ' ' + price.toFixed(2), padL + 3, ly - 2);
     };
     hline(lv.entry, 'rgba(124,92,255,.9)', t('mk.lvEntry'));
-    hline(lv.stop, 'rgba(239,83,80,.85)', t('mk.lvStop'));
+    hline(lv.stop, 'rgba(239,83,80,.85)', t('mk.lvStop') + (lv.atr ? ' (ATR)' : ''));
     hline(lv.tp1, 'rgba(224,169,58,.9)', t('mk.lvTp1'));
     hline(lv.tp, 'rgba(38,166,154,.9)', t('mk.lvTp'));
   }
@@ -4270,6 +4281,21 @@ function bindMarketTooltip(cv, candles, geo) {
   cv.onmouseleave = () => { tip.style.display = 'none'; if (octx) octx.clearRect(0, 0, W, H); };
 }
 function smaCalc(arr, n) { const out = []; for (let i = 0; i < arr.length; i++) { if (i < n - 1) { out.push(null); continue; } let s = 0; for (let j = i - n + 1; j <= i; j++) s += arr[j]; out.push(s / n); } return out; }
+function calcATR(c, n = 14) {
+  if (!c || c.length < n + 1) return null;
+  let s = 0; for (let i = c.length - n; i < c.length; i++) s += Math.max(c[i].h - c[i].l, Math.abs(c[i].h - c[i - 1].c), Math.abs(c[i].l - c[i - 1].c));
+  return s / n;
+}
+// Закрыть открытую бумажную позицию по тикеру прямо с графика.
+async function closePosition() {
+  const mk = state.market; if (!mk.levels || !mk.levels.qty) return;
+  const sym = (mk.symbol || '').toUpperCase();
+  const last = mk.data && mk.data.candles.length ? mk.data.candles[mk.data.candles.length - 1].c : mk.levels.entry;
+  if (!await confirmModal('✖ ' + t('mk.closePos'), `${sym}: ${t('mk.closeConfirm')} ${mk.levels.qty} @ ~${last.toFixed(2)}`)) return;
+  const r = await N.paper.trade({ symbol: sym, side: 'sell', qty: mk.levels.qty, price: last, reason: 'ручное закрытие с графика', source: 'manual' });
+  if (r.ok) { toast('✖', sym + ' ' + t('mk.closed') + (r.pnl != null ? ` · P&L ${r.pnl}` : ''), 'ok'); loadMarket(); }
+  else toast('⚠️', r.error || 'ошибка', 'err');
+}
 
 async function analyzeMarket() {
   const mk = state.market; const ai = $('#mk-ai'); if (!ai) return;

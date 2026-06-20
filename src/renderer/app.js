@@ -3878,6 +3878,7 @@ async function viewMarkets() {
             <button class="btn ghost sm" id="mk-lvreset" title="${esc(t('mk.resetLv'))}">↺</button>
             <button class="btn danger sm" id="mk-close">✖ ${esc(t('mk.closePos'))}</button>
           </span>
+          <button class="btn ghost sm" id="mk-buy">🟢 ${esc(t('mk.buy'))}</button>
           <button class="btn ghost sm" id="mk-watch">⭐ ${esc(t('mk.watch'))}</button>
         </div>
       </div>
@@ -3947,6 +3948,7 @@ async function viewMarkets() {
   $('#mk-sma20').onchange = (e) => { mk.sma20 = e.target.checked; drawMarket(); };
   $('#mk-sma50').onchange = (e) => { mk.sma50 = e.target.checked; drawMarket(); };
   $('#mk-watch').onclick = addToWatchlist;
+  $('#mk-buy').onclick = buyFromChart;
   $('#mk-close').onclick = () => closePosition(1);
   $('#mk-half').onclick = () => closePosition(0.5);
   $('#mk-quarter').onclick = () => closePosition(0.25);
@@ -4067,7 +4069,7 @@ function drawEquity(r) {
 
 async function loadMarket(silent) {
   const mk = state.market;
-  if (!silent) mk.markers = null; // сброс маркеров при смене тикера/таймфрейма
+  if (!silent) { mk.markers = null; mk.vStart = null; mk.vCount = null; } // сброс маркеров и зума при смене тикера/ТФ
   if (!silent) { const l = $('#mk-loading'); if (l) l.style.display = 'flex'; }
   const d = await N.markets.candles({ symbol: mk.symbol, interval: mk.interval, range: mk.range });
   const l = $('#mk-loading'); if (l) l.style.display = 'none';
@@ -4094,9 +4096,12 @@ async function loadMarket(silent) {
       if (ov.stop != null) { lv.stop = ov.stop; lv.stopManual = true; }
       if (ov.tp != null) { lv.tp = ov.tp; lv.tpManual = true; }
       if (lv.stop != null && lv.tp != null && entry > lv.stop) lv.rr = +((lv.tp - entry) / (entry - lv.stop)).toFixed(2);
+      lv.pnl = +((last - entry) * pos.qty).toFixed(2); lv.pnlPct = +(((last - entry) / entry) * 100).toFixed(2); // плавающий P&L
       mk.levels = lv;
     } else mk.levels = null;
   } catch { mk.levels = null; }
+  // Ценовые алерты по тикеру — для линий и перетаскивания.
+  try { const sym = (mk.symbol || '').toUpperCase(); const al = await N.alerts.list(); mk.priceAlerts = (al || []).filter((a) => (a.symbol || '').toUpperCase() === sym && (a.type === 'price_above' || a.type === 'price_below')); } catch { mk.priceAlerts = []; }
   // Кнопки управления позицией — только при открытой позиции.
   const grp = $('#mk-posgrp'); if (grp) grp.style.display = mk.levels ? '' : 'none';
   drawMarket();
@@ -4139,7 +4144,12 @@ function drawMarket() {
   if (!data || !data.candles.length) return;
   const css = getComputedStyle(document.body);
   const grid = 'rgba(140,150,170,.14)'; const txt = css.getPropertyValue('--muted') || '#8b93a7';
-  const c = data.candles;
+  // Видимое окно (зум/панорамирование).
+  const all = data.candles;
+  let vCount = mk.vCount != null ? mk.vCount : all.length; vCount = Math.max(15, Math.min(all.length, vCount));
+  let vStart = mk.vStart != null ? mk.vStart : 0; vStart = Math.max(0, Math.min(all.length - vCount, vStart));
+  mk.vStart = vStart; mk.vCount = vCount;
+  const c = all.slice(vStart, vStart + vCount);
   const padL = 6, padR = 60, padT = 12, padB = 26, volH = 36;
   const chartW = W - padL - padR; const chartH = H - padT - padB - volH;
   let lo = Infinity, hi = -Infinity, vMax = 0;
@@ -4232,9 +4242,33 @@ function drawMarket() {
       mkTradeMarks.push({ x: mx, y: my, tr });
     }
   }
+  // Линии ценовых алертов (перетаскиваемые) + список перетаскиваемых линий.
+  const dragLines = [];
+  if (mk.levels && mk.levels.stop != null) dragLines.push({ key: 'stop', price: mk.levels.stop });
+  if (mk.levels && mk.levels.tp != null) dragLines.push({ key: 'tp', price: mk.levels.tp });
+  if (mk.priceAlerts && mk.priceAlerts.length) {
+    for (const a of mk.priceAlerts) {
+      if (a.value == null || a.value < lo || a.value > hi) continue;
+      const ly = y(a.value);
+      ctx.strokeStyle = 'rgba(255,180,80,.8)'; ctx.lineWidth = 1; ctx.setLineDash([2, 3]);
+      ctx.beginPath(); ctx.moveTo(padL, ly); ctx.lineTo(padL + chartW, ly); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = 'rgba(255,180,80,.95)'; ctx.font = '9px Consolas, monospace';
+      ctx.fillText('🔔 ' + (a.type === 'price_above' ? '≥' : '≤') + ' ' + a.value, padL + 3, ly - 2);
+      dragLines.push({ key: 'alert:' + a.id, price: a.value });
+    }
+  }
+  // Плавающий P&L открытой позиции (справа сверху).
+  if (mk.levels && mk.levels.pnl != null) {
+    const lv = mk.levels; ctx.font = 'bold 11px Consolas, monospace';
+    const ptxt = `${t('mk.posLbl')} ${lv.qty} · P&L ${lv.pnl >= 0 ? '+' : ''}${lv.pnl} (${lv.pnlPct >= 0 ? '+' : ''}${lv.pnlPct}%)`;
+    ctx.fillStyle = lv.pnl >= 0 ? '#26a69a' : '#ef5350';
+    ctx.fillText(ptxt, padL + chartW - ctx.measureText(ptxt).width - 2, padT + 12);
+  }
   // Линия последней цены.
   const lastP = closes[closes.length - 1]; ctx.strokeStyle = 'rgba(124,92,255,.6)'; ctx.setLineDash([4, 3]);
   ctx.beginPath(); ctx.moveTo(padL, y(lastP)); ctx.lineTo(padL + chartW, y(lastP)); ctx.stroke(); ctx.setLineDash([]);
+  // Индикатор зума (если не весь диапазон).
+  if (c.length < all.length) { ctx.fillStyle = txt; ctx.font = '9px Consolas, monospace'; ctx.fillText(`🔍 ${c.length}/${all.length} · 2× клик — сброс`, padL + 3, H - 16); }
   // Подписи дат (5 шт).
   ctx.fillStyle = txt;
   for (let i = 0; i <= 4; i++) {
@@ -4242,9 +4276,9 @@ function drawMarket() {
     const lbl = (mk.interval.includes('m') || mk.interval.includes('h')) ? `${d.getDate()}.${d.getMonth() + 1} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` : `${d.getDate()}.${d.getMonth() + 1}.${String(d.getFullYear()).slice(2)}`;
     ctx.fillText(lbl, Math.min(x(idx) - 18, padL + chartW - 60), H - 6);
   }
-  bindMarketTooltip(cv, c, { padL, padT, chartW, chartH, lo, hi, interval: mk.interval, x, y, tradeMarks: mkTradeMarks, levels: mk.levels });
+  bindMarketTooltip(cv, c, { padL, padT, chartW, chartH, lo, hi, interval: mk.interval, x, y, tradeMarks: mkTradeMarks, dragLines });
 }
-let mkDrag = null;
+let mkDrag = null, mkPan = null;
 // Тултип со свечой OHLC + кроссхейр при наведении на график «Рынки».
 function bindMarketTooltip(cv, candles, geo) {
   const wrap = cv.parentElement; if (!wrap) return;
@@ -4253,27 +4287,51 @@ function bindMarketTooltip(cv, candles, geo) {
   const ov = wrap.querySelector('#mk-overlay'); const dpr = window.devicePixelRatio || 1;
   let octx = null;
   if (ov) { ov.width = cv.width; ov.height = cv.height; ov.style.width = cv.style.width; ov.style.height = cv.style.height; octx = ov.getContext('2d'); octx.setTransform(dpr, 0, 0, dpr, 0, 0); }
-  const { padL, padT, chartW, chartH, lo, hi, interval, x, y, tradeMarks, levels } = geo;
+  const { padL, padT, chartW, chartH, lo, hi, interval, x, y, tradeMarks, dragLines } = geo;
   const slot = chartW / candles.length;
   const fmtV = (v) => v >= 1e9 ? (v / 1e9).toFixed(1) + 'B' : v >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : v >= 1e3 ? (v / 1e3).toFixed(1) + 'K' : String(v || 0);
   const W = cv.clientWidth, H = cv.clientHeight;
   const priceAt = (my) => lo + (1 - (my - padT) / chartH) * (hi - lo);
-  const lineHit = (my) => { if (!levels) return null; if (levels.stop != null && Math.abs(my - y(levels.stop)) < 5) return 'stop'; if (levels.tp != null && Math.abs(my - y(levels.tp)) < 5) return 'tp'; return null; };
-  cv.onmousedown = (e) => { const k = lineHit(e.offsetY); if (k) { mkDrag = { key: k }; cv.style.cursor = 'ns-resize'; } };
-  cv.onmouseup = async (e) => {
-    if (!mkDrag) return;
-    const my = Math.max(padT, Math.min(padT + chartH, e.offsetY)); const k = mkDrag.key; mkDrag = null;
-    if (octx) octx.clearRect(0, 0, W, H);
-    const sym = (state.market.symbol || '').toUpperCase();
-    await saveChartLevel(sym, k, +priceAt(my).toFixed(2)); loadMarket();
+  const lineHit = (my) => { for (const L of (dragLines || [])) if (Math.abs(my - y(L.price)) < 5) return L.key; return null; };
+  cv.onmousedown = (e) => {
+    const k = lineHit(e.offsetY);
+    if (k) { mkDrag = { key: k }; cv.style.cursor = 'ns-resize'; }
+    else { mkPan = { x0: e.offsetX, start0: (state.market.vStart || 0) }; cv.style.cursor = 'grabbing'; }
   };
+  cv.onmouseup = async (e) => {
+    if (mkPan) { mkPan = null; cv.style.cursor = 'crosshair'; return; }
+    if (!mkDrag) return;
+    const my = Math.max(padT, Math.min(padT + chartH, e.offsetY)); const key = mkDrag.key; mkDrag = null;
+    if (octx) octx.clearRect(0, 0, W, H);
+    const sym = (state.market.symbol || '').toUpperCase(); const price = +priceAt(my).toFixed(2);
+    if (key === 'stop' || key === 'tp') await saveChartLevel(sym, key, price);
+    else if (key.startsWith('alert:')) { const id = key.slice(6); const a = (state.market.priceAlerts || []).find((al) => al.id === id); if (a) { a.value = price; await N.alerts.save(a); renderAlerts(); } }
+    loadMarket();
+  };
+  cv.onwheel = (e) => {
+    e.preventDefault(); const mk = state.market; const allc = mk.data && mk.data.candles; if (!allc) return;
+    let vc = mk.vCount != null ? mk.vCount : allc.length, vs = mk.vStart != null ? mk.vStart : 0;
+    const frac = Math.max(0, Math.min(1, (e.offsetX - padL) / chartW)); const anchor = vs + frac * vc;
+    let nc = Math.round(vc * (e.deltaY < 0 ? 0.82 : 1.22)); nc = Math.max(15, Math.min(allc.length, nc));
+    let ns = Math.round(anchor - frac * nc); ns = Math.max(0, Math.min(allc.length - nc, ns));
+    mk.vStart = ns; mk.vCount = nc; drawMarket();
+  };
+  cv.ondblclick = () => { const mk = state.market; mk.vStart = null; mk.vCount = null; drawMarket(); };
   cv.onmousemove = (e) => {
     const mx = e.offsetX, my = e.offsetY;
-    // Перетаскивание линии стопа/тейка.
+    // Перетаскивание линии (стоп/тейк/алерт).
     if (mkDrag) {
       const cy = Math.max(padT, Math.min(padT + chartH, my));
-      if (octx) { octx.clearRect(0, 0, W, H); const col = mkDrag.key === 'stop' ? '#ef5350' : '#26a69a'; octx.strokeStyle = col; octx.lineWidth = 1.5; octx.setLineDash([6, 4]); octx.beginPath(); octx.moveTo(padL, cy); octx.lineTo(padL + chartW, cy); octx.stroke(); octx.setLineDash([]); octx.fillStyle = col; octx.font = '10px Consolas, monospace'; octx.fillText((mkDrag.key === 'stop' ? t('mk.lvStop') : t('mk.lvTp')) + ' ' + priceAt(cy).toFixed(2), padL + 4, cy - 3); }
+      const isStop = mkDrag.key === 'stop'; const isAlert = mkDrag.key.startsWith('alert:');
+      if (octx) { octx.clearRect(0, 0, W, H); const col = isAlert ? '#ffb450' : (isStop ? '#ef5350' : '#26a69a'); octx.strokeStyle = col; octx.lineWidth = 1.5; octx.setLineDash([6, 4]); octx.beginPath(); octx.moveTo(padL, cy); octx.lineTo(padL + chartW, cy); octx.stroke(); octx.setLineDash([]); octx.fillStyle = col; octx.font = '10px Consolas, monospace'; octx.fillText((isAlert ? '🔔' : isStop ? t('mk.lvStop') : t('mk.lvTp')) + ' ' + priceAt(cy).toFixed(2), padL + 4, cy - 3); }
       tip.style.display = 'none'; cv.style.cursor = 'ns-resize'; return;
+    }
+    // Панорамирование (тащим график).
+    if (mkPan) {
+      const allc = state.market.data.candles; const vc = candles.length;
+      let ns = mkPan.start0 + Math.round(-(mx - mkPan.x0) / slot); ns = Math.max(0, Math.min(allc.length - vc, ns));
+      if (ns !== state.market.vStart) { state.market.vStart = ns; tip.style.display = 'none'; if (octx) octx.clearRect(0, 0, W, H); drawMarket(); }
+      return;
     }
     const overLine = lineHit(my);
     // Сначала — наведение на кружок реальной сделки: показываем детали (объём/P&L).
@@ -4317,7 +4375,7 @@ function bindMarketTooltip(cv, candles, geo) {
       octx.setLineDash([]);
     }
   };
-  cv.onmouseleave = () => { tip.style.display = 'none'; if (octx) octx.clearRect(0, 0, W, H); };
+  cv.onmouseleave = () => { mkPan = null; mkDrag = null; tip.style.display = 'none'; if (octx) octx.clearRect(0, 0, W, H); cv.style.cursor = 'default'; };
 }
 function smaCalc(arr, n) { const out = []; for (let i = 0; i < arr.length; i++) { if (i < n - 1) { out.push(null); continue; } let s = 0; for (let j = i - n + 1; j <= i; j++) s += arr[j]; out.push(s / n); } return out; }
 function calcATR(c, n = 14) {
@@ -4350,6 +4408,29 @@ async function moveStopBreakeven() {
 async function resetChartLevels() {
   const sym = (state.market.symbol || '').toUpperCase();
   await clearChartLevel(sym); toast('↺', sym + ': ' + t('mk.lvReset'), 'ok'); loadMarket();
+}
+// Купить / докупить актив с графика (бумажный счёт) по текущей цене.
+async function buyFromChart() {
+  const mk = state.market; if (!mk.data || !mk.data.candles.length) return;
+  const sym = (mk.symbol || '').toUpperCase(); const last = mk.data.candles[mk.data.candles.length - 1].c;
+  const has = mk.levels && mk.levels.qty;
+  modal(`<h2>🟢 ${esc(has ? t('mk.addMore') : t('mk.buy'))} ${esc(sym)}</h2>
+    <p class="muted">${esc(t('mk.price'))}: ~${last.toFixed(2)}${has ? ` · ${esc(t('mk.posLbl'))} ${mk.levels.qty}` : ''}</p>
+    <label class="field"><span>${esc(t('mk.qty'))}</span><input id="mb-qty" type="number" value="1" min="1" step="1"></label>
+    <p class="muted" id="mb-cost" style="font-size:12px"></p>
+    <div class="modal-actions"><button class="btn ghost" id="mb-cancel">${esc(t('btn.cancel'))}</button><button class="btn primary" id="mb-ok">🟢 ${esc(t('mk.buy'))}</button></div>`,
+    (m, close) => {
+      const upd = () => { const q = Math.max(1, +$('#mb-qty', m).value || 1); $('#mb-cost', m).textContent = `≈ ${(q * last).toFixed(2)}`; };
+      $('#mb-qty', m).oninput = upd; upd();
+      $('#mb-cancel', m).onclick = close;
+      $('#mb-ok', m).onclick = async () => {
+        const qty = Math.max(1, +$('#mb-qty', m).value || 1);
+        const r = await N.paper.trade({ symbol: sym, side: 'buy', qty, price: last, reason: 'покупка с графика', source: 'manual' });
+        close();
+        if (r.ok) { toast('🟢', `${sym}: ${t('mk.bought')} ${qty} @ ${last.toFixed(2)}`, 'ok'); loadMarket(); }
+        else toast('⚠️', r.error || 'ошибка', 'err');
+      };
+    });
 }
 
 async function analyzeMarket() {

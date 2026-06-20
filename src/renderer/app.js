@@ -2533,6 +2533,11 @@ async function viewTrading() {
       </div>
       <div class="card" id="bot-card"><h3>🤖 ${esc(t('bot.title'))}</h3><div id="bot-body"></div></div>
       <div class="card" id="paper-card"><h3>🧪 ${esc(t('bot.paper'))}</h3><div id="paper-body"></div></div>
+      <div class="card" id="eq-card" style="grid-column:1/-1">
+        <div class="row between"><h3>📈 ${esc(t('eq.title'))}</h3><span id="eq-stat" class="muted" style="font-size:12px"></span></div>
+        <div class="eq-chart-wrap"><canvas id="eq-canvas"></canvas></div>
+        <p class="muted" style="font-size:11px;margin-top:4px">${esc(t('eq.note'))}</p>
+      </div>
       <div class="card" id="pa-card" style="grid-column:1/-1"><div class="row between"><h3>📊 ${esc(t('pa.title'))}</h3><span><button class="btn ghost sm" id="pa-rebal">⚖️ ${esc(t('rb.title'))}</button><button class="btn ghost sm" id="pa-refresh">↻</button></span></div><div id="pa-body" class="muted"></div></div>
       <div class="card" id="dca-card">
         <h3>💵 ${esc(t('dca.title'))}</h3>
@@ -2565,6 +2570,7 @@ async function viewTrading() {
   renderCopilot();
   renderBotCard();
   renderPaperCard();
+  renderEquityCurve();
   renderPortfolioAnalytics();
   renderDca();
   renderJournal();
@@ -2733,7 +2739,41 @@ async function renderPaperCard() {
     </div>
     ${v.positions.length ? `<table class="tr-pf-tbl"><tr><th>Тикер</th><th>Кол-во</th><th>Ср.</th><th>Тек.</th><th>P&L</th></tr>${v.positions.map((p) => `<tr><td>${esc(p.symbol)}</td><td>${p.qty}</td><td>${p.avg.toFixed(2)}</td><td>${p.price.toFixed(2)}</td><td class="${p.pnl >= 0 ? 'mk-up' : 'mk-down'}">${p.pnl} (${p.pnlPct}%)</td></tr>`).join('')}</table>` : `<p class="muted">${esc(t('bot.noPos'))}</p>`}
     <button class="btn ghost sm" id="paper-reset" style="margin-top:8px">↺ ${esc(t('bot.reset'))}</button>`;
-  $('#paper-reset').onclick = async () => { if (await confirmModal(t('bot.reset'), t('bot.resetConfirm'))) { await N.paper.reset(100000); renderPaperCard(); renderPortfolioAnalytics(); } };
+  $('#paper-reset').onclick = async () => { if (await confirmModal(t('bot.reset'), t('bot.resetConfirm'))) { await N.paper.reset(100000); renderPaperCard(); renderEquityCurve(); renderPortfolioAnalytics(); } };
+}
+async function renderEquityCurve() {
+  const cv = $('#eq-canvas'); if (!cv) return;
+  const curve = await N.paper.equityCurve();
+  const stat = $('#eq-stat');
+  if (!curve || curve.length < 2) { if (stat) stat.textContent = t('eq.empty'); const c0 = cv.getContext('2d'); c0 && c0.clearRect(0, 0, cv.width, cv.height); return; }
+  const start = curve[0].equity || 1;
+  const last = curve[curve.length - 1].equity;
+  const chg = (last / start - 1) * 100;
+  if (stat) stat.innerHTML = `${last.toLocaleString()} · <span class="${chg >= 0 ? 'mk-up' : 'mk-down'}">${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%</span> · ${curve.length} ${esc(t('eq.points'))}`;
+  const wrap = cv.parentElement; const W = wrap.clientWidth || 600; const H = 180; const dpr = window.devicePixelRatio || 1;
+  cv.width = W * dpr; cv.height = H * dpr; cv.style.width = W + 'px'; cv.style.height = H + 'px';
+  const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+  const vals = curve.map((p) => p.equity);
+  const padL = 6, padR = 58, padT = 10, padB = 18; const cw = W - padL - padR, ch = H - padT - padB;
+  let lo = Math.min(...vals, start), hi = Math.max(...vals, start); const pad = (hi - lo) * 0.08 || 1; lo -= pad; hi += pad;
+  const n = curve.length;
+  const x = (i) => padL + (i / (n - 1)) * cw; const y = (v) => padT + (1 - (v - lo) / (hi - lo)) * ch;
+  const css = getComputedStyle(document.body); const txt = css.getPropertyValue('--muted') || '#8b93a7';
+  // Стартовая линия капитала.
+  ctx.strokeStyle = 'rgba(140,150,170,.3)'; ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.moveTo(padL, y(start)); ctx.lineTo(padL + cw, y(start)); ctx.stroke(); ctx.setLineDash([]);
+  // Заливка под кривой.
+  const up = last >= start;
+  const grad = ctx.createLinearGradient(0, padT, 0, padT + ch);
+  grad.addColorStop(0, up ? 'rgba(38,166,154,.30)' : 'rgba(239,83,80,.30)'); grad.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.beginPath(); vals.forEach((v, i) => i ? ctx.lineTo(x(i), y(v)) : ctx.moveTo(x(i), y(v)));
+  ctx.lineTo(x(n - 1), padT + ch); ctx.lineTo(x(0), padT + ch); ctx.closePath(); ctx.fillStyle = grad; ctx.fill();
+  // Кривая.
+  ctx.strokeStyle = up ? '#26a69a' : '#ef5350'; ctx.lineWidth = 1.8; ctx.beginPath();
+  vals.forEach((v, i) => i ? ctx.lineTo(x(i), y(v)) : ctx.moveTo(x(i), y(v))); ctx.stroke();
+  // Подписи цены и дат.
+  ctx.fillStyle = txt; ctx.font = '10px Consolas, monospace';
+  ctx.fillText(hi.toFixed(0), padL + cw + 4, y(hi) + 4); ctx.fillText(lo.toFixed(0), padL + cw + 4, y(lo) + 4);
+  for (let i = 0; i <= 3; i++) { const idx = Math.round((n - 1) * i / 3); const d = new Date(curve[idx].at); ctx.fillText(`${d.getDate()}.${d.getMonth() + 1}`, Math.min(x(idx) - 10, padL + cw - 40), H - 4); }
 }
 async function renderPortfolioAnalytics() {
   const box = $('#pa-body'); if (!box) return;

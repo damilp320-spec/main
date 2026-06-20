@@ -205,6 +205,19 @@ function dailyDigest(force) {
   } catch {}
 }
 
+// Переоценка бумажного счёта по живым ценам → точка на кривой капитала.
+async function markPaperEquity() {
+  try {
+    const v0 = paper.valuation();
+    if (!v0.positions.length) { paper.snapshot({}); return; }
+    const quotes = {};
+    for (const p of v0.positions) {
+      try { const d = await markets.candles({ symbol: p.symbol, interval: '1d', range: '5d' }); if (d.ok && d.candles.length) quotes[p.symbol] = d.candles[d.candles.length - 1].c; } catch {}
+    }
+    paper.snapshot(quotes);
+  } catch {}
+}
+
 app.whenReady().then(async () => {
   createWindow();
   createTray();
@@ -287,6 +300,9 @@ app.whenReady().then(async () => {
   // Ежедневный дайджест (проверяем раз в час, шлём раз в день).
   setInterval(dailyDigest, 3600000);
   setTimeout(dailyDigest, 60000);
+  // Кривая капитала: периодически переоцениваем бумажный счёт по живым ценам.
+  setInterval(markPaperEquity, 30 * 60000);
+  setTimeout(markPaperEquity, 20000);
 
   // Очередь задач: пробрасываем события в UI и возобновляем незавершённые.
   taskQueue.load();
@@ -727,6 +743,7 @@ ipcMain.handle('copilot:dismiss', (_e, id) => copilot.dismiss(id));
 ipcMain.handle('copilot:monitor', () => copilot.monitor());
 ipcMain.handle('paper:valuation', (_e, quotes) => paper.valuation(quotes));
 ipcMain.handle('paper:history', () => paper.history());
+ipcMain.handle('paper:equityCurve', () => paper.equityCurve());
 ipcMain.handle('paper:reset', (_e, cash) => paper.reset(cash));
 ipcMain.handle('paper:trade', (_e, o) => paper.trade(o));
 

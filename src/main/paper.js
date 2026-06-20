@@ -10,9 +10,26 @@ function acc() {
 }
 function persist(a) { a.history = a.history.slice(-500); store.set(KEY, a); }
 
+// ---- Кривая капитала (mark-to-market во времени) ----
+const EQKEY = 'paperEquityCurve';
+function equityCurve() { return store.get(EQKEY, []); }
+// Снимок текущей оценки счёта. quotes — { symbol: price } (для mark-to-market).
+function snapshot(quotes) {
+  const v = valuation(quotes || {});
+  const curve = store.get(EQKEY, []);
+  const last = curve[curve.length - 1];
+  const now = Date.now();
+  // Не плодим точки чаще 1 раза в минуту, если капитал почти не изменился.
+  if (last && now - last.at < 60000 && Math.abs(v.equity - last.equity) < 0.01) return v;
+  curve.push({ at: now, equity: v.equity, pnlPct: v.totalPnlPct });
+  store.set(EQKEY, curve.slice(-1000));
+  return v;
+}
+
 function reset(startCash) {
   const c = +startCash || 100000;
   store.set(KEY, { cash: c, start: c, positions: {}, history: [], createdAt: Date.now() });
+  store.set(EQKEY, [{ at: Date.now(), equity: c, pnlPct: 0 }]);
   return { ok: true };
 }
 
@@ -39,12 +56,14 @@ function trade({ symbol, side, qty, price, reason, source }) {
     const at = Date.now();
     a.history.push({ at, symbol, side, qty, price, pnl: +pnl.toFixed(2), reason: reason || '', source: source || 'manual' });
     persist(a);
+    snapshot({ [symbol]: price });
     autoJournal({ at, symbol, side, qty, price, pnl: +pnl.toFixed(2), reason, source });
     return { ok: true, pnl: +pnl.toFixed(2) };
   }
   const at = Date.now();
   a.history.push({ at, symbol, side, qty, price, reason: reason || '', source: source || 'manual' });
   persist(a);
+  snapshot({ [symbol]: price });
   autoJournal({ at, symbol, side, qty, price, reason, source });
   return { ok: true };
 }
@@ -68,4 +87,4 @@ function autoJournal(e) {
 function state() { return acc(); }
 function history() { return acc().history.slice(-60).reverse(); }
 
-module.exports = { reset, trade, valuation, state, history };
+module.exports = { reset, trade, valuation, state, history, equityCurve, snapshot };

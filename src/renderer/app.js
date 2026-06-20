@@ -3843,7 +3843,7 @@ async function viewMarkets() {
           <button class="btn ghost sm" id="mk-watch">⭐ ${esc(t('mk.watch'))}</button>
         </div>
       </div>
-      <div class="mk-chart-wrap"><canvas id="mk-canvas"></canvas><div id="mk-loading" class="mk-loading">${esc(t('mk.loading'))}</div></div>
+      <div class="mk-chart-wrap"><canvas id="mk-canvas"></canvas><canvas id="mk-overlay" class="mk-overlay"></canvas><div id="mk-loading" class="mk-loading">${esc(t('mk.loading'))}</div></div>
     </div>
     <div class="card">
       <h3>🧪 ${esc(t('bt.title'))}</h3>
@@ -3982,7 +3982,11 @@ async function runBacktest() {
       <div class="bt-stat"><span>${esc(t('bt.winRate'))}</span><b>${r.winRate}%</b></div>
       <div class="bt-stat"><span>${esc(t('bt.maxDD'))}</span><b class="mk-down">-${r.maxDrawdown}%</b></div>
     </div>
+    <div class="row" style="justify-content:flex-end;margin-top:6px"><span class="seg" id="bt-period">${[['day', t('eq.day')], ['week', t('eq.week')], ['all', t('eq.all')]].map(([v, l]) => `<button data-per="${v}">${esc(l)}</button>`).join('')}</span></div>
     <div class="bt-chart-wrap"><canvas id="bt-canvas"></canvas></div>`;
+  state.btResult = r;
+  const seg = $('#bt-period');
+  if (seg) seg.querySelectorAll('[data-per]').forEach((b) => { b.classList.toggle('on', b.dataset.per === (state.btPeriod || 'all')); b.onclick = () => { state.btPeriod = b.dataset.per; seg.querySelectorAll('[data-per]').forEach((x) => x.classList.toggle('on', x.dataset.per === state.btPeriod)); drawEquity(state.btResult); }; });
   drawEquity(r);
   if (r.markers) { state.market.markers = r.markers.slice(-50); drawMarket(); }
 }
@@ -3991,7 +3995,15 @@ function drawEquity(r) {
   const wrap = cv.parentElement; const W = wrap.clientWidth; const H = 160; const dpr = window.devicePixelRatio || 1;
   cv.width = W * dpr; cv.height = H * dpr; cv.style.width = W + 'px'; cv.style.height = H + 'px';
   const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
-  const eq = r.equity; const base = r.closes; const n = eq.length;
+  // Фильтр периода (день/неделя/всё) по временам свечей.
+  let eq = r.equity, base = r.closes;
+  const per = state.btPeriod || 'all';
+  if (per !== 'all' && r.times && r.times.length === r.equity.length) {
+    const win = per === 'day' ? 86400000 : 7 * 86400000; const end = r.times[r.times.length - 1];
+    let s = 0; for (let i = r.times.length - 1; i >= 0; i--) { if (end - r.times[i] <= win) s = i; else break; }
+    if (r.equity.length - s >= 2) { eq = r.equity.slice(s); base = r.closes.slice(s); }
+  }
+  const n = eq.length;
   const padL = 4, padR = 50, padT = 8, padB = 8; const cw = W - padL - padR, ch = H - padT - padB;
   // Нормируем кривую стратегии и buy&hold от стартового капитала.
   const start = eq[0]; const stratPct = eq.map((e) => (e / start - 1) * 100);
@@ -4022,6 +4034,8 @@ async function loadMarket(silent) {
   const chg = ((last - first) / first) * 100; const up = chg >= 0;
   const q = $('#mk-quote');
   if (q) q.innerHTML = `<b>${esc(d.symbol)}</b> <span class="mk-price">${last.toFixed(2)} ${esc(d.currency || '')}</span> <span class="${up ? 'mk-up' : 'mk-down'}">${up ? '▲' : '▼'} ${chg.toFixed(2)}%</span> <span class="muted" style="font-size:11px">· ${esc(d.source)}</span>`;
+  // Реальные сделки бумажного счёта по этому тикеру — наложим на график.
+  try { const sym = (mk.symbol || '').toUpperCase(); const h = await N.paper.history(); mk.trades = (h || []).filter((tr) => (tr.symbol || '').toUpperCase() === sym).map((tr) => ({ t: tr.at, price: +tr.price, side: tr.side, qty: tr.qty, pnl: tr.pnl })); } catch { mk.trades = []; }
   drawMarket();
   checkAlerts(d.symbol, last);
   if (!silent) loadNews();
@@ -4112,6 +4126,19 @@ function drawMarket() {
       ctx.closePath(); ctx.fill();
     }
   }
+  // Реальные сделки бумажного счёта по тикеру: кружок с кольцом (▲/▼ — стратегия).
+  if (mk.trades && mk.trades.length && c.length) {
+    const t0 = c[0].t, slot = chartW / c.length;
+    for (const tr of mk.trades) {
+      if (tr.t < t0 - 86400000 || tr.t > c[c.length - 1].t + 86400000) continue;
+      let idx = Math.round((tr.t - t0) / ((c[c.length - 1].t - t0) || 1) * (c.length - 1));
+      idx = Math.max(0, Math.min(c.length - 1, idx));
+      const mx = x(idx), my = y(tr.price), buy = tr.side === 'buy';
+      ctx.fillStyle = buy ? 'rgba(38,166,154,.9)' : 'rgba(239,83,80,.9)';
+      ctx.beginPath(); ctx.arc(mx, my, 3.5, 0, 7); ctx.fill();
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(mx, my, 5.5, 0, 7); ctx.stroke();
+    }
+  }
   // Линия последней цены.
   const lastP = closes[closes.length - 1]; ctx.strokeStyle = 'rgba(124,92,255,.6)'; ctx.setLineDash([4, 3]);
   ctx.beginPath(); ctx.moveTo(padL, y(lastP)); ctx.lineTo(padL + chartW, y(lastP)); ctx.stroke(); ctx.setLineDash([]);
@@ -4122,19 +4149,24 @@ function drawMarket() {
     const lbl = (mk.interval.includes('m') || mk.interval.includes('h')) ? `${d.getDate()}.${d.getMonth() + 1} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` : `${d.getDate()}.${d.getMonth() + 1}.${String(d.getFullYear()).slice(2)}`;
     ctx.fillText(lbl, Math.min(x(idx) - 18, padL + chartW - 60), H - 6);
   }
-  bindMarketTooltip(cv, c, padL, chartW, mk.interval);
+  bindMarketTooltip(cv, c, { padL, padT, chartW, chartH, lo, hi, interval: mk.interval, x, y });
 }
-// Тултип со свечой OHLC при наведении на график «Рынки».
-function bindMarketTooltip(cv, candles, padL, chartW, interval) {
+// Тултип со свечой OHLC + кроссхейр при наведении на график «Рынки».
+function bindMarketTooltip(cv, candles, geo) {
   const wrap = cv.parentElement; if (!wrap) return;
   let tip = wrap.querySelector('.mk-tip');
   if (!tip) { tip = el('div', 'mk-tip'); tip.style.display = 'none'; wrap.appendChild(tip); }
+  const ov = wrap.querySelector('#mk-overlay'); const dpr = window.devicePixelRatio || 1;
+  let octx = null;
+  if (ov) { ov.width = cv.width; ov.height = cv.height; ov.style.width = cv.style.width; ov.style.height = cv.style.height; octx = ov.getContext('2d'); octx.setTransform(dpr, 0, 0, dpr, 0, 0); }
+  const { padL, padT, chartW, chartH, lo, hi, interval, x, y } = geo;
   const slot = chartW / candles.length;
   const fmtV = (v) => v >= 1e9 ? (v / 1e9).toFixed(1) + 'B' : v >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : v >= 1e3 ? (v / 1e3).toFixed(1) + 'K' : String(v || 0);
+  const W = cv.clientWidth, H = cv.clientHeight;
   cv.onmousemove = (e) => {
-    const mx = e.offsetX;
+    const mx = e.offsetX, my = e.offsetY;
     let i = Math.round((mx - padL) / slot - 0.5);
-    if (i < 0 || i >= candles.length || mx < padL || mx > padL + chartW) { tip.style.display = 'none'; return; }
+    if (i < 0 || i >= candles.length || mx < padL || mx > padL + chartW) { tip.style.display = 'none'; if (octx) octx.clearRect(0, 0, W, H); return; }
     const k = candles[i]; const d = new Date(k.t);
     const chg = ((k.c - k.o) / k.o) * 100; const up = k.c >= k.o;
     const dl = (interval && (interval.includes('m') || interval.includes('h'))) ? `${d.getDate()}.${d.getMonth() + 1} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` : d.toLocaleDateString();
@@ -4142,10 +4174,24 @@ function bindMarketTooltip(cv, candles, padL, chartW, interval) {
       + `O <b>${k.o.toFixed(2)}</b> H <b>${k.h.toFixed(2)}</b><br>L <b>${k.l.toFixed(2)}</b> C <b class="${up ? 'mk-up' : 'mk-down'}">${k.c.toFixed(2)}</b><br>`
       + `<span class="${up ? 'mk-up' : 'mk-down'}">${up ? '+' : ''}${chg.toFixed(2)}%</span>${k.v ? ` · ${t('mk.vol')} ${fmtV(k.v)}` : ''}`;
     tip.style.display = 'block';
-    const tw = tip.offsetWidth || 120; let lx = mx + 12; if (lx + tw > cv.clientWidth) lx = mx - tw - 12;
+    const tw = tip.offsetWidth || 120; let lx = mx + 12; if (lx + tw > W) lx = mx - tw - 12;
     tip.style.left = Math.max(2, lx) + 'px'; tip.style.top = '8px';
+    // Кроссхейр.
+    if (octx) {
+      octx.clearRect(0, 0, W, H);
+      octx.strokeStyle = 'rgba(170,180,200,.45)'; octx.lineWidth = 1; octx.setLineDash([3, 3]);
+      const cx = x(i); octx.beginPath(); octx.moveTo(cx, padT); octx.lineTo(cx, padT + chartH); octx.stroke();
+      const inY = my >= padT && my <= padT + chartH;
+      if (inY) {
+        octx.beginPath(); octx.moveTo(padL, my); octx.lineTo(padL + chartW, my); octx.stroke();
+        const price = lo + (1 - (my - padT) / chartH) * (hi - lo);
+        octx.setLineDash([]); octx.fillStyle = 'rgba(124,92,255,.9)'; octx.fillRect(padL + chartW, my - 8, W - (padL + chartW), 16);
+        octx.fillStyle = '#fff'; octx.font = '10px Consolas, monospace'; octx.fillText(price.toFixed(2), padL + chartW + 3, my + 3);
+      }
+      octx.setLineDash([]);
+    }
   };
-  cv.onmouseleave = () => { tip.style.display = 'none'; };
+  cv.onmouseleave = () => { tip.style.display = 'none'; if (octx) octx.clearRect(0, 0, W, H); };
 }
 function smaCalc(arr, n) { const out = []; for (let i = 0; i < arr.length; i++) { if (i < n - 1) { out.push(null); continue; } let s = 0; for (let j = i - n + 1; j <= i; j++) s += arr[j]; out.push(s / n); } return out; }
 

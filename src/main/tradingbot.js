@@ -65,6 +65,8 @@ function setCfg(patch) {
   return { ok: true, cfg: publicCfg() };
 }
 function saveState(st) { const c = store.get('settings.bot', {}) || {}; c._state = st; store.set('settings.bot', c); }
+// Сброс ручных уровней (стоп/тейк) по тикеру — при закрытии позиции.
+function clearOverride(symbol) { try { const all = store.get('chartLevels', {}) || {}; const k = String(symbol || '').toUpperCase(); if (all[k]) { delete all[k]; store.set('chartLevels', all); } } catch {} }
 function publicCfg() { const c = cfg(); return { ...c, running: !!timer, brokerSafe: brokerSafety() }; }
 
 // Текущий уровень защиты для брокерского режима (для предупреждений в UI).
@@ -130,7 +132,12 @@ async function evaluate() {
         }
         const av = c.stopType === 'atr' ? backtest.atr(d.candles, 14) : null;
         let exit = null;
-        if (c.takeProfitPct && price >= st.entry * (1 + c.takeProfitPct / 100)) exit = 'take-profit';
+        // Ручные уровни с графика (перетаскивание/безубыток) имеют приоритет.
+        const ov = (store.get('chartLevels', {}) || {})[symbol.toUpperCase()] || {};
+        if (ov.tp != null && price >= ov.tp) exit = 'take-profit (ручной)';
+        else if (ov.stop != null && price <= ov.stop) exit = 'stop (ручной)';
+        if (exit) { /* ручной уровень сработал */ }
+        else if (c.takeProfitPct && price >= st.entry * (1 + c.takeProfitPct / 100)) exit = 'take-profit';
         else if (c.stopLossPct) {
           const lvl = (c.stopType === 'atr' && av) ? st.entry - c.atrMult * av : st.entry * (1 - c.stopLossPct / 100);
           if (price <= lvl) exit = 'stop-loss' + (av ? ' (ATR)' : '');
@@ -141,7 +148,7 @@ async function evaluate() {
         }
         // Стоп в безубыток после первой цели.
         if (!exit && c.breakeven && st.tp1Done && price <= st.entry) exit = 'breakeven (безубыток)';
-        if (exit) { await sell(c, symbol, price, exit); emit('exit', { symbol, reason: exit, price }); state[symbol] = { side: null }; continue; }
+        if (exit) { await sell(c, symbol, price, exit); emit('exit', { symbol, reason: exit, price }); state[symbol] = { side: null }; clearOverride(symbol); continue; }
       }
 
       // 2) Сигнал стратегии (с авто-выбором лучшей под тикер, если включено).

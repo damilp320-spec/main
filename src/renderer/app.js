@@ -3871,7 +3871,13 @@ async function viewMarkets() {
         <div class="row" style="gap:10px">
           <label class="mk-ind"><input type="checkbox" id="mk-sma20" ${mk.sma20 ? 'checked' : ''}> SMA20</label>
           <label class="mk-ind"><input type="checkbox" id="mk-sma50" ${mk.sma50 ? 'checked' : ''}> SMA50</label>
-          <button class="btn danger sm" id="mk-close" style="display:none">✖ ${esc(t('mk.closePos'))}</button>
+          <span id="mk-posgrp" class="row" style="gap:4px;display:none">
+            <button class="btn ghost sm" id="mk-half" title="${esc(t('mk.closeHalf'))}">½</button>
+            <button class="btn ghost sm" id="mk-quarter" title="${esc(t('mk.closeQuarter'))}">¼</button>
+            <button class="btn ghost sm" id="mk-be" title="${esc(t('mk.breakeven'))}">⇲ BE</button>
+            <button class="btn ghost sm" id="mk-lvreset" title="${esc(t('mk.resetLv'))}">↺</button>
+            <button class="btn danger sm" id="mk-close">✖ ${esc(t('mk.closePos'))}</button>
+          </span>
           <button class="btn ghost sm" id="mk-watch">⭐ ${esc(t('mk.watch'))}</button>
         </div>
       </div>
@@ -3941,6 +3947,11 @@ async function viewMarkets() {
   $('#mk-sma20').onchange = (e) => { mk.sma20 = e.target.checked; drawMarket(); };
   $('#mk-sma50').onchange = (e) => { mk.sma50 = e.target.checked; drawMarket(); };
   $('#mk-watch').onclick = addToWatchlist;
+  $('#mk-close').onclick = () => closePosition(1);
+  $('#mk-half').onclick = () => closePosition(0.5);
+  $('#mk-quarter').onclick = () => closePosition(0.25);
+  $('#mk-be').onclick = moveStopBreakeven;
+  $('#mk-lvreset').onclick = resetChartLevels;
   $('#mk-analyze').onclick = analyzeMarket;
   $('#mk-deep').onclick = deepAnalyzeMarket;
   $('#mk-sentiment').onclick = analyzeSentiment;
@@ -4078,11 +4089,16 @@ async function loadMarket(silent) {
       else if (bc.stopLossPct) lv.stop = entry * (1 - bc.stopLossPct / 100);
       if (bc.takeProfitPct) lv.tp = entry * (1 + bc.takeProfitPct / 100);
       if (bc.tp1Pct) lv.tp1 = entry * (1 + bc.tp1Pct / 100);
+      // Ручные уровни (перетаскивание / безубыток) перекрывают расчётные.
+      const ov = (await N.store.get('chartLevels', {}) || {})[sym] || {};
+      if (ov.stop != null) { lv.stop = ov.stop; lv.stopManual = true; }
+      if (ov.tp != null) { lv.tp = ov.tp; lv.tpManual = true; }
+      if (lv.stop != null && lv.tp != null && entry > lv.stop) lv.rr = +((lv.tp - entry) / (entry - lv.stop)).toFixed(2);
       mk.levels = lv;
     } else mk.levels = null;
   } catch { mk.levels = null; }
-  // Кнопка «закрыть позицию» — показываем только при открытой позиции.
-  const cb = $('#mk-close'); if (cb) { cb.style.display = mk.levels ? '' : 'none'; cb.onclick = closePosition; }
+  // Кнопки управления позицией — только при открытой позиции.
+  const grp = $('#mk-posgrp'); if (grp) grp.style.display = mk.levels ? '' : 'none';
   drawMarket();
   checkAlerts(d.symbol, last);
   if (!silent) loadNews();
@@ -4193,9 +4209,14 @@ function drawMarket() {
       ctx.fillText(label + ' ' + price.toFixed(2), padL + 3, ly - 2);
     };
     hline(lv.entry, 'rgba(124,92,255,.9)', t('mk.lvEntry'));
-    hline(lv.stop, 'rgba(239,83,80,.85)', t('mk.lvStop') + (lv.atr ? ' (ATR)' : ''));
+    hline(lv.stop, 'rgba(239,83,80,.85)', t('mk.lvStop') + (lv.atr ? ' (ATR)' : '') + (lv.stopManual ? ' ✎' : ''));
     hline(lv.tp1, 'rgba(224,169,58,.9)', t('mk.lvTp1'));
-    hline(lv.tp, 'rgba(38,166,154,.9)', t('mk.lvTp'));
+    hline(lv.tp, 'rgba(38,166,154,.9)', t('mk.lvTp') + (lv.tpManual ? ' ✎' : ''));
+    if (lv.rr != null) {
+      ctx.font = 'bold 11px Consolas, monospace'; const rrTxt = 'R:R ' + lv.rr;
+      ctx.fillStyle = lv.rr >= 2 ? '#26a69a' : lv.rr >= 1 ? '#e0a93a' : '#ef5350';
+      ctx.fillText(rrTxt, padL + 4, padT + 12);
+    }
   }
   // Реальные сделки бумажного счёта по тикеру: кружок с кольцом (▲/▼ — стратегия).
   if (mk.trades && mk.trades.length && c.length) {
@@ -4221,8 +4242,9 @@ function drawMarket() {
     const lbl = (mk.interval.includes('m') || mk.interval.includes('h')) ? `${d.getDate()}.${d.getMonth() + 1} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` : `${d.getDate()}.${d.getMonth() + 1}.${String(d.getFullYear()).slice(2)}`;
     ctx.fillText(lbl, Math.min(x(idx) - 18, padL + chartW - 60), H - 6);
   }
-  bindMarketTooltip(cv, c, { padL, padT, chartW, chartH, lo, hi, interval: mk.interval, x, y, tradeMarks: mkTradeMarks });
+  bindMarketTooltip(cv, c, { padL, padT, chartW, chartH, lo, hi, interval: mk.interval, x, y, tradeMarks: mkTradeMarks, levels: mk.levels });
 }
+let mkDrag = null;
 // Тултип со свечой OHLC + кроссхейр при наведении на график «Рынки».
 function bindMarketTooltip(cv, candles, geo) {
   const wrap = cv.parentElement; if (!wrap) return;
@@ -4231,12 +4253,29 @@ function bindMarketTooltip(cv, candles, geo) {
   const ov = wrap.querySelector('#mk-overlay'); const dpr = window.devicePixelRatio || 1;
   let octx = null;
   if (ov) { ov.width = cv.width; ov.height = cv.height; ov.style.width = cv.style.width; ov.style.height = cv.style.height; octx = ov.getContext('2d'); octx.setTransform(dpr, 0, 0, dpr, 0, 0); }
-  const { padL, padT, chartW, chartH, lo, hi, interval, x, y, tradeMarks } = geo;
+  const { padL, padT, chartW, chartH, lo, hi, interval, x, y, tradeMarks, levels } = geo;
   const slot = chartW / candles.length;
   const fmtV = (v) => v >= 1e9 ? (v / 1e9).toFixed(1) + 'B' : v >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : v >= 1e3 ? (v / 1e3).toFixed(1) + 'K' : String(v || 0);
   const W = cv.clientWidth, H = cv.clientHeight;
+  const priceAt = (my) => lo + (1 - (my - padT) / chartH) * (hi - lo);
+  const lineHit = (my) => { if (!levels) return null; if (levels.stop != null && Math.abs(my - y(levels.stop)) < 5) return 'stop'; if (levels.tp != null && Math.abs(my - y(levels.tp)) < 5) return 'tp'; return null; };
+  cv.onmousedown = (e) => { const k = lineHit(e.offsetY); if (k) { mkDrag = { key: k }; cv.style.cursor = 'ns-resize'; } };
+  cv.onmouseup = async (e) => {
+    if (!mkDrag) return;
+    const my = Math.max(padT, Math.min(padT + chartH, e.offsetY)); const k = mkDrag.key; mkDrag = null;
+    if (octx) octx.clearRect(0, 0, W, H);
+    const sym = (state.market.symbol || '').toUpperCase();
+    await saveChartLevel(sym, k, +priceAt(my).toFixed(2)); loadMarket();
+  };
   cv.onmousemove = (e) => {
     const mx = e.offsetX, my = e.offsetY;
+    // Перетаскивание линии стопа/тейка.
+    if (mkDrag) {
+      const cy = Math.max(padT, Math.min(padT + chartH, my));
+      if (octx) { octx.clearRect(0, 0, W, H); const col = mkDrag.key === 'stop' ? '#ef5350' : '#26a69a'; octx.strokeStyle = col; octx.lineWidth = 1.5; octx.setLineDash([6, 4]); octx.beginPath(); octx.moveTo(padL, cy); octx.lineTo(padL + chartW, cy); octx.stroke(); octx.setLineDash([]); octx.fillStyle = col; octx.font = '10px Consolas, monospace'; octx.fillText((mkDrag.key === 'stop' ? t('mk.lvStop') : t('mk.lvTp')) + ' ' + priceAt(cy).toFixed(2), padL + 4, cy - 3); }
+      tip.style.display = 'none'; cv.style.cursor = 'ns-resize'; return;
+    }
+    const overLine = lineHit(my);
     // Сначала — наведение на кружок реальной сделки: показываем детали (объём/P&L).
     let near = null, bestD = 81; // радиус ~9px
     for (const m of (tradeMarks || [])) { const dx = m.x - mx, dy = m.y - my; const d = dx * dx + dy * dy; if (d < bestD) { bestD = d; near = m; } }
@@ -4251,7 +4290,7 @@ function bindMarketTooltip(cv, candles, geo) {
       if (octx) octx.clearRect(0, 0, W, H);
       cv.style.cursor = 'pointer'; return;
     }
-    cv.style.cursor = 'crosshair';
+    cv.style.cursor = overLine ? 'ns-resize' : 'crosshair';
     let i = Math.round((mx - padL) / slot - 0.5);
     if (i < 0 || i >= candles.length || mx < padL || mx > padL + chartW) { tip.style.display = 'none'; if (octx) octx.clearRect(0, 0, W, H); return; }
     const k = candles[i]; const d = new Date(k.t);
@@ -4286,15 +4325,31 @@ function calcATR(c, n = 14) {
   let s = 0; for (let i = c.length - n; i < c.length; i++) s += Math.max(c[i].h - c[i].l, Math.abs(c[i].h - c[i - 1].c), Math.abs(c[i].l - c[i - 1].c));
   return s / n;
 }
-// Закрыть открытую бумажную позицию по тикеру прямо с графика.
-async function closePosition() {
+// Закрыть позицию по тикеру (frac: 1 — полностью, 0.5/0.25 — частично).
+async function closePosition(frac) {
   const mk = state.market; if (!mk.levels || !mk.levels.qty) return;
-  const sym = (mk.symbol || '').toUpperCase();
+  frac = frac || 1; const sym = (mk.symbol || '').toUpperCase();
+  const qty = frac >= 1 ? mk.levels.qty : Math.max(1, Math.floor(mk.levels.qty * frac));
   const last = mk.data && mk.data.candles.length ? mk.data.candles[mk.data.candles.length - 1].c : mk.levels.entry;
-  if (!await confirmModal('✖ ' + t('mk.closePos'), `${sym}: ${t('mk.closeConfirm')} ${mk.levels.qty} @ ~${last.toFixed(2)}`)) return;
-  const r = await N.paper.trade({ symbol: sym, side: 'sell', qty: mk.levels.qty, price: last, reason: 'ручное закрытие с графика', source: 'manual' });
-  if (r.ok) { toast('✖', sym + ' ' + t('mk.closed') + (r.pnl != null ? ` · P&L ${r.pnl}` : ''), 'ok'); loadMarket(); }
+  if (!await confirmModal('✖ ' + t('mk.closePos'), `${sym}: ${t('mk.closeConfirm')} ${qty} @ ~${last.toFixed(2)}`)) return;
+  const r = await N.paper.trade({ symbol: sym, side: 'sell', qty, price: last, reason: 'ручное закрытие с графика', source: 'manual' });
+  if (r.ok) { if (frac >= 1) await clearChartLevel(sym); toast('✖', sym + ' ' + t('mk.closed') + (r.pnl != null ? ` · P&L ${r.pnl}` : ''), 'ok'); loadMarket(); }
   else toast('⚠️', r.error || 'ошибка', 'err');
+}
+// Сохранить/убрать ручной уровень (стоп/тейк) по тикеру.
+async function saveChartLevel(symbol, key, price) {
+  const all = (await N.store.get('chartLevels', {})) || {}; const o = all[symbol] || {}; o[key] = +price; all[symbol] = o; await N.store.set('chartLevels', all);
+}
+async function clearChartLevel(symbol) { const all = (await N.store.get('chartLevels', {})) || {}; if (all[symbol]) { delete all[symbol]; await N.store.set('chartLevels', all); } }
+async function moveStopBreakeven() {
+  const mk = state.market; if (!mk.levels || !mk.levels.entry) return;
+  const sym = (mk.symbol || '').toUpperCase();
+  await saveChartLevel(sym, 'stop', mk.levels.entry);
+  toast('⇲', sym + ': ' + t('mk.beDone'), 'ok'); loadMarket();
+}
+async function resetChartLevels() {
+  const sym = (state.market.symbol || '').toUpperCase();
+  await clearChartLevel(sym); toast('↺', sym + ': ' + t('mk.lvReset'), 'ok'); loadMarket();
 }
 
 async function analyzeMarket() {

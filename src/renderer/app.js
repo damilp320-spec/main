@@ -3871,6 +3871,8 @@ async function viewMarkets() {
         <div class="row" style="gap:10px">
           <label class="mk-ind"><input type="checkbox" id="mk-sma20" ${mk.sma20 ? 'checked' : ''}> SMA20</label>
           <label class="mk-ind"><input type="checkbox" id="mk-sma50" ${mk.sma50 ? 'checked' : ''}> SMA50</label>
+          <label class="mk-ind"><input type="checkbox" id="mk-rsi" ${mk.rsi ? 'checked' : ''}> RSI</label>
+          <label class="mk-ind"><input type="checkbox" id="mk-macd" ${mk.macd ? 'checked' : ''}> MACD</label>
           <span id="mk-posgrp" class="row" style="gap:4px;display:none">
             <button class="btn ghost sm" id="mk-half" title="${esc(t('mk.closeHalf'))}">½</button>
             <button class="btn ghost sm" id="mk-quarter" title="${esc(t('mk.closeQuarter'))}">¼</button>
@@ -3947,6 +3949,8 @@ async function viewMarkets() {
   $$('#content .mk-chip').forEach((b) => b.onclick = () => load(b.dataset.sym));
   $('#mk-sma20').onchange = (e) => { mk.sma20 = e.target.checked; drawMarket(); };
   $('#mk-sma50').onchange = (e) => { mk.sma50 = e.target.checked; drawMarket(); };
+  $('#mk-rsi').onchange = (e) => { mk.rsi = e.target.checked; drawMarket(); };
+  $('#mk-macd').onchange = (e) => { mk.macd = e.target.checked; drawMarket(); };
   $('#mk-watch').onclick = addToWatchlist;
   $('#mk-buy').onclick = buyFromChart;
   $('#mk-close').onclick = () => closePosition(1);
@@ -4150,8 +4154,10 @@ function drawMarket() {
   let vStart = mk.vStart != null ? mk.vStart : 0; vStart = Math.max(0, Math.min(all.length - vCount, vStart));
   mk.vStart = vStart; mk.vCount = vCount;
   const c = all.slice(vStart, vStart + vCount);
-  const padL = 6, padR = 60, padT = 12, padB = 26, volH = 36;
-  const chartW = W - padL - padR; const chartH = H - padT - padB - volH;
+  const padL = 6, padR = 60, padT = 12, padB = 26, volH = 30;
+  const inds = []; if (mk.rsi) inds.push('rsi'); if (mk.macd) inds.push('macd');
+  const indH = 56; const indTotal = inds.length * indH;
+  const chartW = W - padL - padR; const chartH = H - padT - padB - volH - indTotal;
   let lo = Infinity, hi = -Infinity, vMax = 0;
   for (const k of c) { if (k.l < lo) lo = k.l; if (k.h > hi) hi = k.h; if (k.v > vMax) vMax = k.v; }
   const pad = (hi - lo) * 0.05 || 1; lo -= pad; hi += pad;
@@ -4171,13 +4177,16 @@ function drawMarket() {
     if (lv.tp != null) { const ty = clampY(lv.tp); ctx.fillStyle = 'rgba(38,166,154,.08)'; ctx.fillRect(padL, Math.min(ey, ty), chartW, Math.abs(ey - ty)); }
     if (lv.stop != null) { const sy = clampY(lv.stop); ctx.fillStyle = 'rgba(239,83,80,.08)'; ctx.fillRect(padL, Math.min(ey, sy), chartW, Math.abs(ey - sy)); }
   }
-  // Объёмы.
+  // Объёмы (полоса сразу под ценовой областью).
+  const volBase = padT + chartH + volH;
   for (let i = 0; i < c.length; i++) {
     const vh = vMax ? (c[i].v / vMax) * (volH - 4) : 0;
     ctx.fillStyle = c[i].c >= c[i].o ? 'rgba(38,166,154,.35)' : 'rgba(239,83,80,.35)';
     const bw = Math.max(1, (chartW / c.length) * 0.6);
-    ctx.fillRect(x(i) - bw / 2, H - padB - vh, bw, vh);
+    ctx.fillRect(x(i) - bw / 2, volBase - vh, bw, vh);
   }
+  // Подпанели индикаторов.
+  if (inds.length) drawIndicatorPanels(ctx, c, inds, { padL, chartW, x, volBase, indH, txt });
   // Свечи.
   const bw = Math.max(1, (chartW / c.length) * 0.62);
   for (let i = 0; i < c.length; i++) {
@@ -4382,6 +4391,47 @@ function calcATR(c, n = 14) {
   if (!c || c.length < n + 1) return null;
   let s = 0; for (let i = c.length - n; i < c.length; i++) s += Math.max(c[i].h - c[i].l, Math.abs(c[i].h - c[i - 1].c), Math.abs(c[i].l - c[i - 1].c));
   return s / n;
+}
+// Индикаторы для подпанелей графика.
+function emaSeries(arr, n) { const k = 2 / (n + 1); const out = []; let prev = null; for (let i = 0; i < arr.length; i++) { prev = prev == null ? arr[i] : arr[i] * k + prev * (1 - k); out.push(i >= n - 1 ? prev : null); } return out; }
+function rsiSeries(closes, n = 14) {
+  const out = new Array(closes.length).fill(null); let g = 0, l = 0;
+  for (let i = 1; i < closes.length; i++) { const d = closes[i] - closes[i - 1]; const gg = d > 0 ? d : 0, ll = d < 0 ? -d : 0; if (i <= n) { g += gg; l += ll; if (i === n) { const rs = l === 0 ? 100 : g / l; out[i] = 100 - 100 / (1 + rs); g /= n; l /= n; } } else { g = (g * (n - 1) + gg) / n; l = (l * (n - 1) + ll) / n; const rs = l === 0 ? 100 : g / l; out[i] = 100 - 100 / (1 + rs); } }
+  return out;
+}
+function macdSeries(closes, fast = 12, slow = 26, signal = 9) {
+  const ef = emaSeries(closes, fast), es = emaSeries(closes, slow);
+  const macd = closes.map((_, i) => (ef[i] != null && es[i] != null) ? ef[i] - es[i] : null);
+  const sig = emaSeries(macd.map((v) => v == null ? 0 : v), signal).map((v, i) => macd[i] == null ? null : v);
+  const hist = macd.map((v, i) => (v != null && sig[i] != null) ? v - sig[i] : null);
+  return { macd, signal: sig, hist };
+}
+// Подпанели индикаторов (RSI / MACD) под свечами.
+function drawIndicatorPanels(ctx, c, inds, geo) {
+  const { padL, chartW, x, volBase, indH, txt } = geo; const closes = c.map((k) => k.c);
+  inds.forEach((ind, idx) => {
+    const top = volBase + idx * indH + 5; const ph = indH - 12;
+    ctx.strokeStyle = 'rgba(140,150,170,.18)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(padL, top - 3); ctx.lineTo(padL + chartW, top - 3); ctx.stroke();
+    ctx.font = '9px Consolas, monospace';
+    if (ind === 'rsi') {
+      const r = rsiSeries(closes, 14); const ry = (v) => top + (1 - v / 100) * ph;
+      ctx.strokeStyle = 'rgba(140,150,170,.25)'; ctx.setLineDash([3, 3]);
+      [30, 70].forEach((lvl) => { ctx.beginPath(); ctx.moveTo(padL, ry(lvl)); ctx.lineTo(padL + chartW, ry(lvl)); ctx.stroke(); }); ctx.setLineDash([]);
+      ctx.strokeStyle = '#7c5cff'; ctx.lineWidth = 1.2; ctx.beginPath(); let st = false;
+      for (let i = 0; i < r.length; i++) { if (r[i] == null) continue; const px = x(i), py = ry(Math.max(0, Math.min(100, r[i]))); st ? ctx.lineTo(px, py) : (ctx.moveTo(px, py), st = true); }
+      ctx.stroke(); const lr = r[r.length - 1];
+      ctx.fillStyle = lr > 70 ? '#ef5350' : lr < 30 ? '#26a69a' : txt; ctx.fillText('RSI(14) ' + (lr != null ? lr.toFixed(1) : '—'), padL + 3, top + 8);
+    } else if (ind === 'macd') {
+      const m = macdSeries(closes, 12, 26, 9); let lo = Infinity, hi = -Infinity;
+      for (let i = 0; i < closes.length; i++) [m.macd[i], m.signal[i], m.hist[i]].forEach((v) => { if (v != null) { if (v < lo) lo = v; if (v > hi) hi = v; } });
+      if (!isFinite(lo)) { lo = -1; hi = 1; } const span = (hi - lo) || 1; const my = (v) => top + (1 - (v - lo) / span) * ph; const zeroY = my(0);
+      const bw = Math.max(1, (chartW / c.length) * 0.6);
+      for (let i = 0; i < closes.length; i++) { if (m.hist[i] == null) continue; const hY = my(m.hist[i]); ctx.fillStyle = m.hist[i] >= 0 ? 'rgba(38,166,154,.5)' : 'rgba(239,83,80,.5)'; ctx.fillRect(x(i) - bw / 2, Math.min(zeroY, hY), bw, Math.abs(hY - zeroY) || 1); }
+      const drawL = (arr, color) => { ctx.strokeStyle = color; ctx.lineWidth = 1.1; ctx.beginPath(); let st = false; for (let i = 0; i < arr.length; i++) { if (arr[i] == null) continue; const px = x(i), py = my(arr[i]); st ? ctx.lineTo(px, py) : (ctx.moveTo(px, py), st = true); } ctx.stroke(); };
+      drawL(m.macd, '#29b6f6'); drawL(m.signal, '#f7b733');
+      ctx.fillStyle = txt; ctx.fillText('MACD(12,26,9)', padL + 3, top + 8);
+    }
+  });
 }
 // Закрыть позицию по тикеру (frac: 1 — полностью, 0.5/0.25 — частично).
 async function closePosition(frac) {

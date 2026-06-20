@@ -165,7 +165,7 @@ async function render() {
   content.className = 'content fade-in';
   // Останавливаем авто-обновление рынков при уходе с раздела.
   if (state.view !== 'markets' && window.__marketTimer) { clearInterval(window.__marketTimer); window.__marketTimer = null; }
-  const map = { today: viewToday, dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scenarios: viewScenarios, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, smarthome: viewSmartHome, knowledge: viewKnowledge, swarm: viewSwarm, queue: viewQueue, skills: viewSkills, dispatch: viewDispatch, prompts: viewPrompts, voice: viewVoice, operator: viewOperator, automation: viewAutomation, markets: viewMarkets, cockpit: viewCockpit, trading: viewTrading, code: viewCode, terminal: viewTerminal, activity: viewActivity, insights: viewInsights, images: viewImages, notes: viewNotes, data: viewData, rss: viewRss, calendar: viewCalendar, email: viewEmail, connections: viewConnections, playground: viewPlayground, engines: viewEngines, vault: viewVault, graph: viewGraph, diagnostics: viewDiagnostics, developer: viewDeveloper, settings: viewSettings };
+  const map = { today: viewToday, dashboard: viewDashboard, agents: viewAgents, marketplace: viewMarketplace, scenarios: viewScenarios, scheduler: viewScheduler, minecraft: viewMinecraft, servers: viewServers, translator: viewTranslator, smarthome: viewSmartHome, knowledge: viewKnowledge, swarm: viewSwarm, queue: viewQueue, board: viewBoard, skills: viewSkills, dispatch: viewDispatch, prompts: viewPrompts, voice: viewVoice, operator: viewOperator, automation: viewAutomation, markets: viewMarkets, cockpit: viewCockpit, trading: viewTrading, code: viewCode, terminal: viewTerminal, activity: viewActivity, insights: viewInsights, images: viewImages, notes: viewNotes, data: viewData, rss: viewRss, calendar: viewCalendar, email: viewEmail, connections: viewConnections, playground: viewPlayground, engines: viewEngines, vault: viewVault, graph: viewGraph, diagnostics: viewDiagnostics, developer: viewDeveloper, settings: viewSettings };
   const fn = map[state.view] || viewDashboard;
   // Граница ошибок: сбой одной вкладки не «вешает» весь интерфейс.
   try {
@@ -4921,6 +4921,86 @@ const PROMPT_LIB = {
     { t: 'Список покупок', p: 'Сделай список покупок для рецептов, которые я планирую на неделю.' }
   ]
 };
+/* ---------- Канбан-доска задач ---------- */
+const BOARD_COLS = ['todo', 'doing', 'done'];
+const BOARD_COL_ICON = { todo: '📥', doing: '🚧', done: '✅' };
+const BOARD_PRIO = { high: '🔴', med: '🟡', low: '🔵' };
+async function viewBoard() {
+  const data = await N.store.get('kanban', { cards: [] });
+  if (!data || !Array.isArray(data.cards)) data.cards = [];
+  const save = () => N.store.set('kanban', data);
+  content.innerHTML = `
+    <div class="view-head"><div class="row between"><h1>🗂️ ${esc(t('bd.title'))}</h1>
+      <input id="bd-search" placeholder="🔎 ${esc(t('bd.search'))}" style="max-width:220px"></div>
+      <p>${esc(t('bd.sub'))}</p></div>
+    <div class="kanban" id="kanban"></div>`;
+  const cardEditModal = (existing, col) => {
+    const c = existing || { title: '', notes: '', prio: 'med', due: '', tags: [] };
+    modal(`<h2>${esc(existing ? t('bd.edit') : t('bd.add'))}</h2>
+      <label class="field"><span>${esc(t('bd.cardTitle'))}</span><input id="bc-title" value="${esc(c.title)}"></label>
+      <label class="field"><span>${esc(t('bd.notes'))}</span><textarea id="bc-notes" rows="3">${esc(c.notes || '')}</textarea></label>
+      <div class="row" style="gap:8px">
+        <label class="field"><span>${esc(t('bd.prio'))}</span><select id="bc-prio">${Object.entries(BOARD_PRIO).map(([k, v]) => `<option value="${k}" ${c.prio === k ? 'selected' : ''}>${v} ${k}</option>`).join('')}</select></label>
+        <label class="field"><span>${esc(t('bd.due'))}</span><input id="bc-due" type="date" value="${esc(c.due || '')}"></label>
+      </div>
+      <label class="field"><span>${esc(t('bd.tags'))}</span><input id="bc-tags" value="${esc((c.tags || []).join(', '))}" placeholder="work, urgent"></label>
+      <div class="modal-actions"><button class="btn ghost" id="bc-cancel">${esc(t('btn.cancel'))}</button><button class="btn primary" id="bc-save">💾 ${esc(t('btn.save'))}</button></div>`,
+      (m, close) => {
+        $('#bc-title', m).focus();
+        $('#bc-cancel', m).onclick = close;
+        $('#bc-save', m).onclick = async () => {
+          const title = $('#bc-title', m).value.trim(); if (!title) return toast('⚠️', t('bd.needTitle'), 'err');
+          const upd = { title, notes: $('#bc-notes', m).value.trim(), prio: $('#bc-prio', m).value, due: $('#bc-due', m).value, tags: $('#bc-tags', m).value.split(',').map((s) => s.trim()).filter(Boolean) };
+          if (existing) Object.assign(existing, upd); else data.cards.push({ id: 'k' + Date.now().toString(36), col: col || 'todo', at: Date.now(), ...upd });
+          await save(); close(); render($('#bd-search').value);
+        };
+      });
+  };
+  const aiBreakdown = async (card) => {
+    toast('✨', t('bd.aiRun'), 'ok');
+    try {
+      const models = await N.installer.listModels(); const model = (models[0] && models[0].name) || 'qwen2.5:7b';
+      const r = await N.playground.ask(model, `Разбей задачу на 3-6 конкретных подзадач. Ответь ТОЛЬКО списком, по одной подзадаче на строку, без нумерации и пояснений.\nЗадача: ${card.title}`);
+      if (!r || !r.ok) return toast('⚠️', t('bd.aiFail') + (r && r.error ? ': ' + r.error : ''), 'err');
+      const subs = String(r.text || '').split('\n').map((s) => s.replace(/^[-*•\d.\s]+/, '').trim()).filter((s) => s.length > 2).slice(0, 6);
+      if (!subs.length) return toast('⚠️', t('bd.aiNone'), 'err');
+      subs.forEach((s) => data.cards.push({ id: 'k' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), col: 'todo', prio: card.prio || 'med', title: s, notes: t('bd.from') + ' «' + card.title + '»', tags: ['sub'], at: Date.now() }));
+      await save(); render($('#bd-search').value); toast('✨', t('bd.aiDone') + ': ' + subs.length, 'ok');
+    } catch { toast('⚠️', t('bd.aiFail'), 'err'); }
+  };
+  const cardEl = (c) => {
+    const overdue = c.due && new Date(c.due) < new Date(new Date().toDateString()) && c.col !== 'done';
+    const e = el('div', 'kb-card prio-' + (c.prio || 'med')); e.draggable = true;
+    e.innerHTML = `<div class="kb-card-top"><span class="kb-prio">${BOARD_PRIO[c.prio] || '🟡'}</span><b>${esc(c.title)}</b></div>
+      ${c.notes ? `<p class="muted">${esc(c.notes.slice(0, 120))}${c.notes.length > 120 ? '…' : ''}</p>` : ''}
+      ${(c.due || (c.tags && c.tags.length)) ? `<div class="kb-meta">${c.due ? `<span class="${overdue ? 'mk-down' : 'muted'}">📅 ${esc(c.due)}</span>` : ''}${(c.tags || []).map((tg) => `<span class="tag">${esc(tg)}</span>`).join('')}</div>` : ''}
+      <div class="kb-card-acts"><button class="ico-btn" data-ai title="${esc(t('bd.ai'))}">✨</button><button class="ico-btn" data-edit>✎</button><button class="ico-btn" data-del>🗑</button></div>`;
+    e.addEventListener('dragstart', (ev) => { ev.dataTransfer.setData('text/plain', c.id); e.classList.add('dragging'); });
+    e.addEventListener('dragend', () => e.classList.remove('dragging'));
+    e.querySelector('[data-edit]').onclick = (ev) => { ev.stopPropagation(); cardEditModal(c, c.col); };
+    e.querySelector('[data-del]').onclick = async (ev) => { ev.stopPropagation(); if (await confirmModal(t('bd.del'), c.title)) { data.cards = data.cards.filter((x) => x.id !== c.id); await save(); render($('#bd-search').value); } };
+    e.querySelector('[data-ai]').onclick = (ev) => { ev.stopPropagation(); aiBreakdown(c); };
+    return e;
+  };
+  const render = (q) => {
+    q = (q || '').toLowerCase(); const board = $('#kanban'); if (!board) return; board.innerHTML = '';
+    for (const col of BOARD_COLS) {
+      const cards = data.cards.filter((c) => c.col === col && (!q || (c.title + ' ' + (c.notes || '') + ' ' + (c.tags || []).join(' ')).toLowerCase().includes(q)));
+      const colEl = el('div', 'kb-col');
+      colEl.innerHTML = `<div class="kb-col-head">${BOARD_COL_ICON[col]} ${esc(t('bd.col.' + col))} <span class="tag">${cards.length}</span><button class="ico-btn" data-add="${col}" title="${esc(t('bd.add'))}">＋</button></div><div class="kb-cards" data-drop="${col}"></div>`;
+      board.appendChild(colEl);
+      const cardsEl = colEl.querySelector('.kb-cards');
+      cards.forEach((c) => cardsEl.appendChild(cardEl(c)));
+      cardsEl.addEventListener('dragover', (e) => { e.preventDefault(); cardsEl.classList.add('drag-over'); });
+      cardsEl.addEventListener('dragleave', () => cardsEl.classList.remove('drag-over'));
+      cardsEl.addEventListener('drop', async (e) => { e.preventDefault(); cardsEl.classList.remove('drag-over'); const id = e.dataTransfer.getData('text/plain'); const card = data.cards.find((x) => x.id === id); if (card && card.col !== col) { card.col = col; await save(); render($('#bd-search').value); } });
+    }
+    board.querySelectorAll('[data-add]').forEach((b) => b.onclick = () => cardEditModal(null, b.dataset.add));
+  };
+  render('');
+  $('#bd-search').addEventListener('input', (e) => render(e.target.value));
+}
+
 // Запуск промпта: если есть {{переменные}} — спрашиваем значения, затем в агенты.
 function promptVars(text) { return [...new Set((String(text).match(/\{\{\s*([^}]+?)\s*\}\}/g) || []).map((m) => m.replace(/[{}]/g, '').trim()).filter(Boolean))]; }
 function runPrompt(text) {
@@ -5051,6 +5131,7 @@ function buildCommands() {
     nav('trading', '💹', t('nav.trading')),
     nav('dispatch', '📡', t('nav.dispatch')),
     nav('queue', '📋', t('nav.queue')),
+    nav('board', '🗂️', t('nav.board')),
     nav('developer', '🛠️', t('nav.developer')),
     nav('settings', '⚙️', t('nav.settings')),
     { ico: '➕', label: t('btn.newAgent'), sub: 'Действие', run: () => { navigate('agents'); setTimeout(() => editAgent(null), 50); } },

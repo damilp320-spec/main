@@ -2539,6 +2539,8 @@ async function viewTrading() {
         <div class="row between"><h3>📈 ${esc(t('eq.title'))}</h3>
           <span class="row" style="gap:8px;align-items:center"><span id="eq-stat" class="muted" style="font-size:12px"></span>
             <label class="mk-ind" style="font-size:11px">${esc(t('eq.benchmark'))}: <select id="eq-bench"><option value="^GSPC">S&P 500</option><option value="^IXIC">Nasdaq</option><option value="BTC-USD">BTC</option><option value="">${esc(t('eq.none'))}</option></select></label>
+            <button class="btn ghost sm" id="eq-csv" title="${esc(t('eq.exportCurve'))}">⬇ ${esc(t('eq.csv'))}</button>
+            <button class="btn ghost sm" id="eq-csv-trades" title="${esc(t('eq.exportTrades'))}">⬇ ${esc(t('eq.csvTrades'))}</button>
           </span>
         </div>
         <div id="eq-metrics" class="bt-stats" style="margin:6px 0"></div>
@@ -2583,6 +2585,8 @@ async function viewTrading() {
   renderJournal();
   $('#pa-refresh').onclick = renderPortfolioAnalytics;
   $('#pa-rebal').onclick = rebalanceModal;
+  $('#eq-csv') && ($('#eq-csv').onclick = exportEquityCsv);
+  $('#eq-csv-trades') && ($('#eq-csv-trades').onclick = exportTradesCsv);
   $('#dca-add').onclick = async () => { const sym = $('#dca-sym').value.trim(); if (!sym) return; await N.dca.save({ symbol: sym, amount: +$('#dca-amt').value || 100, everyHours: +$('#dca-hrs').value || 168, mode: 'paper' }); $('#dca-sym').value = ''; renderDca(); };
   $('#corr-run').onclick = renderCorrelation;
   N.store.get('settings.autoJournal', true).then((v) => { const c = $('#jr-auto'); if (c) c.checked = v; });
@@ -2746,13 +2750,22 @@ async function renderPaperCard() {
     </div>
     ${v.positions.length ? `<table class="tr-pf-tbl"><tr><th>Тикер</th><th>Кол-во</th><th>Ср.</th><th>Тек.</th><th>P&L</th></tr>${v.positions.map((p) => `<tr><td>${esc(p.symbol)}</td><td>${p.qty}</td><td>${p.avg.toFixed(2)}</td><td>${p.price.toFixed(2)}</td><td class="${p.pnl >= 0 ? 'mk-up' : 'mk-down'}">${p.pnl} (${p.pnlPct}%)</td></tr>`).join('')}</table>` : `<p class="muted">${esc(t('bot.noPos'))}</p>`}
     <button class="btn ghost sm" id="paper-reset" style="margin-top:8px">↺ ${esc(t('bot.reset'))}</button>`;
-  $('#paper-reset').onclick = async () => { if (await confirmModal(t('bot.reset'), t('bot.resetConfirm'))) { await N.paper.reset(100000); renderPaperCard(); renderEquityCurve(); renderPortfolioAnalytics(); } };
+  $('#paper-reset').onclick = () => {
+    modal(`<h2>↺ ${esc(t('bot.reset'))}</h2>
+      <p class="muted">${esc(t('bot.resetConfirm'))}</p>
+      <label class="field"><span>${esc(t('eq.startCapital'))}</span><input id="rs-cap" type="number" value="100000" min="1000" step="1000"></label>
+      <div class="modal-actions"><button class="btn ghost" id="rs-cancel">${esc(t('btn.cancel'))}</button><button class="btn danger" id="rs-ok">${esc(t('bot.reset'))}</button></div>`,
+      (m, close) => {
+        $('#rs-cancel', m).onclick = close;
+        $('#rs-ok', m).onclick = async () => { const cap = Math.max(1000, +$('#rs-cap', m).value || 100000); await N.paper.reset(cap); close(); renderPaperCard(); renderEquityCurve(); renderPortfolioAnalytics(); toast('↺', t('eq.startCapital') + ': ' + cap.toLocaleString(), 'ok'); };
+      });
+  };
 }
 async function renderEquityCurve() {
   const cv = $('#eq-canvas'); if (!cv) return;
   if (!state.eqBench && state.eqBench !== '') state.eqBench = '^GSPC';
   const benchSel = $('#eq-bench'); if (benchSel) { benchSel.value = state.eqBench; benchSel.onchange = () => { state.eqBench = benchSel.value; renderEquityCurve(); }; }
-  const [curve, stats] = await Promise.all([N.paper.equityCurve(), N.paper.equityStats()]);
+  const [curve, stats, hist] = await Promise.all([N.paper.equityCurve(), N.paper.equityStats(), N.paper.history()]);
   const stat = $('#eq-stat'); const metrics = $('#eq-metrics');
   if (!curve || curve.length < 2) { if (stat) stat.textContent = t('eq.empty'); if (metrics) metrics.innerHTML = ''; const c0 = cv.getContext('2d'); c0 && c0.clearRect(0, 0, cv.width, cv.height); return; }
   const start = curve[0].equity || 1;
@@ -2793,10 +2806,42 @@ async function renderEquityCurve() {
   ctx.lineTo(x(eqPts[eqPts.length - 1].at), padT + ch); ctx.lineTo(x(eqPts[0].at), padT + ch); ctx.closePath(); ctx.fillStyle = grad; ctx.fill();
   ctx.strokeStyle = up ? '#26a69a' : '#ef5350'; ctx.lineWidth = 1.8; ctx.beginPath();
   eqPts.forEach((p, i) => i ? ctx.lineTo(x(p.at), y(p.v)) : ctx.moveTo(x(p.at), y(p.v))); ctx.stroke();
+  // Маркеры сделок: ▲ покупка, ▼ продажа — на уровне капитала в момент сделки.
+  const eqAt = (at) => {
+    if (at <= eqPts[0].at) return eqPts[0].v;
+    if (at >= eqPts[eqPts.length - 1].at) return eqPts[eqPts.length - 1].v;
+    for (let i = 1; i < eqPts.length; i++) if (eqPts[i].at >= at) { const a = eqPts[i - 1], b = eqPts[i]; const f = (at - a.at) / ((b.at - a.at) || 1); return a.v + (b.v - a.v) * f; }
+    return eqPts[eqPts.length - 1].v;
+  };
+  for (const tr of (hist || [])) {
+    if (tr.at < tMin || tr.at > tMax) continue;
+    const mx = x(tr.at), my = y(eqAt(tr.at)), buy = tr.side === 'buy';
+    ctx.fillStyle = buy ? '#26a69a' : '#ef5350'; ctx.beginPath();
+    if (buy) { ctx.moveTo(mx, my + 8); ctx.lineTo(mx - 4, my + 15); ctx.lineTo(mx + 4, my + 15); }
+    else { ctx.moveTo(mx, my - 8); ctx.lineTo(mx - 4, my - 15); ctx.lineTo(mx + 4, my - 15); }
+    ctx.closePath(); ctx.fill();
+  }
   // Подписи.
   ctx.fillStyle = txt; ctx.font = '10px Consolas, monospace';
   ctx.fillText(hi.toFixed(0), padL + cw + 4, y(hi) + 4); ctx.fillText(lo.toFixed(0), padL + cw + 4, y(lo) + 4);
   for (let i = 0; i <= 3; i++) { const at = tMin + span * i / 3; const d = new Date(at); ctx.fillText(`${d.getDate()}.${d.getMonth() + 1}`, Math.min(padL + cw * i / 3, padL + cw - 40), H - 4); }
+}
+const csvCell = (v) => { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+const toCsv = (rows) => rows.map((r) => r.map(csvCell).join(',')).join('\n');
+async function exportEquityCsv() {
+  const curve = await N.paper.equityCurve();
+  if (!curve || !curve.length) return toast('📈', t('eq.empty'), 'err');
+  const rows = [['datetime', 'equity', 'pnlPct']].concat(curve.map((p) => [new Date(p.at).toISOString(), p.equity, p.pnlPct]));
+  downloadText('equity-curve-' + new Date().toISOString().slice(0, 10) + '.csv', toCsv(rows), 'text/csv;charset=utf-8');
+  toast('⬇', t('eq.csv') + ': ' + curve.length, 'ok');
+}
+async function exportTradesCsv() {
+  const all = await N.journal.list();
+  if (!all || !all.length) return toast('📒', t('jr.empty'), 'err');
+  const rows = [['datetime', 'symbol', 'side', 'qty', 'price', 'pnl', 'reason', 'source']]
+    .concat(all.map((e) => [new Date(e.date).toISOString(), e.symbol, e.side, e.qty, e.price, e.pnl != null ? e.pnl : '', e.reason || '', e.source || '']));
+  downloadText('trades-' + new Date().toISOString().slice(0, 10) + '.csv', toCsv(rows), 'text/csv;charset=utf-8');
+  toast('⬇', t('eq.csvTrades') + ': ' + all.length, 'ok');
 }
 async function renderPortfolioAnalytics() {
   const box = $('#pa-body'); if (!box) return;

@@ -300,8 +300,8 @@ app.whenReady().then(async () => {
   // Ежедневный дайджест (проверяем раз в час, шлём раз в день).
   setInterval(dailyDigest, 3600000);
   setTimeout(dailyDigest, 60000);
-  // Кривая капитала: периодически переоцениваем бумажный счёт по живым ценам.
-  setInterval(markPaperEquity, 30 * 60000);
+  // Кривая капитала: переоцениваем бумажный счёт по живым ценам каждые 5 минут.
+  setInterval(markPaperEquity, 5 * 60000);
   setTimeout(markPaperEquity, 20000);
 
   // Очередь задач: пробрасываем события в UI и возобновляем незавершённые.

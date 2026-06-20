@@ -674,6 +674,8 @@ function renderChat() {
     }
     const d = el('div', 'msg ' + m.role);
     d.textContent = m.text;
+    // Заметки рассуждения/самопроверки — кликабельны для детального просмотра.
+    if (m.role === 'tool') { d.classList.add('msg-click'); d.title = t('think.clickDetail'); d.onclick = () => modal(`<h2>🧠 ${esc(t('think.noteTitle'))}</h2><div class="note-detail">${esc(m.text)}</div><div class="modal-actions"><button class="btn ghost" id="nd-copy">📋 ${esc(t('btn.copy'))}</button><button class="btn primary" id="nd-close">${esc(t('btn.close'))}</button></div>`, (mm, close) => { $('#nd-close', mm).onclick = close; $('#nd-copy', mm).onclick = () => { navigator.clipboard.writeText(m.text); toast('📋', t('copied'), 'ok'); }; }); }
     body.appendChild(d);
     // Артефакт: кнопка живого превью кода/HTML/графики.
     if (m.role === 'bot' && m.text && window.__artifactsOn) {
@@ -1264,13 +1266,15 @@ async function renderQueue() {
           ${tk.status === 'queued' && (tk.runAt > Date.now() || (tk.dependsOn && tk.dependsOn.length)) ? `<button class="btn ghost sm" data-now="${tk.id}" title="${esc(t('q.runNow'))}">⏵</button>` : ''}
           ${(tk.status === 'queued' || tk.status === 'running') ? `<button class="btn ghost sm" data-cancel="${tk.id}">${esc(t('q.cancel'))}</button>` : ''}
           ${TASK_TERMINAL.includes(tk.status) ? `<button class="btn ghost sm" data-retry="${tk.id}" title="${esc(t('q.retryT'))}">↻</button><button class="btn ghost sm" data-dup="${tk.id}" title="${esc(t('q.duplicate'))}">⧉</button>` : ''}
+          <button class="btn ghost sm" data-open="${tk.id}" title="${esc(t('q.open'))}">🔍</button>
           <button class="btn ghost sm" data-rm="${tk.id}">✕</button>
         </div>
       </div>
       ${tk.status === 'running' ? `<div class="progress" style="margin-top:8px"><i style="width:${tk.progress || 0}%"></i></div>` : ''}
-      ${tk.result ? `<div class="muted" style="margin-top:8px;font-size:12px;white-space:pre-wrap;max-height:140px;overflow:auto">${esc(String(tk.result).slice(0, 800))}</div>` : ''}
+      ${tk.result ? `<div class="muted qt-result" data-open="${tk.id}" style="margin-top:8px;font-size:12px;white-space:pre-wrap;max-height:140px;overflow:auto;cursor:pointer" title="${esc(t('q.open'))}">${esc(String(tk.result).slice(0, 800))}${String(tk.result).length > 800 ? '\n…' : ''}</div>` : ''}
     </div>`).join('');
   const re = () => renderQueue();
+  $$('[data-open]', wrap).forEach((b) => b.onclick = () => { const tk = tasks.find((x) => x.id === b.dataset.open); if (tk) taskDetailModal(tk); });
   $$('[data-cancel]', wrap).forEach((b) => b.onclick = async () => { await N.taskq.cancel(b.dataset.cancel); re(); });
   $$('[data-retry]', wrap).forEach((b) => b.onclick = async () => { await N.taskq.retry(b.dataset.retry); re(); });
   $$('[data-rm]', wrap).forEach((b) => b.onclick = async () => { await N.taskq.remove(b.dataset.rm); re(); });
@@ -1278,6 +1282,32 @@ async function renderQueue() {
   $$('[data-now]', wrap).forEach((b) => b.onclick = async () => { await N.taskq.runNow(b.dataset.now); re(); });
   $$('[data-pup]', wrap).forEach((b) => b.onclick = async () => { const tk = tasks.find((x) => x.id === b.dataset.pup); await N.taskq.setPriority(b.dataset.pup, (tk.priority || 3) + 1); re(); });
   $$('[data-pdn]', wrap).forEach((b) => b.onclick = async () => { const tk = tasks.find((x) => x.id === b.dataset.pdn); await N.taskq.setPriority(b.dataset.pdn, (tk.priority || 3) - 1); re(); });
+}
+// Подробный просмотр задачи + продолжение (создаёт новую задачу с прошлым результатом).
+function taskDetailModal(tk) {
+  const agents = state.queueAgents || [];
+  const nameOf = (id) => (agents.find((a) => a.id === id) || {}).name || '—';
+  const meta = `${esc(t('q.prio'))} ${'★'.repeat(tk.priority)} · ${tk.mode === 'swarm' ? '🐝 ' + t('q.team') : '🤖 ' + esc((tk.agentIds || []).map(nameOf).join(', ') || t('q.auto'))} · ${esc(t('q.status.' + tk.status) || tk.status)}`;
+  modal(`<h2>${TASK_STATUS[tk.status] || ''} ${esc(tk.goal.slice(0, 60))}</h2>
+    <p class="muted" style="font-size:12px;margin:-4px 0 8px">${meta}</p>
+    <div class="field"><span>${esc(t('q.goal'))}</span><div class="note-detail">${esc(tk.goal)}</div></div>
+    ${tk.result ? `<div class="field"><span>${esc(t('q.result'))}</span><div class="note-detail" style="max-height:320px">${esc(String(tk.result))}</div></div>` : ''}
+    ${tk.error ? `<p class="mk-down" style="font-size:12px">⚠️ ${esc(tk.error)}</p>` : ''}
+    <div class="modal-actions">
+      <button class="btn ghost" id="td-copy">📋 ${esc(t('btn.copy'))}</button>
+      ${TASK_TERMINAL.includes(tk.status) ? `<button class="btn ghost" id="td-retry">↻ ${esc(t('q.retryT'))}</button>` : ''}
+      <button class="btn primary" id="td-cont">▶ ${esc(t('q.continue'))}</button>
+      <button class="btn ghost" id="td-close">${esc(t('btn.close'))}</button>
+    </div>`, (m, close) => {
+    $('#td-close', m).onclick = close;
+    $('#td-copy', m).onclick = () => { navigator.clipboard.writeText(tk.goal + (tk.result ? '\n\n' + tk.result : '')); toast('📋', t('copied'), 'ok'); };
+    const rt = $('#td-retry', m); if (rt) rt.onclick = async () => { await N.taskq.retry(tk.id); close(); renderQueue(); };
+    $('#td-cont', m).onclick = async () => {
+      const goal = `${t('q.continuePrefix')}\n${tk.goal}` + (tk.result ? `\n\n${t('q.prevResult')}:\n${String(tk.result).slice(0, 2500)}` : '');
+      const r = await N.taskq.add({ goal, agentIds: tk.agentIds || [], priority: tk.priority || 3, retries: 1 });
+      if (r.ok) { toast('▶', t('q.continued'), 'ok'); close(); renderQueue(); } else toast('⚠️', r.error || '', 'err');
+    };
+  });
 }
 async function addTaskModal(agents) {
   const q = await N.taskq.list();
@@ -4928,12 +4958,15 @@ const BOARD_PRIO = { high: '🔴', med: '🟡', low: '🔵' };
 async function viewBoard() {
   const data = await N.store.get('kanban', { cards: [] });
   if (!data || !Array.isArray(data.cards)) data.cards = [];
+  if (!Array.isArray(data.cols) || !data.cols.length) data.cols = [{ id: 'todo', name: t('bd.col.todo') }, { id: 'doing', name: t('bd.col.doing') }, { id: 'done', name: t('bd.col.done') }];
+  const firstCol = () => (data.cols[0] || { id: 'todo' }).id;
   const save = () => N.store.set('kanban', data);
   content.innerHTML = `
     <div class="view-head"><div class="row between"><h1>🗂️ ${esc(t('bd.title'))}</h1>
-      <input id="bd-search" placeholder="🔎 ${esc(t('bd.search'))}" style="max-width:220px"></div>
+      <div class="row" style="gap:8px"><button class="btn ghost sm" id="bd-addcol">＋ ${esc(t('bd.addCol'))}</button><input id="bd-search" placeholder="🔎 ${esc(t('bd.search'))}" style="max-width:200px"></div></div>
       <p>${esc(t('bd.sub'))}</p></div>
     <div class="kanban" id="kanban"></div>`;
+  $('#bd-addcol').onclick = () => { const name = prompt(t('bd.colName')); if (name && name.trim()) { data.cols.push({ id: 'c' + Date.now().toString(36), name: name.trim() }); save(); render($('#bd-search').value); } };
   const cardEditModal = (existing, col) => {
     const c = existing || { title: '', notes: '', prio: 'med', due: '', tags: [] };
     modal(`<h2>${esc(existing ? t('bd.edit') : t('bd.add'))}</h2>
@@ -4951,7 +4984,7 @@ async function viewBoard() {
         $('#bc-save', m).onclick = async () => {
           const title = $('#bc-title', m).value.trim(); if (!title) return toast('⚠️', t('bd.needTitle'), 'err');
           const upd = { title, notes: $('#bc-notes', m).value.trim(), prio: $('#bc-prio', m).value, due: $('#bc-due', m).value, tags: $('#bc-tags', m).value.split(',').map((s) => s.trim()).filter(Boolean) };
-          if (existing) Object.assign(existing, upd); else data.cards.push({ id: 'k' + Date.now().toString(36), col: col || 'todo', at: Date.now(), ...upd });
+          if (existing) Object.assign(existing, upd); else data.cards.push({ id: 'k' + Date.now().toString(36), col: col || firstCol(), at: Date.now(), ...upd });
           await save(); close(); render($('#bd-search').value);
         };
       });
@@ -4964,7 +4997,7 @@ async function viewBoard() {
       if (!r || !r.ok) return toast('⚠️', t('bd.aiFail') + (r && r.error ? ': ' + r.error : ''), 'err');
       const subs = String(r.text || '').split('\n').map((s) => s.replace(/^[-*•\d.\s]+/, '').trim()).filter((s) => s.length > 2).slice(0, 6);
       if (!subs.length) return toast('⚠️', t('bd.aiNone'), 'err');
-      subs.forEach((s) => data.cards.push({ id: 'k' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), col: 'todo', prio: card.prio || 'med', title: s, notes: t('bd.from') + ' «' + card.title + '»', tags: ['sub'], at: Date.now() }));
+      subs.forEach((s) => data.cards.push({ id: 'k' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), col: firstCol(), prio: card.prio || 'med', title: s, notes: t('bd.from') + ' «' + card.title + '»', tags: ['sub'], at: Date.now() }));
       await save(); render($('#bd-search').value); toast('✨', t('bd.aiDone') + ': ' + subs.length, 'ok');
     } catch { toast('⚠️', t('bd.aiFail'), 'err'); }
   };
@@ -4974,28 +5007,42 @@ async function viewBoard() {
     e.innerHTML = `<div class="kb-card-top"><span class="kb-prio">${BOARD_PRIO[c.prio] || '🟡'}</span><b>${esc(c.title)}</b></div>
       ${c.notes ? `<p class="muted">${esc(c.notes.slice(0, 120))}${c.notes.length > 120 ? '…' : ''}</p>` : ''}
       ${(c.due || (c.tags && c.tags.length)) ? `<div class="kb-meta">${c.due ? `<span class="${overdue ? 'mk-down' : 'muted'}">📅 ${esc(c.due)}</span>` : ''}${(c.tags || []).map((tg) => `<span class="tag">${esc(tg)}</span>`).join('')}</div>` : ''}
-      <div class="kb-card-acts"><button class="ico-btn" data-ai title="${esc(t('bd.ai'))}">✨</button><button class="ico-btn" data-edit>✎</button><button class="ico-btn" data-del>🗑</button></div>`;
+      <div class="kb-card-acts"><button class="ico-btn" data-task title="${esc(t('bd.toQueue'))}">📋</button><button class="ico-btn" data-ai title="${esc(t('bd.ai'))}">✨</button><button class="ico-btn" data-edit>✎</button><button class="ico-btn" data-del>🗑</button></div>`;
     e.addEventListener('dragstart', (ev) => { ev.dataTransfer.setData('text/plain', c.id); e.classList.add('dragging'); });
     e.addEventListener('dragend', () => e.classList.remove('dragging'));
     e.querySelector('[data-edit]').onclick = (ev) => { ev.stopPropagation(); cardEditModal(c, c.col); };
     e.querySelector('[data-del]').onclick = async (ev) => { ev.stopPropagation(); if (await confirmModal(t('bd.del'), c.title)) { data.cards = data.cards.filter((x) => x.id !== c.id); await save(); render($('#bd-search').value); } };
     e.querySelector('[data-ai]').onclick = (ev) => { ev.stopPropagation(); aiBreakdown(c); };
+    e.querySelector('[data-task]').onclick = async (ev) => {
+      ev.stopPropagation();
+      const goal = c.title + (c.notes ? '\n' + c.notes : '');
+      const r = await N.taskq.add({ goal, agentIds: [], priority: c.prio === 'high' ? 5 : c.prio === 'low' ? 2 : 3, retries: 1 });
+      toast(r.ok ? '📋' : '⚠️', r.ok ? t('bd.toQueueDone') : (r.error || ''), r.ok ? 'ok' : 'err');
+    };
     return e;
   };
   const render = (q) => {
     q = (q || '').toLowerCase(); const board = $('#kanban'); if (!board) return; board.innerHTML = '';
-    for (const col of BOARD_COLS) {
-      const cards = data.cards.filter((c) => c.col === col && (!q || (c.title + ' ' + (c.notes || '') + ' ' + (c.tags || []).join(' ')).toLowerCase().includes(q)));
+    board.style.gridTemplateColumns = `repeat(${data.cols.length}, minmax(240px, 1fr))`;
+    for (const col of data.cols) {
+      const cards = data.cards.filter((c) => c.col === col.id && (!q || (c.title + ' ' + (c.notes || '') + ' ' + (c.tags || []).join(' ')).toLowerCase().includes(q)));
       const colEl = el('div', 'kb-col');
-      colEl.innerHTML = `<div class="kb-col-head">${BOARD_COL_ICON[col]} ${esc(t('bd.col.' + col))} <span class="tag">${cards.length}</span><button class="ico-btn" data-add="${col}" title="${esc(t('bd.add'))}">＋</button></div><div class="kb-cards" data-drop="${col}"></div>`;
+      colEl.innerHTML = `<div class="kb-col-head">${BOARD_COL_ICON[col.id] || '📋'} <span class="kb-col-name" title="${esc(t('bd.colRename'))}">${esc(col.name)}</span> <span class="tag">${cards.length}</span><span class="kb-col-acts"><button class="ico-btn" data-add="${col.id}" title="${esc(t('bd.add'))}">＋</button>${data.cols.length > 1 ? `<button class="ico-btn" data-delcol="${col.id}" title="${esc(t('bd.delCol'))}">🗑</button>` : ''}</span></div><div class="kb-cards" data-drop="${col.id}"></div>`;
       board.appendChild(colEl);
       const cardsEl = colEl.querySelector('.kb-cards');
       cards.forEach((c) => cardsEl.appendChild(cardEl(c)));
       cardsEl.addEventListener('dragover', (e) => { e.preventDefault(); cardsEl.classList.add('drag-over'); });
       cardsEl.addEventListener('dragleave', () => cardsEl.classList.remove('drag-over'));
-      cardsEl.addEventListener('drop', async (e) => { e.preventDefault(); cardsEl.classList.remove('drag-over'); const id = e.dataTransfer.getData('text/plain'); const card = data.cards.find((x) => x.id === id); if (card && card.col !== col) { card.col = col; await save(); render($('#bd-search').value); } });
+      cardsEl.addEventListener('drop', async (e) => { e.preventDefault(); cardsEl.classList.remove('drag-over'); const id = e.dataTransfer.getData('text/plain'); const card = data.cards.find((x) => x.id === id); if (card && card.col !== col.id) { card.col = col.id; await save(); render($('#bd-search').value); } });
+      colEl.querySelector('.kb-col-name').onclick = () => { const nn = prompt(t('bd.colRename'), col.name); if (nn && nn.trim()) { col.name = nn.trim(); save(); render($('#bd-search').value); } };
     }
     board.querySelectorAll('[data-add]').forEach((b) => b.onclick = () => cardEditModal(null, b.dataset.add));
+    board.querySelectorAll('[data-delcol]').forEach((b) => b.onclick = async () => {
+      const cid = b.dataset.delcol; if (!await confirmModal(t('bd.delCol'), (data.cols.find((c) => c.id === cid) || {}).name || '')) return;
+      data.cols = data.cols.filter((c) => c.id !== cid); const fc = firstCol();
+      data.cards.forEach((c) => { if (c.col === cid) c.col = fc; });
+      await save(); render($('#bd-search').value);
+    });
   };
   render('');
   $('#bd-search').addEventListener('input', (e) => render(e.target.value));

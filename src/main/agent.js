@@ -428,7 +428,7 @@ async function chat({ agentId, sessionId, message, history, effort }, sendToUI) 
       sendToUI && sendToUI('agents:verify', { sessionId, stage: 'start' });
       // Reflexion: перед повторной попыткой формулируем «урок» из текущего результата.
       let reflex = '';
-      if (store.get('settings.reflexion', false)) { try { reflex = await reasoning.reflexion(activeModel, message, finalText, 'самопроверка перед финалом'); if (reflex) sendToUI && sendToUI('agents:reason', { sessionId, note: 'урок: ' + reflex.slice(0, 120) }); } catch {} }
+      if (store.get('settings.reflexion', false)) { try { reflex = await reasoning.reflexion(activeModel, message, finalText, 'самопроверка перед финалом'); if (reflex) sendToUI && sendToUI('agents:reason', { sessionId, note: 'урок: ' + reflex.slice(0, 600) }); } catch {} }
       messages.push({ role: 'user', content: 'Самопроверка. Внимательно перепроверь: задача выполнена ПОЛНОСТЬЮ и корректно? Все утверждения подтверждены результатами инструментов (созданные файлы существуют, код запущен, ошибок нет)?' + (reflex ? '\nУчти урок: ' + reflex : '') + ' Если всё в порядке — ответь РОВНО словом «ГОТОВО» без пояснений. Если есть недочёты — кратко назови их, ИСПРАВЬ (вызови нужные инструменты) и доведи до конца.' });
       const verifyBudget = Math.min(20, Math.max(4, Math.round(maxSteps / 3)));
       await runSteps(verifyBudget);

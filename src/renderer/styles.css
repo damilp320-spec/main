@@ -636,7 +636,12 @@ body.light .msg.user { color: #fff; }
 .kb-col { background: var(--card-2, #141821); border: 1px solid var(--border); border-radius: 14px; padding: 10px; }
 .kb-col-head { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; margin-bottom: 10px; }
 .kb-col-head .tag { margin-left: 2px; }
-.kb-col-head .ico-btn { margin-left: auto; font-size: 16px; }
+.kb-col-head .kb-col-acts { margin-left: auto; display: flex; gap: 1px; }
+.kb-col-name { cursor: pointer; }
+.kb-col-name:hover { text-decoration: underline dotted; }
+.note-detail { background: var(--bg-2, #11151d); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 13px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; max-height: 240px; overflow: auto; margin-top: 4px; }
+.msg.tool.msg-click { cursor: pointer; }
+.msg.tool.msg-click:hover { border-style: solid; filter: brightness(1.2); }
 .kb-cards { display: flex; flex-direction: column; gap: 8px; min-height: 60px; border-radius: 10px; transition: background .15s; }
 .kb-cards.drag-over { background: rgba(124,92,255,.08); outline: 1px dashed var(--accent); }
 .kb-card { background: var(--card, #1a1f2b); border: 1px solid var(--border); border-left: 3px solid var(--muted, #8a93a6); border-radius: 10px; padding: 9px 11px; cursor: grab; position: relative; }

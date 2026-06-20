@@ -33,6 +33,39 @@ function reset(startCash) {
   return { ok: true };
 }
 
+// Метрики по кривой капитала: доходность, макс. просадка, Sharpe (по точкам).
+function equityStats() {
+  const curve = equityCurve();
+  if (curve.length < 2) return { ok: false, points: curve.length };
+  const vals = curve.map((p) => p.equity);
+  const start = vals[0], last = vals[vals.length - 1];
+  const ret = (last / start - 1) * 100;
+  let peak = -Infinity, maxDD = 0;
+  for (const v of vals) { if (v > peak) peak = v; const dd = peak > 0 ? (peak - v) / peak * 100 : 0; if (dd > maxDD) maxDD = dd; }
+  const rets = []; for (let i = 1; i < vals.length; i++) if (vals[i - 1] > 0) rets.push(vals[i] / vals[i - 1] - 1);
+  const mean = rets.reduce((s, v) => s + v, 0) / (rets.length || 1);
+  const sd = Math.sqrt(rets.reduce((s, v) => s + (v - mean) ** 2, 0) / (rets.length || 1));
+  const sharpe = sd ? +(mean / sd).toFixed(2) : 0; // на точку (без годовой нормировки)
+  return { ok: true, return: +ret.toFixed(2), maxDrawdown: +maxDD.toFixed(2), sharpe, points: curve.length, start, last: +last.toFixed(2), since: curve[0].at };
+}
+
+// Бенчмарк «купил и держи»: нормируем индекс/актив к стартовому капиталу на окне кривой.
+async function benchmark(symbol) {
+  const curve = equityCurve();
+  if (curve.length < 2) return { ok: false, error: 'мало точек' };
+  const markets = require('./markets');
+  const t0 = curve[0].at, t1 = curve[curve.length - 1].at;
+  const spanDays = (t1 - t0) / 86400000;
+  const range = spanDays > 365 ? '2y' : spanDays > 90 ? '1y' : spanDays > 20 ? '3mo' : '1mo';
+  const d = await markets.candles({ symbol: symbol || '^GSPC', interval: '1d', range });
+  if (!d.ok) return { ok: false, error: d.error };
+  const inWin = d.candles.filter((c) => c.t >= t0 - 5 * 86400000);
+  if (!inWin.length) return { ok: false, error: 'нет данных за период' };
+  const base = inWin[0].c; const startEq = curve[0].equity;
+  const series = inWin.map((c) => ({ at: c.t, value: +(startEq * c.c / base).toFixed(2) }));
+  return { ok: true, symbol: d.symbol, series, benchReturn: +((inWin[inWin.length - 1].c / base - 1) * 100).toFixed(2) };
+}
+
 // Купить/продать по заданной цене. side: 'buy'|'sell'. qty — штук.
 function trade({ symbol, side, qty, price, reason, source }) {
   symbol = String(symbol || '').toUpperCase(); qty = Math.max(0, +qty || 0); price = +price || 0;
@@ -87,4 +120,4 @@ function autoJournal(e) {
 function state() { return acc(); }
 function history() { return acc().history.slice(-60).reverse(); }
 
-module.exports = { reset, trade, valuation, state, history, equityCurve, snapshot };
+module.exports = { reset, trade, valuation, state, history, equityCurve, snapshot, equityStats, benchmark };

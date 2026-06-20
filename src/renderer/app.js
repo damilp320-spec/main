@@ -2437,7 +2437,7 @@ async function viewCockpit() {
   content.innerHTML = `
     <div class="view-head"><h1>🎛️ ${esc(t('ck.title'))}</h1><p>${esc(t('ck.sub'))} · <a class="wikilink" data-go="trading">${esc(t('ck.settings'))}</a></p></div>
     <div class="grid cols-4">
-      <div class="card stat"><span class="lbl">${esc(t('ck.equity'))}</span><span class="big" id="ck-eq">…</span><span class="muted" id="ck-pnl"></span></div>
+      <div class="card stat"><span class="lbl">${esc(t('ck.equity'))}</span><span class="big" id="ck-eq">…</span><span class="muted" id="ck-pnl"></span><canvas id="ck-eqspark" class="ck-eqspark"></canvas></div>
       <div class="card stat"><span class="lbl">${esc(t('ck.bot'))}</span><span class="big" id="ck-bot">…</span><span class="muted" id="ck-botsub"></span></div>
       <div class="card stat"><span class="lbl">${esc(t('ck.breadth'))}</span><span class="big" id="ck-breadth">…</span><span class="muted" id="ck-breadthsub"></span></div>
       <div class="card stat"><span class="lbl">${esc(t('ck.copilot'))}</span><span class="big" id="ck-cop">…</span><span class="muted" id="ck-copsub"></span></div>
@@ -2459,6 +2459,8 @@ async function viewCockpit() {
     if (state.view !== 'cockpit') return;
     $('#ck-eq').textContent = v.equity.toLocaleString();
     $('#ck-pnl').innerHTML = `<span class="${v.totalPnl >= 0 ? 'mk-up' : 'mk-down'}">${v.totalPnl >= 0 ? '+' : ''}${v.totalPnl} (${v.totalPnlPct}%)</span>`;
+    // Мини-кривая капитала.
+    try { const curve = await N.paper.equityCurve(); if (state.view === 'cockpit' && curve && curve.length > 1) { const vals = curve.map((p) => p.equity); drawSparkline($('#ck-eqspark'), vals, vals[vals.length - 1] >= vals[0], 200, 32); } } catch {}
     $('#ck-port').innerHTML = v.positions.length ? v.positions.slice(0, 6).map((p) => `<div class="today-row"><span>${esc(p.symbol)} ×${p.qty}</span><span class="${p.pnl >= 0 ? 'mk-up' : 'mk-down'}">${p.pnlPct >= 0 ? '+' : ''}${p.pnlPct}%</span></div>`).join('') : `<span class="muted">${esc(t('bot.noPos'))}</span>`;
   })();
   // Бот.
@@ -2534,7 +2536,12 @@ async function viewTrading() {
       <div class="card" id="bot-card"><h3>🤖 ${esc(t('bot.title'))}</h3><div id="bot-body"></div></div>
       <div class="card" id="paper-card"><h3>🧪 ${esc(t('bot.paper'))}</h3><div id="paper-body"></div></div>
       <div class="card" id="eq-card" style="grid-column:1/-1">
-        <div class="row between"><h3>📈 ${esc(t('eq.title'))}</h3><span id="eq-stat" class="muted" style="font-size:12px"></span></div>
+        <div class="row between"><h3>📈 ${esc(t('eq.title'))}</h3>
+          <span class="row" style="gap:8px;align-items:center"><span id="eq-stat" class="muted" style="font-size:12px"></span>
+            <label class="mk-ind" style="font-size:11px">${esc(t('eq.benchmark'))}: <select id="eq-bench"><option value="^GSPC">S&P 500</option><option value="^IXIC">Nasdaq</option><option value="BTC-USD">BTC</option><option value="">${esc(t('eq.none'))}</option></select></label>
+          </span>
+        </div>
+        <div id="eq-metrics" class="bt-stats" style="margin:6px 0"></div>
         <div class="eq-chart-wrap"><canvas id="eq-canvas"></canvas></div>
         <p class="muted" style="font-size:11px;margin-top:4px">${esc(t('eq.note'))}</p>
       </div>
@@ -2743,37 +2750,53 @@ async function renderPaperCard() {
 }
 async function renderEquityCurve() {
   const cv = $('#eq-canvas'); if (!cv) return;
-  const curve = await N.paper.equityCurve();
-  const stat = $('#eq-stat');
-  if (!curve || curve.length < 2) { if (stat) stat.textContent = t('eq.empty'); const c0 = cv.getContext('2d'); c0 && c0.clearRect(0, 0, cv.width, cv.height); return; }
+  if (!state.eqBench && state.eqBench !== '') state.eqBench = '^GSPC';
+  const benchSel = $('#eq-bench'); if (benchSel) { benchSel.value = state.eqBench; benchSel.onchange = () => { state.eqBench = benchSel.value; renderEquityCurve(); }; }
+  const [curve, stats] = await Promise.all([N.paper.equityCurve(), N.paper.equityStats()]);
+  const stat = $('#eq-stat'); const metrics = $('#eq-metrics');
+  if (!curve || curve.length < 2) { if (stat) stat.textContent = t('eq.empty'); if (metrics) metrics.innerHTML = ''; const c0 = cv.getContext('2d'); c0 && c0.clearRect(0, 0, cv.width, cv.height); return; }
   const start = curve[0].equity || 1;
   const last = curve[curve.length - 1].equity;
-  const chg = (last / start - 1) * 100;
-  if (stat) stat.innerHTML = `${last.toLocaleString()} · <span class="${chg >= 0 ? 'mk-up' : 'mk-down'}">${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%</span> · ${curve.length} ${esc(t('eq.points'))}`;
+  // Бенчмарк (купил-держи) за тот же период.
+  let bench = null;
+  if (state.eqBench) { try { const b = await N.paper.benchmark(state.eqBench); if (b.ok) bench = b; } catch {} }
+  if (stat) stat.innerHTML = `${last.toLocaleString()} · <span class="${stats.return >= 0 ? 'mk-up' : 'mk-down'}">${stats.return >= 0 ? '+' : ''}${stats.return}%</span>`;
+  if (metrics) metrics.innerHTML = `
+    <div class="bt-stat"><span>${esc(t('eq.return'))}</span><b class="${stats.return >= 0 ? 'mk-up' : 'mk-down'}">${stats.return >= 0 ? '+' : ''}${stats.return}%</b></div>
+    <div class="bt-stat"><span>${esc(t('bt.maxDD'))}</span><b class="mk-down">-${stats.maxDrawdown}%</b></div>
+    <div class="bt-stat"><span>Sharpe</span><b class="${stats.sharpe >= 0 ? 'mk-up' : 'mk-down'}">${stats.sharpe}</b></div>
+    ${bench ? `<div class="bt-stat"><span>${esc(bench.symbol)}</span><b class="${bench.benchReturn >= 0 ? 'mk-up' : 'mk-down'}">${bench.benchReturn >= 0 ? '+' : ''}${bench.benchReturn}%</b></div>
+    <div class="bt-stat"><span>${esc(t('eq.alpha'))}</span><b class="${stats.return - bench.benchReturn >= 0 ? 'mk-up' : 'mk-down'}">${stats.return - bench.benchReturn >= 0 ? '▲' : '▼'} ${(stats.return - bench.benchReturn).toFixed(2)}%</b></div>` : ''}
+    <div class="bt-stat"><span>${esc(t('eq.points'))}</span><b>${stats.points}</b></div>`;
+  // ---- Рисуем по оси ВРЕМЕНИ, чтобы совместить кривую и бенчмарк ----
   const wrap = cv.parentElement; const W = wrap.clientWidth || 600; const H = 180; const dpr = window.devicePixelRatio || 1;
   cv.width = W * dpr; cv.height = H * dpr; cv.style.width = W + 'px'; cv.style.height = H + 'px';
   const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
-  const vals = curve.map((p) => p.equity);
   const padL = 6, padR = 58, padT = 10, padB = 18; const cw = W - padL - padR, ch = H - padT - padB;
-  let lo = Math.min(...vals, start), hi = Math.max(...vals, start); const pad = (hi - lo) * 0.08 || 1; lo -= pad; hi += pad;
-  const n = curve.length;
-  const x = (i) => padL + (i / (n - 1)) * cw; const y = (v) => padT + (1 - (v - lo) / (hi - lo)) * ch;
+  const eqPts = curve.map((p) => ({ at: p.at, v: p.equity }));
+  const bePts = bench ? bench.series.filter((p) => p.at >= eqPts[0].at - 86400000).map((p) => ({ at: p.at, v: p.value })) : [];
+  const allV = eqPts.map((p) => p.v).concat(bePts.map((p) => p.v), [start]);
+  let lo = Math.min(...allV), hi = Math.max(...allV); const pad = (hi - lo) * 0.08 || 1; lo -= pad; hi += pad;
+  const tMin = eqPts[0].at, tMax = Math.max(eqPts[eqPts.length - 1].at, bePts.length ? bePts[bePts.length - 1].at : 0);
+  const span = (tMax - tMin) || 1;
+  const x = (at) => padL + (at - tMin) / span * cw; const y = (v) => padT + (1 - (v - lo) / (hi - lo)) * ch;
   const css = getComputedStyle(document.body); const txt = css.getPropertyValue('--muted') || '#8b93a7';
-  // Стартовая линия капитала.
+  // Стартовый капитал.
   ctx.strokeStyle = 'rgba(140,150,170,.3)'; ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.moveTo(padL, y(start)); ctx.lineTo(padL + cw, y(start)); ctx.stroke(); ctx.setLineDash([]);
-  // Заливка под кривой.
+  // Бенчмарк (серая линия).
+  if (bePts.length > 1) { ctx.strokeStyle = 'rgba(150,160,180,.7)'; ctx.lineWidth = 1.2; ctx.beginPath(); bePts.forEach((p, i) => i ? ctx.lineTo(x(p.at), y(p.v)) : ctx.moveTo(x(p.at), y(p.v))); ctx.stroke(); }
+  // Заливка + кривая капитала.
   const up = last >= start;
   const grad = ctx.createLinearGradient(0, padT, 0, padT + ch);
   grad.addColorStop(0, up ? 'rgba(38,166,154,.30)' : 'rgba(239,83,80,.30)'); grad.addColorStop(1, 'rgba(0,0,0,0)');
-  ctx.beginPath(); vals.forEach((v, i) => i ? ctx.lineTo(x(i), y(v)) : ctx.moveTo(x(i), y(v)));
-  ctx.lineTo(x(n - 1), padT + ch); ctx.lineTo(x(0), padT + ch); ctx.closePath(); ctx.fillStyle = grad; ctx.fill();
-  // Кривая.
+  ctx.beginPath(); eqPts.forEach((p, i) => i ? ctx.lineTo(x(p.at), y(p.v)) : ctx.moveTo(x(p.at), y(p.v)));
+  ctx.lineTo(x(eqPts[eqPts.length - 1].at), padT + ch); ctx.lineTo(x(eqPts[0].at), padT + ch); ctx.closePath(); ctx.fillStyle = grad; ctx.fill();
   ctx.strokeStyle = up ? '#26a69a' : '#ef5350'; ctx.lineWidth = 1.8; ctx.beginPath();
-  vals.forEach((v, i) => i ? ctx.lineTo(x(i), y(v)) : ctx.moveTo(x(i), y(v))); ctx.stroke();
-  // Подписи цены и дат.
+  eqPts.forEach((p, i) => i ? ctx.lineTo(x(p.at), y(p.v)) : ctx.moveTo(x(p.at), y(p.v))); ctx.stroke();
+  // Подписи.
   ctx.fillStyle = txt; ctx.font = '10px Consolas, monospace';
   ctx.fillText(hi.toFixed(0), padL + cw + 4, y(hi) + 4); ctx.fillText(lo.toFixed(0), padL + cw + 4, y(lo) + 4);
-  for (let i = 0; i <= 3; i++) { const idx = Math.round((n - 1) * i / 3); const d = new Date(curve[idx].at); ctx.fillText(`${d.getDate()}.${d.getMonth() + 1}`, Math.min(x(idx) - 10, padL + cw - 40), H - 4); }
+  for (let i = 0; i <= 3; i++) { const at = tMin + span * i / 3; const d = new Date(at); ctx.fillText(`${d.getDate()}.${d.getMonth() + 1}`, Math.min(padL + cw * i / 3, padL + cw - 40), H - 4); }
 }
 async function renderPortfolioAnalytics() {
   const box = $('#pa-body'); if (!box) return;
@@ -4044,9 +4067,10 @@ async function renderWatchlist() {
     drawSparkline($('#spark-' + i), cl, chg >= 0);
   }
 }
-function drawSparkline(cv, vals, up) {
-  if (!cv) return; const dpr = window.devicePixelRatio || 1; const W = 80, H = 22;
-  cv.width = W * dpr; cv.height = H * dpr; const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+function drawSparkline(cv, vals, up, W = 80, H = 22) {
+  if (!cv || !vals || vals.length < 2) return; const dpr = window.devicePixelRatio || 1;
+  cv.width = W * dpr; cv.height = H * dpr; cv.style.width = W + 'px'; cv.style.height = H + 'px';
+  const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
   let lo = Math.min(...vals), hi = Math.max(...vals); const pad = (hi - lo) * 0.1 || 1; lo -= pad; hi += pad;
   ctx.strokeStyle = up ? '#26a69a' : '#ef5350'; ctx.lineWidth = 1.2; ctx.beginPath();
   vals.forEach((v, i) => { const x = (i / (vals.length - 1)) * (W - 2) + 1; const y = (1 - (v - lo) / (hi - lo)) * (H - 4) + 2; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });

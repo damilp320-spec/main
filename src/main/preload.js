@@ -442,6 +442,8 @@ contextBridge.exposeInMainWorld('mythera', {
     valuation: (q) => invoke('paper:valuation', q),
     history: () => invoke('paper:history'),
     equityCurve: () => invoke('paper:equityCurve'),
+    equityStats: () => invoke('paper:equityStats'),
+    benchmark: (symbol) => invoke('paper:benchmark', symbol),
     reset: (c) => invoke('paper:reset', c),
     trade: (o) => invoke('paper:trade', o)
   },

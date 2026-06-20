@@ -745,7 +745,7 @@ ipcMain.handle('paper:valuation', (_e, quotes) => paper.valuation(quotes));
 ipcMain.handle('paper:history', () => paper.history());
 ipcMain.handle('paper:equityCurve', () => paper.equityCurve());
 ipcMain.handle('paper:equityStats', () => paper.equityStats());
-ipcMain.handle('paper:benchmark', (_e, symbol) => paper.benchmark(symbol));
+ipcMain.handle('paper:benchmark', (_e, symbol, fromTs) => paper.benchmark(symbol, fromTs));
 ipcMain.handle('paper:reset', (_e, cash) => paper.reset(cash));
 ipcMain.handle('paper:trade', (_e, o) => paper.trade(o));
 

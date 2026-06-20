@@ -2538,6 +2538,7 @@ async function viewTrading() {
       <div class="card" id="eq-card" style="grid-column:1/-1">
         <div class="row between"><h3>📈 ${esc(t('eq.title'))}</h3>
           <span class="row" style="gap:8px;align-items:center"><span id="eq-stat" class="muted" style="font-size:12px"></span>
+            <span class="seg" id="eq-period">${[['day', t('eq.day')], ['week', t('eq.week')], ['all', t('eq.all')]].map(([v, l]) => `<button data-per="${v}">${esc(l)}</button>`).join('')}</span>
             <label class="mk-ind" style="font-size:11px">${esc(t('eq.benchmark'))}: <select id="eq-bench"><option value="^GSPC">S&P 500</option><option value="^IXIC">Nasdaq</option><option value="BTC-USD">BTC</option><option value="">${esc(t('eq.none'))}</option></select></label>
             <button class="btn ghost sm" id="eq-csv" title="${esc(t('eq.exportCurve'))}">⬇ ${esc(t('eq.csv'))}</button>
             <button class="btn ghost sm" id="eq-csv-trades" title="${esc(t('eq.exportTrades'))}">⬇ ${esc(t('eq.csvTrades'))}</button>
@@ -2761,18 +2762,39 @@ async function renderPaperCard() {
       });
   };
 }
+function eqLocalStats(pts) {
+  const vals = pts.map((p) => p.equity);
+  const start = vals[0], last = vals[vals.length - 1];
+  const ret = (last / start - 1) * 100;
+  let peak = -Infinity, maxDD = 0, peakIdx = 0, curPeak = 0, ddPeak = null, ddTrough = null;
+  for (let i = 0; i < vals.length; i++) { if (vals[i] > peak) { peak = vals[i]; curPeak = i; } const dd = peak > 0 ? (peak - vals[i]) / peak * 100 : 0; if (dd > maxDD) { maxDD = dd; ddPeak = curPeak; ddTrough = i; } }
+  const rets = []; for (let i = 1; i < vals.length; i++) if (vals[i - 1] > 0) rets.push(vals[i] / vals[i - 1] - 1);
+  const mean = rets.reduce((s, v) => s + v, 0) / (rets.length || 1);
+  const sd = Math.sqrt(rets.reduce((s, v) => s + (v - mean) ** 2, 0) / (rets.length || 1));
+  const sharpe = sd ? +(mean / sd).toFixed(2) : 0;
+  return { return: +ret.toFixed(2), maxDrawdown: +maxDD.toFixed(2), sharpe, peakIdx: ddPeak, troughIdx: ddTrough, points: pts.length, last };
+}
 async function renderEquityCurve() {
   const cv = $('#eq-canvas'); if (!cv) return;
   if (!state.eqBench && state.eqBench !== '') state.eqBench = '^GSPC';
+  if (!state.eqPeriod) state.eqPeriod = 'all';
   const benchSel = $('#eq-bench'); if (benchSel) { benchSel.value = state.eqBench; benchSel.onchange = () => { state.eqBench = benchSel.value; renderEquityCurve(); }; }
-  const [curve, stats, hist] = await Promise.all([N.paper.equityCurve(), N.paper.equityStats(), N.paper.history()]);
+  const segBox = $('#eq-period');
+  if (segBox) { segBox.querySelectorAll('[data-per]').forEach((b) => { b.classList.toggle('on', b.dataset.per === state.eqPeriod); b.onclick = () => { state.eqPeriod = b.dataset.per; renderEquityCurve(); }; }); }
+  const [curveAll, hist] = await Promise.all([N.paper.equityCurve(), N.paper.history()]);
   const stat = $('#eq-stat'); const metrics = $('#eq-metrics');
-  if (!curve || curve.length < 2) { if (stat) stat.textContent = t('eq.empty'); if (metrics) metrics.innerHTML = ''; const c0 = cv.getContext('2d'); c0 && c0.clearRect(0, 0, cv.width, cv.height); return; }
+  if (!curveAll || curveAll.length < 2) { if (stat) stat.textContent = t('eq.empty'); if (metrics) metrics.innerHTML = ''; const c0 = cv.getContext('2d'); c0 && c0.clearRect(0, 0, cv.width, cv.height); return; }
+  // Фильтр периода.
+  const now = Date.now();
+  const periodMs = state.eqPeriod === 'day' ? 86400000 : state.eqPeriod === 'week' ? 7 * 86400000 : Infinity;
+  let curve = curveAll.filter((p) => now - p.at <= periodMs);
+  if (curve.length < 2) curve = curveAll; // мало точек в окне — показываем всё
+  const stats = eqLocalStats(curve);
   const start = curve[0].equity || 1;
   const last = curve[curve.length - 1].equity;
-  // Бенчмарк (купил-держи) за тот же период.
+  // Бенчмарк (купил-держи) за выбранное окно.
   let bench = null;
-  if (state.eqBench) { try { const b = await N.paper.benchmark(state.eqBench); if (b.ok) bench = b; } catch {} }
+  if (state.eqBench) { try { const b = await N.paper.benchmark(state.eqBench, curve[0].at); if (b.ok) bench = b; } catch {} }
   if (stat) stat.innerHTML = `${last.toLocaleString()} · <span class="${stats.return >= 0 ? 'mk-up' : 'mk-down'}">${stats.return >= 0 ? '+' : ''}${stats.return}%</span>`;
   if (metrics) metrics.innerHTML = `
     <div class="bt-stat"><span>${esc(t('eq.return'))}</span><b class="${stats.return >= 0 ? 'mk-up' : 'mk-down'}">${stats.return >= 0 ? '+' : ''}${stats.return}%</b></div>
@@ -2824,6 +2846,18 @@ async function renderEquityCurve() {
     eqMarkers.push({ x: mx, y: buy ? my + 12 : my - 12, tr });
   }
   bindEqTooltip(cv, eqMarkers);
+  // Маркер максимальной просадки: пик → дно.
+  if (stats.peakIdx != null && stats.troughIdx != null && stats.maxDrawdown > 0.01 && eqPts[stats.peakIdx] && eqPts[stats.troughIdx]) {
+    const pk = eqPts[stats.peakIdx], trgh = eqPts[stats.troughIdx];
+    const pkx = x(pk.at), pky = y(pk.v), trx = x(trgh.at), trY = y(trgh.v);
+    ctx.strokeStyle = 'rgba(239,83,80,.65)'; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+    ctx.beginPath(); ctx.moveTo(pkx, pky); ctx.lineTo(trx, pky); ctx.lineTo(trx, trY); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = '#e0a93a'; ctx.beginPath(); ctx.arc(pkx, pky, 3, 0, 7); ctx.fill();
+    ctx.fillStyle = '#ef5350'; ctx.beginPath(); ctx.arc(trx, trY, 3, 0, 7); ctx.fill();
+    ctx.fillStyle = '#ef5350'; ctx.font = '10px Consolas, monospace';
+    const lbl = `-${stats.maxDrawdown}%`; const lw = ctx.measureText(lbl).width;
+    ctx.fillText(lbl, Math.min(trx + 4, padL + cw - lw - 2), (pky + trY) / 2);
+  }
   // Подписи.
   ctx.fillStyle = txt; ctx.font = '10px Consolas, monospace';
   ctx.fillText(hi.toFixed(0), padL + cw + 4, y(hi) + 4); ctx.fillText(lo.toFixed(0), padL + cw + 4, y(lo) + 4);
@@ -4088,6 +4122,30 @@ function drawMarket() {
     const lbl = (mk.interval.includes('m') || mk.interval.includes('h')) ? `${d.getDate()}.${d.getMonth() + 1} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` : `${d.getDate()}.${d.getMonth() + 1}.${String(d.getFullYear()).slice(2)}`;
     ctx.fillText(lbl, Math.min(x(idx) - 18, padL + chartW - 60), H - 6);
   }
+  bindMarketTooltip(cv, c, padL, chartW, mk.interval);
+}
+// Тултип со свечой OHLC при наведении на график «Рынки».
+function bindMarketTooltip(cv, candles, padL, chartW, interval) {
+  const wrap = cv.parentElement; if (!wrap) return;
+  let tip = wrap.querySelector('.mk-tip');
+  if (!tip) { tip = el('div', 'mk-tip'); tip.style.display = 'none'; wrap.appendChild(tip); }
+  const slot = chartW / candles.length;
+  const fmtV = (v) => v >= 1e9 ? (v / 1e9).toFixed(1) + 'B' : v >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : v >= 1e3 ? (v / 1e3).toFixed(1) + 'K' : String(v || 0);
+  cv.onmousemove = (e) => {
+    const mx = e.offsetX;
+    let i = Math.round((mx - padL) / slot - 0.5);
+    if (i < 0 || i >= candles.length || mx < padL || mx > padL + chartW) { tip.style.display = 'none'; return; }
+    const k = candles[i]; const d = new Date(k.t);
+    const chg = ((k.c - k.o) / k.o) * 100; const up = k.c >= k.o;
+    const dl = (interval && (interval.includes('m') || interval.includes('h'))) ? `${d.getDate()}.${d.getMonth() + 1} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` : d.toLocaleDateString();
+    tip.innerHTML = `<span class="muted">${dl}</span><br>`
+      + `O <b>${k.o.toFixed(2)}</b> H <b>${k.h.toFixed(2)}</b><br>L <b>${k.l.toFixed(2)}</b> C <b class="${up ? 'mk-up' : 'mk-down'}">${k.c.toFixed(2)}</b><br>`
+      + `<span class="${up ? 'mk-up' : 'mk-down'}">${up ? '+' : ''}${chg.toFixed(2)}%</span>${k.v ? ` · ${t('mk.vol')} ${fmtV(k.v)}` : ''}`;
+    tip.style.display = 'block';
+    const tw = tip.offsetWidth || 120; let lx = mx + 12; if (lx + tw > cv.clientWidth) lx = mx - tw - 12;
+    tip.style.left = Math.max(2, lx) + 'px'; tip.style.top = '8px';
+  };
+  cv.onmouseleave = () => { tip.style.display = 'none'; };
 }
 function smaCalc(arr, n) { const out = []; for (let i = 0; i < arr.length; i++) { if (i < n - 1) { out.push(null); continue; } let s = 0; for (let j = i - n + 1; j <= i; j++) s += arr[j]; out.push(s / n); } return out; }
 

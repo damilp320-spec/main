@@ -4921,28 +4921,88 @@ const PROMPT_LIB = {
     { t: 'Список покупок', p: 'Сделай список покупок для рецептов, которые я планирую на неделю.' }
   ]
 };
+// Запуск промпта: если есть {{переменные}} — спрашиваем значения, затем в агенты.
+function promptVars(text) { return [...new Set((String(text).match(/\{\{\s*([^}]+?)\s*\}\}/g) || []).map((m) => m.replace(/[{}]/g, '').trim()).filter(Boolean))]; }
+function runPrompt(text) {
+  const vars = promptVars(text);
+  if (!vars.length) { state.pendingPrompt = text; navigate('agents'); return; }
+  modal(`<h2>✏️ ${esc(t('pr.fill'))}</h2>
+    ${vars.map((v, i) => `<label class="field"><span>${esc(v)}</span><input id="pv-${i}" placeholder="${esc(v)}"></label>`).join('')}
+    <div class="modal-actions"><button class="btn ghost" id="pv-cancel">${esc(t('btn.cancel'))}</button><button class="btn primary" id="pv-run">▶ ${esc(t('pr.run'))}</button></div>`,
+    (m, close) => {
+      const inp0 = $('#pv-0', m); if (inp0) inp0.focus();
+      $('#pv-cancel', m).onclick = close;
+      $('#pv-run', m).onclick = () => {
+        let out = text; vars.forEach((v, i) => { const val = $('#pv-' + i, m).value || ('{{' + v + '}}'); out = out.split('{{' + v + '}}').join(val).replace(new RegExp('\\{\\{\\s*' + v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*\\}\\}', 'g'), val); });
+        state.pendingPrompt = out; close(); navigate('agents');
+      };
+    });
+}
+function promptEditModal(existing, onSave) {
+  const e = existing || { cat: '', title: '', text: '' };
+  modal(`<h2>${esc(existing ? t('pr.edit') : t('pr.new'))}</h2>
+    <label class="field"><span>${esc(t('pr.cat'))}</span><input id="pe-cat" value="${esc(e.cat || '')}" placeholder="${esc(t('pr.mine'))}"></label>
+    <label class="field"><span>${esc(t('pr.titleF'))}</span><input id="pe-title" value="${esc(e.title || '')}"></label>
+    <label class="field"><span>${esc(t('pr.text'))}</span><textarea id="pe-text" rows="6" placeholder="${esc(t('pr.varsHint'))}">${esc(e.text || '')}</textarea></label>
+    <p class="muted" style="font-size:11px">${esc(t('pr.varsHint'))}</p>
+    <div class="modal-actions"><button class="btn ghost" id="pe-cancel">${esc(t('btn.cancel'))}</button><button class="btn primary" id="pe-save">💾 ${esc(t('btn.save'))}</button></div>`,
+    (m, close) => {
+      $('#pe-cancel', m).onclick = close;
+      $('#pe-save', m).onclick = async () => {
+        const title = $('#pe-title', m).value.trim(); const text = $('#pe-text', m).value.trim();
+        if (!title || !text) return toast('⚠️', t('pr.need'), 'err');
+        await onSave({ id: e.id, cat: $('#pe-cat', m).value.trim() || t('pr.mine'), title, text }); close();
+      };
+    });
+}
 async function viewPrompts() {
-  const count = Object.values(PROMPT_LIB).reduce((n, a) => n + a.length, 0);
-  content.innerHTML = `<div class="view-head"><h1>${esc(t('nav.prompts'))} <span class="tag">${count}</span></h1><p>${esc(t('pr.sub'))}</p></div>
-    <input id="pl-search" placeholder="🔎 Поиск по промптам…" style="margin-bottom:16px"><div id="pl"></div>`;
-  const draw = (q) => {
-    const wrap = $('#pl'); wrap.innerHTML = '';
-    q = (q || '').toLowerCase();
-    for (const [cat, items] of Object.entries(PROMPT_LIB)) {
-      const filtered = items.filter((it) => !q || (it.t + ' ' + it.p).toLowerCase().includes(q));
-      if (!filtered.length) continue;
-      wrap.appendChild(el('div', 'prompt-cat', cat));
-      const grid = el('div', 'grid cols-3');
-      filtered.forEach((it) => {
-        const c = el('div', 'card prompt-card', `<h3>${esc(it.t)}</h3><p class="muted">${esc(it.p)}</p>`);
-        c.onclick = () => { state.pendingPrompt = it.p; navigate('agents'); };
-        grid.appendChild(c);
-      });
-      wrap.appendChild(grid);
+  const userPrompts = await N.store.get('userPrompts', []);
+  const favs = new Set(await N.store.get('promptFavs', []));
+  const builtinCount = Object.values(PROMPT_LIB).reduce((n, a) => n + a.length, 0);
+  content.innerHTML = `<div class="view-head"><div class="row between"><h1>${esc(t('nav.prompts'))} <span class="tag">${builtinCount + userPrompts.length}</span></h1><button class="btn primary" id="pl-new">＋ ${esc(t('pr.new'))}</button></div><p>${esc(t('pr.sub'))}</p></div>
+    <input id="pl-search" placeholder="🔎 ${esc(t('pr.search'))}" style="margin-bottom:16px"><div id="pl"></div>`;
+  const saveUser = async (list) => N.store.set('userPrompts', list);
+  const saveFavs = async () => N.store.set('promptFavs', [...favs]);
+  const card = (it) => {
+    const key = it.id ? 'u:' + it.id : 'b:' + it.cat + '|' + it.title;
+    const isFav = favs.has(key);
+    const c = el('div', 'card prompt-card' + (it.id ? ' prompt-user' : ''));
+    const vars = promptVars(it.text);
+    c.innerHTML = `<div class="row between" style="align-items:flex-start"><h3>${esc(it.title)}</h3><span class="prompt-acts">
+        <button class="ico-btn ${isFav ? 'on' : ''}" data-fav title="${esc(t('pr.fav'))}">${isFav ? '★' : '☆'}</button>
+        ${it.id ? `<button class="ico-btn" data-edit title="${esc(t('pr.edit'))}">✎</button><button class="ico-btn" data-del title="${esc(t('pr.del'))}">🗑</button>` : ''}
+      </span></div>
+      <p class="muted">${esc(it.text.slice(0, 160))}${it.text.length > 160 ? '…' : ''}</p>
+      ${vars.length ? `<div class="prompt-vars">${vars.map((v) => `<span class="tag accent">{{${esc(v)}}}</span>`).join('')}</div>` : ''}`;
+    c.querySelector('[data-fav]').onclick = async (ev) => { ev.stopPropagation(); isFav ? favs.delete(key) : favs.add(key); await saveFavs(); draw($('#pl-search').value); };
+    c.onclick = () => runPrompt(it.text);
+    if (it.id) {
+      c.querySelector('[data-edit]').onclick = (ev) => { ev.stopPropagation(); promptEditModal(it, async (upd) => { const list = await N.store.get('userPrompts', []); const i = list.findIndex((p) => p.id === it.id); if (i >= 0) list[i] = { ...list[i], ...upd }; await saveUser(list); viewPrompts(); }); };
+      c.querySelector('[data-del]').onclick = async (ev) => { ev.stopPropagation(); if (await confirmModal(t('pr.del'), it.title)) { const list = (await N.store.get('userPrompts', [])).filter((p) => p.id !== it.id); await saveUser(list); viewPrompts(); } };
     }
+    return c;
+  };
+  const draw = (q) => {
+    const wrap = $('#pl'); wrap.innerHTML = ''; q = (q || '').toLowerCase();
+    const all = userPrompts.map((p) => ({ ...p })).concat(Object.entries(PROMPT_LIB).flatMap(([cat, items]) => items.map((it) => ({ cat, title: it.t, text: it.p }))));
+    const match = (it) => !q || (it.title + ' ' + it.text + ' ' + (it.cat || '')).toLowerCase().includes(q);
+    const keyOf = (it) => it.id ? 'u:' + it.id : 'b:' + it.cat + '|' + it.title;
+    // Избранное — сверху.
+    const favItems = all.filter((it) => favs.has(keyOf(it)) && match(it));
+    if (favItems.length) { wrap.appendChild(el('div', 'prompt-cat', '★ ' + t('pr.favs'))); const g = el('div', 'grid cols-3'); favItems.forEach((it) => g.appendChild(card(it))); wrap.appendChild(g); }
+    // По категориям (мои — первыми).
+    const cats = [...new Set(all.map((it) => it.cat))];
+    for (const cat of cats) {
+      const items = all.filter((it) => it.cat === cat && match(it));
+      if (!items.length) continue;
+      wrap.appendChild(el('div', 'prompt-cat', cat));
+      const g = el('div', 'grid cols-3'); items.forEach((it) => g.appendChild(card(it))); wrap.appendChild(g);
+    }
+    if (!wrap.children.length) wrap.innerHTML = `<p class="muted">${esc(t('pr.none'))}</p>`;
   };
   draw('');
   $('#pl-search').addEventListener('input', (e) => draw(e.target.value));
+  $('#pl-new').onclick = () => promptEditModal(null, async (upd) => { const list = await N.store.get('userPrompts', []); list.unshift({ ...upd, id: 'p' + Date.now().toString(36) }); await saveUser(list); toast('💡', t('pr.saved'), 'ok'); viewPrompts(); });
 }
 
 /* ---------- Command Palette (Ctrl+K) ---------- */

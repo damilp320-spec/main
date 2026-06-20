@@ -624,6 +624,12 @@ body.light .msg.user { color: #fff; }
 .prompt-cat { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; margin: 18px 0 10px; }
 .prompt-card { cursor: pointer; }
 .prompt-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+.prompt-card.prompt-user { border-left: 3px solid var(--accent); }
+.prompt-acts { display: flex; gap: 2px; flex: 0 0 auto; }
+.ico-btn { background: transparent; border: 0; color: var(--muted, #8a93a6); cursor: pointer; font-size: 14px; padding: 2px 4px; border-radius: 6px; line-height: 1; }
+.ico-btn:hover { background: rgba(255,255,255,.08); color: #eef1f8; }
+.ico-btn.on { color: #f7b733; }
+.prompt-vars { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
 .theme-swatch { width: 30px; height: 30px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; display: inline-block; margin-right: 8px; }
 .theme-swatch.sel { border-color: var(--text); box-shadow: 0 0 0 2px var(--bg); }
 

@@ -636,7 +636,15 @@ body.light .msg.user { color: #fff; }
 .kb-col { background: var(--card-2, #141821); border: 1px solid var(--border); border-radius: 14px; padding: 10px; }
 .kb-col-head { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; margin-bottom: 10px; }
 .kb-col-head .tag { margin-left: 2px; }
+.kb-col-head { cursor: grab; }
 .kb-col-head .kb-col-acts { margin-left: auto; display: flex; gap: 1px; }
+.kb-col.col-dragging { opacity: .5; }
+.kb-col.col-drop { outline: 2px dashed var(--accent); outline-offset: 2px; }
+.kb-task-badge { display: inline-flex; align-items: center; gap: 3px; font-size: 10.5px; padding: 1px 6px; border-radius: 10px; cursor: pointer; background: rgba(124,92,255,.14); border: 1px solid var(--border); }
+.kb-task-badge.tb-running { background: rgba(41,182,246,.18); }
+.kb-task-badge.tb-completed { background: rgba(38,166,154,.18); }
+.kb-task-badge.tb-failed { background: rgba(239,83,80,.18); }
+.kb-task-badge:hover { filter: brightness(1.2); }
 .kb-col-name { cursor: pointer; }
 .kb-col-name:hover { text-decoration: underline dotted; }
 .note-detail { background: var(--bg-2, #11151d); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 13px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; max-height: 240px; overflow: auto; margin-top: 4px; }

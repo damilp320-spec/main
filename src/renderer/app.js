@@ -4961,6 +4961,8 @@ async function viewBoard() {
   if (!Array.isArray(data.cols) || !data.cols.length) data.cols = [{ id: 'todo', name: t('bd.col.todo') }, { id: 'doing', name: t('bd.col.doing') }, { id: 'done', name: t('bd.col.done') }];
   const firstCol = () => (data.cols[0] || { id: 'todo' }).id;
   const save = () => N.store.set('kanban', data);
+  let taskMap = {};
+  const TASK_BADGE = { queued: '⏳', running: '🔄', completed: '✅', failed: '⚠️', cancelled: '🚫', sent: '📋' };
   content.innerHTML = `
     <div class="view-head"><div class="row between"><h1>🗂️ ${esc(t('bd.title'))}</h1>
       <div class="row" style="gap:8px"><button class="btn ghost sm" id="bd-addcol">＋ ${esc(t('bd.addCol'))}</button><input id="bd-search" placeholder="🔎 ${esc(t('bd.search'))}" style="max-width:200px"></div></div>
@@ -5003,21 +5005,25 @@ async function viewBoard() {
   };
   const cardEl = (c) => {
     const overdue = c.due && new Date(c.due) < new Date(new Date().toDateString()) && c.col !== 'done';
+    const tstat = c.taskId ? (taskMap[c.taskId] || 'sent') : null;
+    const badge = tstat ? `<span class="kb-task-badge tb-${tstat}" data-goq title="${esc(t('bd.inQueue'))}">${(TASK_BADGE[tstat] || '📋')} ${esc(t('q.status.' + tstat) || t('bd.sent'))}</span>` : '';
     const e = el('div', 'kb-card prio-' + (c.prio || 'med')); e.draggable = true;
     e.innerHTML = `<div class="kb-card-top"><span class="kb-prio">${BOARD_PRIO[c.prio] || '🟡'}</span><b>${esc(c.title)}</b></div>
       ${c.notes ? `<p class="muted">${esc(c.notes.slice(0, 120))}${c.notes.length > 120 ? '…' : ''}</p>` : ''}
-      ${(c.due || (c.tags && c.tags.length)) ? `<div class="kb-meta">${c.due ? `<span class="${overdue ? 'mk-down' : 'muted'}">📅 ${esc(c.due)}</span>` : ''}${(c.tags || []).map((tg) => `<span class="tag">${esc(tg)}</span>`).join('')}</div>` : ''}
+      ${(c.due || badge || (c.tags && c.tags.length)) ? `<div class="kb-meta">${badge}${c.due ? `<span class="${overdue ? 'mk-down' : 'muted'}">📅 ${esc(c.due)}</span>` : ''}${(c.tags || []).map((tg) => `<span class="tag">${esc(tg)}</span>`).join('')}</div>` : ''}
       <div class="kb-card-acts"><button class="ico-btn" data-task title="${esc(t('bd.toQueue'))}">📋</button><button class="ico-btn" data-ai title="${esc(t('bd.ai'))}">✨</button><button class="ico-btn" data-edit>✎</button><button class="ico-btn" data-del>🗑</button></div>`;
     e.addEventListener('dragstart', (ev) => { ev.dataTransfer.setData('text/plain', c.id); e.classList.add('dragging'); });
     e.addEventListener('dragend', () => e.classList.remove('dragging'));
     e.querySelector('[data-edit]').onclick = (ev) => { ev.stopPropagation(); cardEditModal(c, c.col); };
     e.querySelector('[data-del]').onclick = async (ev) => { ev.stopPropagation(); if (await confirmModal(t('bd.del'), c.title)) { data.cards = data.cards.filter((x) => x.id !== c.id); await save(); render($('#bd-search').value); } };
     e.querySelector('[data-ai]').onclick = (ev) => { ev.stopPropagation(); aiBreakdown(c); };
+    const goq = e.querySelector('[data-goq]'); if (goq) goq.onclick = (ev) => { ev.stopPropagation(); navigate('queue'); };
     e.querySelector('[data-task]').onclick = async (ev) => {
       ev.stopPropagation();
       const goal = c.title + (c.notes ? '\n' + c.notes : '');
       const r = await N.taskq.add({ goal, agentIds: [], priority: c.prio === 'high' ? 5 : c.prio === 'low' ? 2 : 3, retries: 1 });
-      toast(r.ok ? '📋' : '⚠️', r.ok ? t('bd.toQueueDone') : (r.error || ''), r.ok ? 'ok' : 'err');
+      if (r.ok) { c.taskId = r.task && r.task.id; await save(); toast('📋', t('bd.toQueueDone'), 'ok'); refresh(); }
+      else toast('⚠️', r.error || '', 'err');
     };
     return e;
   };
@@ -5035,6 +5041,21 @@ async function viewBoard() {
       cardsEl.addEventListener('dragleave', () => cardsEl.classList.remove('drag-over'));
       cardsEl.addEventListener('drop', async (e) => { e.preventDefault(); cardsEl.classList.remove('drag-over'); const id = e.dataTransfer.getData('text/plain'); const card = data.cards.find((x) => x.id === id); if (card && card.col !== col.id) { card.col = col.id; await save(); render($('#bd-search').value); } });
       colEl.querySelector('.kb-col-name').onclick = () => { const nn = prompt(t('bd.colRename'), col.name); if (nn && nn.trim()) { col.name = nn.trim(); save(); render($('#bd-search').value); } };
+      // Перетаскивание колонок для смены порядка (тащим за заголовок).
+      const head = colEl.querySelector('.kb-col-head'); head.draggable = true; head.title = t('bd.colDrag');
+      head.addEventListener('dragstart', (e) => { e.dataTransfer.setData('col', col.id); e.stopPropagation(); colEl.classList.add('col-dragging'); });
+      head.addEventListener('dragend', () => colEl.classList.remove('col-dragging'));
+      colEl.addEventListener('dragover', (e) => { if (e.dataTransfer.types.includes('col')) { e.preventDefault(); colEl.classList.add('col-drop'); } });
+      colEl.addEventListener('dragleave', () => colEl.classList.remove('col-drop'));
+      colEl.addEventListener('drop', async (e) => {
+        colEl.classList.remove('col-drop');
+        const src = e.dataTransfer.getData('col'); if (!src || src === col.id) return;
+        e.preventDefault();
+        const from = data.cols.findIndex((c) => c.id === src); const to = data.cols.findIndex((c) => c.id === col.id);
+        if (from < 0 || to < 0) return;
+        const [moved] = data.cols.splice(from, 1); data.cols.splice(to, 0, moved);
+        await save(); render($('#bd-search').value);
+      });
     }
     board.querySelectorAll('[data-add]').forEach((b) => b.onclick = () => cardEditModal(null, b.dataset.add));
     board.querySelectorAll('[data-delcol]').forEach((b) => b.onclick = async () => {
@@ -5044,7 +5065,12 @@ async function viewBoard() {
       await save(); render($('#bd-search').value);
     });
   };
-  render('');
+  const refresh = async () => {
+    try { const ids = data.cards.filter((c) => c.taskId).map((c) => c.taskId); if (ids.length) { const q = await N.taskq.list(); taskMap = {}; (q.tasks || []).forEach((tk) => { taskMap[tk.id] = tk.status; }); } } catch {}
+    render($('#bd-search') ? $('#bd-search').value : '');
+  };
+  window.__boardRefresh = refresh;
+  await refresh();
   $('#bd-search').addEventListener('input', (e) => render(e.target.value));
 }
 
@@ -5534,6 +5560,7 @@ N.on('scheduler:fired', async ({ name }) => { if (await N.store.get('settings.no
 /* Очередь задач: живое обновление списка + уведомление о завершении. */
 N.on('taskq:event', async ({ ev, payload }) => {
   if (state.view === 'queue') renderQueue();
+  if (state.view === 'board' && window.__boardRefresh) window.__boardRefresh();
   if (ev === 'task:finished' && payload && payload.status === 'completed' && await N.store.get('settings.notifications', true)) {
     toast('📋 ' + t('q.status.completed'), String(payload.goal || '').slice(0, 60), 'ok');
   }

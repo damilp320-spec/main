@@ -2208,17 +2208,17 @@ function setupRecognition() {
       const tr = e.results[i][0].transcript;
       if (e.results[i].isFinal) finalT += tr; else interim += tr;
     }
-    // Barge-in: пользователь заговорил поверх ответа — прерываем речь.
-    if (ttsActive && (interim.trim().length > 1 || finalT.trim())) speakInterrupt();
+    // Пока ассистент говорит — игнорируем распознанное (это эхо TTS, а не команда).
+    if (ttsActive) return;
     const vt = $('#vt'); if (vt) vt.textContent = finalT || interim || '…';
     if (finalT.trim()) handleVoiceCommand(finalT.trim());
   };
   r.onerror = () => { /* 'no-speech'/'aborted' — пусть onend решит про перезапуск */ };
   r.onend = () => {
     recognitionRunning = false;
-    // Авто-перезапуск ТОЛЬКО если всё ещё слушаем и не остановили вручную.
-    if (state.voiceListening && !voiceManualStop) {
-      setTimeout(() => { if (state.voiceListening && !recognitionRunning) { try { r.start(); } catch {} } }, 350);
+    // Авто-перезапуск ТОЛЬКО если всё ещё слушаем, не остановили вручную и не идёт TTS.
+    if (state.voiceListening && !voiceManualStop && !ttsActive) {
+      setTimeout(() => { if (state.voiceListening && !recognitionRunning && !ttsActive) { try { r.start(); } catch {} } }, 350);
     }
   };
   return r;
@@ -2318,17 +2318,26 @@ function refreshVoiceLog() {
   box.scrollTop = box.scrollHeight;
 }
 
-let ttsActive = false;        // сейчас говорит TTS (для barge-in в дуплексе)
+let ttsActive = false;        // сейчас говорит TTS
 let currentAudio = null;      // текущий Piper-Audio, чтобы прервать
-// Прервать речь (barge-in): пользователь заговорил поверх ответа.
+let voiceTtsPaused = false;   // мы заглушили микрофон на время речи
+// Заглушить микрофон на время речи ассистента, чтобы он не слышал сам себя.
+function muteMicForTts() {
+  if (recognitionRunning && recognition) { voiceTtsPaused = true; try { recognition.stop(); } catch {} }
+}
+// Прервать речь (по кнопке/команде «стоп»).
 function speakInterrupt() {
-  ttsActive = false;
+  try { clearTimeout(window.__ttsSafety); } catch {}
   try { if (currentAudio) { currentAudio.pause(); currentAudio.currentTime = 0; currentAudio = null; } } catch {}
   try { if ('speechSynthesis' in window) speechSynthesis.cancel(); } catch {}
+  afterSpeak();
 }
-// После завершения речи — продолжаем слушать (в дуплексе всегда, иначе по autoListen).
+// После завершения речи — снимаем «заглушку» и продолжаем слушать.
 async function afterSpeak() {
   ttsActive = false;
+  try { clearTimeout(window.__ttsSafety); } catch {}
+  // Если мы останавливали распознавание ради TTS — возобновляем.
+  if (state.voiceListening && voiceTtsPaused) { voiceTtsPaused = false; setTimeout(() => { if (state.voiceListening && !recognitionRunning && !ttsActive) { try { recognition && recognition.start(); } catch {} } }, 250); return; }
   const duplex = await N.store.get('settings.duplexVoice', false);
   const cont = duplex || await N.store.get('settings.autoListen', false);
   if (state.voiceListening && !recognitionRunning && cont) { try { recognition && recognition.start(); } catch {} }
@@ -2354,6 +2363,7 @@ async function speakOut(text) {
   // Piper (локальный TTS) — если включён и настроен; иначе Web Speech API.
   const engine = await N.store.get('settings.ttsEngine', 'web');
   ttsActive = true;
+  muteMicForTts(); // заглушаем микрофон, пока говорим
   if (engine === 'piper') {
     try {
       const r = await N.speech.synthesize(text);
@@ -2362,11 +2372,12 @@ async function speakOut(text) {
         currentAudio = audio;
         audio.playbackRate = await N.store.get('settings.voiceRate', 1);
         audio.onended = () => { currentAudio = null; afterSpeak(); };
+        audio.onerror = () => { currentAudio = null; afterSpeak(); };
         audio.play(); return;
       }
     } catch {}
   }
-  if (!('speechSynthesis' in window)) { ttsActive = false; return; }
+  if (!('speechSynthesis' in window)) { afterSpeak(); return; }
   const u = new SpeechSynthesisUtterance(text);
   u.lang = VOICE_LANG();
   u.rate = await N.store.get('settings.voiceRate', 1);
@@ -2376,6 +2387,10 @@ async function speakOut(text) {
   const v = (want && voices.find((x) => x.name === want)) || voices.find((x) => x.lang && x.lang.startsWith(u.lang.slice(0, 2)));
   if (v) u.voice = v;
   u.onend = () => afterSpeak();
+  u.onerror = () => afterSpeak();
+  // Подстраховка: если onend не сработает (баг браузера) — снимем «заглушку».
+  try { clearTimeout(window.__ttsSafety); } catch {}
+  window.__ttsSafety = setTimeout(() => { if (ttsActive) afterSpeak(); }, Math.min(30000, 4000 + text.length * 90));
   speechSynthesis.cancel();
   speechSynthesis.speak(u);
 }

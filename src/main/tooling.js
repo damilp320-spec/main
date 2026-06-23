@@ -3,6 +3,8 @@
 // Команды выполняются последовательно, вывод стримится в UI. Best-effort:
 // если пакетного менеджера нет — честно сообщаем шаги для ручной установки.
 const { spawn, exec } = require('child_process');
+const fs = require('fs');
+const path = require('path');
 
 function which(cmd) {
   return new Promise((res) => exec((process.platform === 'win32' ? 'where ' : 'command -v ') + cmd, { windowsHide: true }, (e, o) => res(!e && !!String(o).trim())));
@@ -30,14 +32,34 @@ async function installSpeech(onLog) {
     return { ok: false, error: 'Python/pip не найдены' };
   }
   const pip = (await which('pip')) ? 'pip' : (await which('pip3')) ? 'pip3' : null;
+  const py = process.platform === 'win32' ? 'python' : 'python3';
   let code;
   if (pip) code = await runStream(pip, ['install', '--upgrade', 'piper-tts', 'faster-whisper'], onLog);
-  else code = await runStream(process.platform === 'win32' ? 'python' : 'python3', ['-m', 'pip', 'install', '--upgrade', 'piper-tts', 'faster-whisper'], onLog);
-  if (code === 0) {
-    onLog && onLog('\n✅ Готово. faster-whisper установлен. Для Piper скачайте голос (.onnx), например:\n  python -m piper.download_voices ru_RU-irina-medium\nи укажите путь к нему в Настройках → Голос.\n');
-    return { ok: true, note: 'Установлено. Укажите голос Piper в настройках при необходимости.' };
-  }
-  return { ok: false, error: 'pip install завершился с кодом ' + code };
+  else code = await runStream(py, ['-m', 'pip', 'install', '--upgrade', 'piper-tts', 'faster-whisper'], onLog);
+  if (code !== 0) return { ok: false, error: 'pip install завершился с кодом ' + code };
+
+  // Автоматически скачиваем голос Piper под язык интерфейса и настраиваем его —
+  // иначе TTS остаётся на «виндовском» голосе, т.к. модель не задана.
+  let voiceSet = false;
+  try {
+    const store = require('./store');
+    const lang = String(store.get('settings.lang', 'en') || 'en').slice(0, 2);
+    const VOICE = { ru: 'ru_RU-irina-medium', en: 'en_US-amy-medium', uk: 'uk_UA-ukrainian_tts-medium', de: 'de_DE-thorsten-medium', es: 'es_ES-davefx-medium', zh: 'zh_CN-huayan-medium' };
+    const voice = VOICE[lang] || 'en_US-amy-medium';
+    let dir;
+    try { const { app } = require('electron'); dir = path.join(app.getPath('userData'), 'piper-voices'); }
+    catch { dir = path.join(require('os').tmpdir(), 'mythera-piper-voices'); }
+    fs.mkdirSync(dir, { recursive: true });
+    onLog && onLog(`\n=== Скачиваю голос Piper: ${voice} ===\n`);
+    const dl = await runStream(py, ['-m', 'piper.download_voices', voice, '--data-dir', dir], onLog);
+    if (dl === 0) {
+      const onnx = fs.readdirSync(dir).filter((f) => f.endsWith('.onnx')).map((f) => path.join(dir, f)).sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)[0];
+      if (onnx) { store.set('settings.piperVoice', onnx); store.set('settings.ttsEngine', 'piper'); voiceSet = true; onLog && onLog(`\n✅ Голос Piper настроен и включён: ${path.basename(onnx)}\n`); }
+    }
+    if (!voiceSet) onLog && onLog('\n⚠️ Не удалось авто-скачать голос. Скачайте вручную:\n  ' + py + ' -m piper.download_voices ' + voice + '\nи укажите путь к .onnx в Настройках → Голос.\n');
+  } catch (e) { onLog && onLog('\n⚠️ Авто-настройка голоса не удалась: ' + e.message + '\n'); }
+
+  return { ok: true, voiceSet, note: voiceSet ? 'Piper установлен и включён.' : 'Установлено. Укажите голос Piper в настройках.' };
 }
 
 // Установка окружения сборки модов: JDK 21, Gradle, Maven (через winget на Windows).

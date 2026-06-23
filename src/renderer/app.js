@@ -2375,6 +2375,8 @@ async function speakOut(text) {
         audio.onerror = () => { currentAudio = null; afterSpeak(); };
         audio.play(); return;
       }
+      // Piper выбран, но недоступен → честно говорим почему (один раз за сессию).
+      if (!window.__piperWarned) { window.__piperWarned = true; toast('🔊 Piper', t(r && r.reason === 'no-voice' ? 'voice.piperNoVoice' : 'voice.piperNoEngine'), 'err'); }
     } catch {}
   }
   if (!('speechSynthesis' in window)) { afterSpeak(); return; }

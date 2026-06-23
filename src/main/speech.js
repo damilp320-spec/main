@@ -20,18 +20,30 @@ function pyHasFasterWhisper() {
     exec('python -c "import faster_whisper"', { windowsHide: true }, (err) => resolve(!err));
   });
 }
+function pyHasPiper() {
+  return new Promise((resolve) => {
+    exec('python -c "import piper"', { windowsHide: true }, (err) => resolve(!err));
+  });
+}
+function pyBin() { return process.platform === 'win32' ? 'python' : 'python3'; }
 
 // Состояние движков и подсказки по установке.
 async function detect() {
   const piperPath = cfg.get('settings.piperPath', '') || await which('piper');
+  const pyPiper = piperPath ? false : await pyHasPiper(); // pip-пакет piper-tts (python -m piper)
   const piperVoice = cfg.get('settings.piperVoice', '');
   const whisperCmd = cfg.get('settings.whisperCmd', '') || await which('whisper-ctranslate2') || await which('faster-whisper');
   const pyWhisper = whisperCmd ? false : await pyHasFasterWhisper();
   return {
-    piper: { available: !!piperPath && !!piperVoice, bin: piperPath || null, voice: piperVoice || null,
-      hint: 'Скачайте piper и голос (.onnx) с github.com/rhasspy/piper, укажите пути в настройках.' },
-    whisper: { available: !!whisperCmd || pyWhisper, cmd: whisperCmd || (pyWhisper ? 'python' : null),
-      hint: 'Установите: pip install faster-whisper  (или whisper-ctranslate2).' },
+    piper: {
+      available: (!!piperPath || pyPiper) && !!piperVoice, bin: piperPath || (pyPiper ? pyBin() : null),
+      usePyModule: !piperPath && pyPiper, voice: piperVoice || null, hasEngine: !!piperPath || pyPiper,
+      hint: (piperPath || pyPiper) ? 'Движок есть. Скачайте голос (.onnx) кнопкой ниже или укажите путь в настройках.' : 'Установите Piper кнопкой ниже (pip install piper-tts) и голос (.onnx).'
+    },
+    whisper: {
+      available: !!whisperCmd || pyWhisper, cmd: whisperCmd || (pyWhisper ? 'python' : null),
+      hint: 'Установите: pip install faster-whisper  (или whisper-ctranslate2).'
+    },
     engines: {
       tts: cfg.get('settings.ttsEngine', 'web'),   // 'web' | 'piper'
       stt: cfg.get('settings.sttEngine', 'web')    // 'web' | 'whisper'
@@ -42,12 +54,16 @@ async function detect() {
 // Синтез речи через Piper -> путь к WAV (рендерер проигрывает file://).
 async function synthesize(text) {
   const d = await detect();
-  if (cfg.get('settings.ttsEngine', 'web') !== 'piper' || !d.piper.available) return { ok: false, fallback: 'web' };
+  if (cfg.get('settings.ttsEngine', 'web') !== 'piper' || !d.piper.available) return { ok: false, fallback: 'web', reason: d.piper.hasEngine ? 'no-voice' : 'no-engine' };
   const out = path.join(os.tmpdir(), 'mythera-tts-' + Date.now() + '.wav');
+  const bin = d.piper.usePyModule ? pyBin() : d.piper.bin;
+  const args = d.piper.usePyModule ? ['-m', 'piper', '--model', d.piper.voice, '--output_file', out] : ['--model', d.piper.voice, '--output_file', out];
   return new Promise((resolve) => {
-    const proc = spawn(d.piper.bin, ['--model', d.piper.voice, '--output_file', out], { windowsHide: true });
+    let proc;
+    try { proc = spawn(bin, args, { windowsHide: true }); }
+    catch (e) { return resolve({ ok: false, fallback: 'web', error: e.message }); }
     proc.on('error', (e) => resolve({ ok: false, fallback: 'web', error: e.message }));
-    proc.stdin.write(String(text)); proc.stdin.end();
+    try { proc.stdin.write(String(text)); proc.stdin.end(); } catch {}
     proc.on('close', (code) => {
       if (code === 0 && fs.existsSync(out)) resolve({ ok: true, file: out });
       else resolve({ ok: false, fallback: 'web' });

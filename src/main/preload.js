@@ -150,7 +150,8 @@ contextBridge.exposeInMainWorld('mythera', {
   // Быстрые установщики
   tooling: {
     installSpeech: () => invoke('tooling:installSpeech'),
-    installMcTools: () => invoke('tooling:installMcTools')
+    installMcTools: () => invoke('tooling:installMcTools'),
+    downloadVoice: (id) => invoke('tooling:downloadVoice', id)
   },
   // Очередь задач
   taskq: {

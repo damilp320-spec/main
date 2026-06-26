@@ -1583,6 +1583,20 @@ function advRow(id, label, val, ph) {
 }
 
 /* ---------- Voice ---------- */
+// Каталог голосов Piper (rhasspy) — частые модели по языкам и полу.
+const PIPER_VOICES = [
+  { id: 'ru_RU-irina-medium', label: 'Ирина (рус, жен)', flag: '🇷🇺', lang: 'ru' },
+  { id: 'ru_RU-dmitri-medium', label: 'Дмитрий (рус, муж)', flag: '🇷🇺', lang: 'ru' },
+  { id: 'ru_RU-ruslan-medium', label: 'Руслан (рус, муж)', flag: '🇷🇺', lang: 'ru' },
+  { id: 'en_US-amy-medium', label: 'Amy (eng US, fem)', flag: '🇺🇸', lang: 'en' },
+  { id: 'en_US-ryan-medium', label: 'Ryan (eng US, male)', flag: '🇺🇸', lang: 'en' },
+  { id: 'en_GB-alba-medium', label: 'Alba (eng GB, fem)', flag: '🇬🇧', lang: 'en' },
+  { id: 'uk_UA-ukrainian_tts-medium', label: 'Ukrainian (укр)', flag: '🇺🇦', lang: 'uk' },
+  { id: 'de_DE-thorsten-medium', label: 'Thorsten (deu, male)', flag: '🇩🇪', lang: 'de' },
+  { id: 'es_ES-davefx-medium', label: 'DaveFX (spa, male)', flag: '🇪🇸', lang: 'es' },
+  { id: 'fr_FR-siwis-medium', label: 'Siwis (fra, fem)', flag: '🇫🇷', lang: 'fr' },
+  { id: 'zh_CN-huayan-medium', label: 'Huayan (zho, fem)', flag: '🇨🇳', lang: 'zh' }
+];
 async function viewVoice() {
   const replies = await N.store.get('settings.voiceReplies', true);
   const wakeOn = await N.store.get('settings.wakeEnabled', false);
@@ -1629,8 +1643,13 @@ async function viewVoice() {
         <label class="field"><span>${esc(t('voice.voicePick'))}</span><select id="tts-voice"><option value="">${esc(t('voice.voiceAuto'))}</option></select></label>
         <label class="field"><span>${esc(t('voice.rate'))}: <b id="rate-val">${rate}</b></span><input type="range" id="voice-rate" min="0.5" max="2" step="0.1" value="${rate}"></label>
         <label class="field"><span>${esc(t('voice.pitch'))}: <b id="pitch-val">${pitch}</b></span><input type="range" id="voice-pitch" min="0.5" max="1.5" step="0.1" value="${pitch}"></label>
-        <p class="muted">${sp.piper.available ? '' : 'Piper: ' + esc(sp.piper.hint) + '<br>'}${sp.whisper.available ? '' : 'Whisper: ' + esc(sp.whisper.hint)}</p>
-        <button class="btn" id="speech-install" style="margin-top:8px">⬇️ Установить локальную речь (Piper + Faster-Whisper)</button>
+        <div class="row" style="gap:8px;align-items:flex-end;margin-top:6px">
+          <label class="field" style="flex:1"><span>${esc(t('voice.piperCatalog'))} ${sp.piper.available ? '✅' : ''}</span>
+            <select id="piper-voice-sel">${PIPER_VOICES.map((v) => `<option value="${v.id}">${esc(v.flag + ' ' + v.label)}</option>`).join('')}</select></label>
+          <button class="btn primary" id="piper-download">⬇️ ${esc(t('voice.downloadVoice'))}</button>
+        </div>
+        <p class="muted">${sp.piper.available ? '✅ Piper готов.' : 'Piper: ' + esc(sp.piper.hint)}<br>${sp.whisper.available ? '' : 'Whisper: ' + esc(sp.whisper.hint)}</p>
+        <button class="btn ghost" id="speech-install" style="margin-top:4px">⬇️ ${esc(t('voice.installSpeech'))}</button>
       </div>
     </div>
     <div class="card" style="margin-top:16px">
@@ -1683,7 +1702,11 @@ async function viewVoice() {
   $('#wake-word').onchange = (e) => N.store.set('settings.wakeWord', e.target.value.trim() || 'Mythera');
   $('#tts-engine').onchange = (e) => { N.store.set('settings.ttsEngine', e.target.value); toast('TTS', e.target.value, 'ok'); };
   $('#stt-engine').onchange = (e) => { N.store.set('settings.sttEngine', e.target.value); toast('STT', e.target.value, 'ok'); };
-  $('#speech-install').onclick = () => installLogModal('Установка локальной речи', () => N.tooling.installSpeech());
+  $('#speech-install').onclick = () => installLogModal('Установка локальной речи', () => N.tooling.installSpeech()).then(() => viewVoice());
+  // Каталог Piper: предвыбираем голос под язык интерфейса, кнопка скачивает выбранный.
+  const pvSel = $('#piper-voice-sel');
+  if (pvSel) { const langc = getLangCode(); const def = PIPER_VOICES.find((v) => v.lang === langc); if (def) pvSel.value = def.id; }
+  $('#piper-download').onclick = () => { const id = $('#piper-voice-sel').value; installLogModal(t('voice.downloadVoice') + ': ' + id, () => N.tooling.downloadVoice(id)).then(() => viewVoice()); };
 }
 
 /* ---------- Бэкап / восстановление ---------- */
@@ -2136,13 +2159,17 @@ async function showSecurityInfo() {
 
 // Модальное окно установки с живым логом.
 function installLogModal(title, runner) {
-  modal(`<h2>${esc(title)}</h2>
-    <pre id="install-log" style="margin:10px 0;background:var(--bg-2);border:1px solid var(--border);border-radius:8px;padding:10px;max-height:320px;overflow:auto;font-size:11px;font-family:Consolas,monospace;white-space:pre-wrap">Запуск…\n</pre>
-    <div class="modal-actions"><button class="btn primary" id="il-close">${esc(t('btn.close'))}</button></div>`, async (m, close) => {
-    $('#il-close', m).onclick = close;
-    window.__installLog = $('#install-log', m);
-    try { const r = await runner(); const log = window.__installLog; if (log) log.textContent += '\n' + (r && r.ok ? '✅ ' + (r.note || 'Готово') : '⚠️ ' + ((r && r.error) || 'Не удалось')); }
-    catch (e) { if (window.__installLog) window.__installLog.textContent += '\nОшибка: ' + e.message; }
+  return new Promise((resolve) => {
+    modal(`<h2>${esc(title)}</h2>
+      <pre id="install-log" style="margin:10px 0;background:var(--bg-2);border:1px solid var(--border);border-radius:8px;padding:10px;max-height:320px;overflow:auto;font-size:11px;font-family:Consolas,monospace;white-space:pre-wrap">Запуск…\n</pre>
+      <div class="modal-actions"><button class="btn primary" id="il-close">${esc(t('btn.close'))}</button></div>`, async (m, close) => {
+      $('#il-close', m).onclick = close;
+      window.__installLog = $('#install-log', m);
+      let res = null;
+      try { res = await runner(); const log = window.__installLog; if (log) log.textContent += '\n' + (res && res.ok ? '✅ ' + (res.note || 'Готово') : '⚠️ ' + ((res && res.error) || 'Не удалось')); }
+      catch (e) { if (window.__installLog) window.__installLog.textContent += '\nОшибка: ' + e.message; }
+      resolve(res);
+    });
   });
 }
 N.on('tooling:log', ({ line }) => { const log = window.__installLog; if (log) { log.textContent += line; log.scrollTop = log.scrollHeight; } });

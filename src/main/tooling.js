@@ -81,4 +81,36 @@ async function installMcTools(onLog) {
   return { ok: false, error: 'Автоустановка только для Windows (winget)' };
 }
 
-module.exports = { installSpeech, installMcTools };
+// Скачать конкретный голос Piper (по id), при необходимости доустановив piper-tts,
+// и сразу настроить его как активный TTS-голос.
+async function downloadPiperVoice(voiceId, onLog) {
+  voiceId = String(voiceId || '').trim();
+  if (!/^[a-zA-Z]{2}_[A-Za-z]{2}-[\w-]+$/.test(voiceId)) return { ok: false, error: 'Некорректный id голоса' };
+  const pyBin = process.platform === 'win32' ? 'python' : 'python3';
+  if (!(await which('python')) && !(await which('python3'))) { onLog && onLog('Python не найден. Установите Python 3.\n'); return { ok: false, error: 'Python не найден' }; }
+  // Убедимся, что piper-tts установлен.
+  const hasPiper = await new Promise((r) => exec(pyBin + ' -c "import piper"', { windowsHide: true }, (e) => r(!e)));
+  if (!hasPiper) {
+    onLog && onLog('Устанавливаю piper-tts…\n');
+    const pip = (await which('pip')) ? 'pip' : (await which('pip3')) ? 'pip3' : null;
+    const ic = pip ? await runStream(pip, ['install', '--upgrade', 'piper-tts'], onLog) : await runStream(pyBin, ['-m', 'pip', 'install', '--upgrade', 'piper-tts'], onLog);
+    if (ic !== 0) return { ok: false, error: 'не удалось установить piper-tts (код ' + ic + ')' };
+  }
+  let dir;
+  try { const { app } = require('electron'); dir = path.join(app.getPath('userData'), 'piper-voices'); }
+  catch { dir = path.join(require('os').tmpdir(), 'mythera-piper-voices'); }
+  fs.mkdirSync(dir, { recursive: true });
+  onLog && onLog(`\n=== Скачиваю голос Piper: ${voiceId} ===\n`);
+  const code = await runStream(pyBin, ['-m', 'piper.download_voices', voiceId, '--data-dir', dir], onLog);
+  if (code !== 0) return { ok: false, error: 'скачивание завершилось с кодом ' + code };
+  const files = fs.readdirSync(dir).filter((f) => f.endsWith('.onnx'));
+  const match = files.find((f) => f.includes(voiceId)) || files.map((f) => path.join(dir, f)).sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)[0];
+  const onnx = match && (path.isAbsolute(match) ? match : path.join(dir, match));
+  if (!onnx || !fs.existsSync(onnx)) return { ok: false, error: 'Файл .onnx не найден после скачивания' };
+  const store = require('./store');
+  store.set('settings.piperVoice', onnx); store.set('settings.ttsEngine', 'piper');
+  onLog && onLog(`\n✅ Голос настроен и включён: ${path.basename(onnx)}\n`);
+  return { ok: true, voice: onnx };
+}
+
+module.exports = { installSpeech, installMcTools, downloadPiperVoice };

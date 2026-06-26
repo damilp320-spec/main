@@ -444,6 +444,7 @@ ipcMain.handle('constitution:text', () => constitution.text());
 /* ---------------- IPC: tooling (quick installers) ---------------- */
 ipcMain.handle('tooling:installSpeech', () => tooling.installSpeech((line) => sendToUI('tooling:log', { kind: 'speech', line })));
 ipcMain.handle('tooling:installMcTools', () => tooling.installMcTools((line) => sendToUI('tooling:log', { kind: 'mc', line })));
+ipcMain.handle('tooling:downloadVoice', (_e, id) => tooling.downloadPiperVoice(id, (line) => sendToUI('tooling:log', { kind: 'speech', line })));
 
 /* ---------------- IPC: speech (Piper / Faster-Whisper) ---------------- */
 ipcMain.handle('speech:detect', () => speech.detect());

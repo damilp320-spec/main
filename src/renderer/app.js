@@ -687,6 +687,16 @@ function renderChat() {
         body.appendChild(ab);
       }
     }
+    // Действия над ответом: копировать, озвучить, переспросить, в заметки.
+    if (m.role === 'bot' && m.text) {
+      const acts = el('div', 'msg-acts');
+      acts.innerHTML = `<button class="ico-btn" data-a="copy" title="${esc(t('msg.copy'))}">📋</button><button class="ico-btn" data-a="read" title="${esc(t('msg.read'))}">🔊</button><button class="ico-btn" data-a="regen" title="${esc(t('msg.regen'))}">🔄</button><button class="ico-btn" data-a="note" title="${esc(t('msg.note'))}">📌</button>`;
+      acts.querySelector('[data-a="copy"]').onclick = () => { navigator.clipboard.writeText(m.text); toast('📋', t('copied'), 'ok'); };
+      acts.querySelector('[data-a="read"]').onclick = () => speakOut(m.text);
+      acts.querySelector('[data-a="note"]').onclick = async () => { await N.notes.save({ title: t('msg.fromChat') + ' · ' + new Date().toLocaleDateString(), body: m.text, tags: ['чат'] }); toast('📌', t('notes.saved'), 'ok'); };
+      acts.querySelector('[data-a="regen"]').onclick = () => { let up = null; for (let j = idx - 1; j >= 0; j--) { if (chat[j].role === 'user') { up = chat[j]; break; } } if (up) sendToAgent(state.activeAgentId, up.text); else toast('🔄', t('msg.noPrev'), 'err'); };
+      body.appendChild(acts);
+    }
     // Телеметрия + оценка ответа на финальных сообщениях бота.
     if (m.role === 'bot' && m.text) {
       if (m.tel) {

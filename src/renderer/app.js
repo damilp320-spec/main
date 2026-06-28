@@ -443,6 +443,7 @@ async function viewMarketplace() {
 /* ---------- Agents / Chat ---------- */
 async function viewAgents() {
   state.agents = await N.agents.list();
+  if (!state.chatTitles) state.chatTitles = await N.store.get('chatTitles', {});
   if (!state.activeAgentId && state.agents[0]) state.activeAgentId = state.agents[0].id;
   if (state.activeAgentId) await loadChat(state.activeAgentId);
   const effort = await N.store.get('settings.effort', 'balanced');
@@ -472,6 +473,8 @@ async function viewAgents() {
       <div class="agent-list" id="agent-list"></div>
       <div class="chat" id="chat">
         <div class="chat-head"><div id="chat-title"></div><div class="row">
+          <input id="chat-search" class="chat-search" placeholder="🔎 ${esc(t('msg.search'))}">
+          <button class="btn ghost sm" id="chat-title-gen" title="${esc(t('msg.autoTitle'))}">✨</button>
           <button class="btn ghost sm" id="mem-agent">🧠 ${esc(t('agents.memory'))}</button><button class="btn ghost sm" id="chat-export" title="${esc(t('msg.export'))}">💾</button><button class="btn ghost sm" id="export-agent">📤</button><button class="btn ghost sm" id="edit-agent">✎</button><button class="btn ghost sm" id="clear-chat">${esc(t('agents.clear'))}</button></div></div>
         <div class="chat-body" id="chat-body"></div>
         <div id="attach-bar"></div>
@@ -499,6 +502,8 @@ async function viewAgents() {
   $('#edit-agent').onclick = () => editAgent(state.agents.find(a => a.id === state.activeAgentId));
   $('#clear-chat').onclick = () => { state.chats[state.activeAgentId] = []; persistChat(); renderChat(); };
   if ($('#chat-export')) $('#chat-export').onclick = () => exportChatMd();
+  if ($('#chat-search')) { $('#chat-search').value = state.chatQuery || ''; $('#chat-search').oninput = (e) => { state.chatQuery = e.target.value; renderChat(); }; }
+  if ($('#chat-title-gen')) $('#chat-title-gen').onclick = () => autoTitleChat();
   $('#mem-agent').onclick = () => showMemory(state.activeAgentId);
   $('#attach-btn').onclick = () => $('#chat-file-input').click();
   renderAttachBar();
@@ -508,12 +513,13 @@ async function viewAgents() {
     const p = el('div', 'agent-pill' + (a.id === state.activeAgentId ? ' active' : ''));
     const cnt = (state.chats[a.id] || []).filter((m) => m.role === 'user').length;
     p.innerHTML = `<span class="ico">${a.icon || '🤖'}</span><div class="meta"><b>${esc(a.name)}</b><br><small>${esc(a.model || '')}${cnt ? ' · ' + cnt + ' 💬' : ''}</small></div>`;
-    p.onclick = async () => { state.activeAgentId = a.id; await loadChat(a.id); viewAgents(); };
+    p.onclick = async () => { state.activeAgentId = a.id; state.chatQuery = ''; await loadChat(a.id); viewAgents(); };
     list.appendChild(p);
   });
 
   const active = state.agents.find(a => a.id === state.activeAgentId);
-  $('#chat-title').innerHTML = active ? `<b>${active.icon || '🤖'} ${esc(active.name)}</b> <span class="tag">${esc(autonomyLabel(active.autonomy))}</span>` : '';
+  const convTitle = active && state.chatTitles && state.chatTitles[active.id];
+  $('#chat-title').innerHTML = active ? `<b>${active.icon || '🤖'} ${esc(active.name)}</b> <span class="tag">${esc(autonomyLabel(active.autonomy))}</span>${convTitle ? `<div class="conv-title">📑 ${esc(convTitle)}</div>` : ''}` : '';
   renderChat();
   updateBusyIndicators();
 
@@ -664,17 +670,40 @@ function renderChat() {
     return;
   }
   body.innerHTML = '';
+  const q = (state.chatQuery || '').trim().toLowerCase();
+  // Закреплённые сообщения — полоса вверху (только когда не ищем).
+  if (!q) {
+    const pins = chat.filter((m) => m.pinned && (m.role === 'user' || m.role === 'bot'));
+    if (pins.length) {
+      const ps = el('div', 'chat-pins');
+      ps.innerHTML = `<div class="chat-pins-h">📍 ${esc(t('msg.pinned'))} (${pins.length})</div>` + pins.map((m) => `<div class="chat-pin" data-pi="${chat.indexOf(m)}">${m.role === 'user' ? '🧑' : '🤖'} ${esc((m.text || '').slice(0, 90))}</div>`).join('');
+      body.appendChild(ps);
+      ps.querySelectorAll('[data-pi]').forEach((p) => p.onclick = () => { const tgt = body.querySelector('[data-mi="' + p.dataset.pi + '"]'); if (tgt) tgt.scrollIntoView({ behavior: 'smooth', block: 'center' }); });
+    }
+  }
+  let shown = 0;
   chat.forEach((m, idx) => {
     // Видимое мышление: структурный план агента.
     if (m.role === 'plan' && Array.isArray(m.plan)) {
+      if (q) return;
       const p = el('div', 'msg-plan');
       p.innerHTML = `<div class="plan-h">🧭 ${esc(t('think.plan'))}</div>` +
         m.plan.map((s, i) => `<div class="plan-step"><span class="plan-n">${i + 1}</span>${esc(s)}</div>`).join('');
       body.appendChild(p);
       return;
     }
+    // Поиск по диалогу: показываем только совпадающие сообщения.
+    if (q) { if (m.role !== 'user' && m.role !== 'bot') return; if (!String(m.text || '').toLowerCase().includes(q)) return; shown++; }
     const d = el('div', 'msg ' + m.role);
-    d.textContent = m.text;
+    if (m.role === 'user' || m.role === 'bot') d.dataset.mi = idx;
+    if (q && (m.role === 'user' || m.role === 'bot')) d.innerHTML = highlightHtml(m.text, q); else d.textContent = m.text;
+    // Закрепить сообщение (📌) — для важных реплик.
+    if (m.role === 'user' || m.role === 'bot') {
+      const pin = el('button', 'msg-pin' + (m.pinned ? ' on' : ''));
+      pin.textContent = m.pinned ? '📍' : '📌'; pin.title = t('msg.pin');
+      pin.onclick = (e) => { e.stopPropagation(); m.pinned = !m.pinned; persistChat(); renderChat(); };
+      d.appendChild(pin);
+    }
     // Заметки рассуждения/самопроверки — кликабельны для детального просмотра.
     if (m.role === 'tool') { d.classList.add('msg-click'); d.title = t('think.clickDetail'); d.onclick = () => modal(`<h2>🧠 ${esc(t('think.noteTitle'))}</h2><div class="note-detail">${esc(m.text)}</div><div class="modal-actions"><button class="btn ghost" id="nd-copy">📋 ${esc(t('btn.copy'))}</button><button class="btn primary" id="nd-close">${esc(t('btn.close'))}</button></div>`, (mm, close) => { $('#nd-close', mm).onclick = close; $('#nd-copy', mm).onclick = () => { navigator.clipboard.writeText(m.text); toast('📋', t('copied'), 'ok'); }; }); }
     body.appendChild(d);
@@ -721,7 +750,32 @@ function renderChat() {
       }
     }
   });
-  body.scrollTop = body.scrollHeight;
+  if (q && !shown) body.appendChild(el('div', 'empty', `<p class="muted">${esc(t('msg.noResults'))}</p>`));
+  if (!q) body.scrollTop = body.scrollHeight;
+}
+// Подсветка совпадений поиска (текст экранируется, затем оборачиваем в <mark>).
+function highlightHtml(text, q) {
+  const e = esc(String(text || ''));
+  if (!q) return e;
+  try { return e.replace(new RegExp('(' + q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'ig'), '<mark>$1</mark>'); } catch { return e; }
+}
+// Авто-заголовок диалога: ИИ делает короткое название по первому сообщению.
+async function autoTitleChat() {
+  const chat = chatFor(); const first = chat.find((m) => m.role === 'user');
+  if (!first) return toast('✨', t('msg.emptyChat'), 'err');
+  toast('✨', t('msg.titling'), 'ok');
+  try {
+    const models = await N.installer.listModels(); const model = (models[0] && models[0].name) || 'qwen2.5:7b';
+    const r = await N.playground.ask(model, `Придумай очень короткий заголовок (3-5 слов, без кавычек и точки) для диалога по первому сообщению пользователя:\n«${String(first.text).slice(0, 300)}»\nОтветь ТОЛЬКО заголовком.`);
+    if (!r || !r.ok) return toast('⚠️', t('bd.aiFail') + (r && r.error ? ': ' + r.error : ''), 'err');
+    const title = String(r.text || '').split('\n')[0].replace(/^["'«»\s]+|["'«».\s]+$/g, '').slice(0, 60);
+    if (!title) return toast('⚠️', t('msg.aiNone'), 'err');
+    if (!state.chatTitles) state.chatTitles = {};
+    state.chatTitles[state.activeAgentId] = title;
+    await N.store.set('chatTitles', state.chatTitles);
+    const ct = $('#chat-title'); if (ct) { let sub = ct.querySelector('.conv-title'); if (!sub) { sub = el('div', 'conv-title'); ct.appendChild(sub); } sub.textContent = '📑 ' + title; }
+    toast('📑', t('msg.titled') + ': ' + title, 'ok');
+  } catch { toast('⚠️', t('bd.aiFail'), 'err'); }
 }
 
 // Оценка ответа агента (обратная связь — основа для будущих предпочтений).

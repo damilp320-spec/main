@@ -64,6 +64,7 @@ contextBridge.exposeInMainWorld('mythera', {
     ollamaStatus: () => invoke('ollama:status'),
     startServer: () => invoke('ollama:start'),
     listModels: () => invoke('ollama:models'),
+    warmup: (model) => invoke('ollama:warmup', model),
     installOllama: () => invoke('installer:installOllama'),
     pullModel: (n) => invoke('installer:pullModel', n),
     deleteModel: (n) => invoke('installer:deleteModel', n),

@@ -343,6 +343,14 @@ async function chat({ agentId, sessionId, message, history, effort }, sendToUI) 
     }
     if (adv.stop) options.stop = String(adv.stop).split(',').map((s) => s.trim()).filter(Boolean);
   }
+  // Производительность: keep_alive держит модель «тёплой» (нет холодной загрузки),
+  // лимиты контекста/токенов ускоряют генерацию, num_gpu/thread — под железо.
+  const keepAlive = store.get('settings.keepAlive', '30m');
+  const turbo = store.get('settings.turbo', false); // турбо: пропускаем тяжёлые доп-проходы ради скорости
+  const numCtx = parseInt(store.get('settings.numCtx', 0), 10); if (numCtx > 0) options.num_ctx = numCtx;
+  const numPredict = parseInt(store.get('settings.numPredict', 0), 10); if (numPredict > 0) options.num_predict = numPredict;
+  const numThread = parseInt(store.get('settings.numThread', 0), 10); if (numThread > 0) options.num_thread = numThread;
+  const ngRaw = store.get('settings.numGpu', ''); if (ngRaw !== '' && ngRaw != null) { const n = parseInt(ngRaw, 10); if (!isNaN(n)) options.num_gpu = n; }
   let finalText = '';
   let activeModel = model;
   // Телеметрия: время, шаги, объём ответа, вызовы инструментов.
@@ -351,13 +359,13 @@ async function chat({ agentId, sessionId, message, history, effort }, sendToUI) 
 
   // Видимое мышление: для серьёзных режимов сначала набрасываем короткий план
   // и показываем его пользователю (структурно, не «спам инструментов»).
-  const wantPlan = store.get('settings.visibleThinking', true) && (agent.autonomy === 'autonomous' || effort === 'thorough' || effort === 'max');
+  const wantPlan = !turbo && store.get('settings.visibleThinking', true) && (agent.autonomy === 'autonomous' || effort === 'thorough' || effort === 'max');
   if (wantPlan && !sess.stop) {
     try {
       const pr = await ollama.chatStream({ model, messages: [
         { role: 'system', content: 'Ты планировщик. Составь КОРОТКИЙ план выполнения задачи: 3–6 пунктов, каждый с новой строки, без вступления и нумерации.' },
         { role: 'user', content: message }
-      ], options: { temperature: 0.3 } }, null);
+      ], options: { temperature: 0.3 }, keepAlive }, null);
       const plan = (pr.content || '').split('\n').map((s) => s.replace(/^[-*\d.\s]+/, '').trim()).filter(Boolean).slice(0, 6);
       if (plan.length) {
         sendToUI && sendToUI('agents:plan', { sessionId, plan });
@@ -372,7 +380,7 @@ async function chat({ agentId, sessionId, message, history, effort }, sendToUI) 
       if (sess.stop) { finalText += '\n[остановлено пользователем]'; break; }
       tel.steps++;
       const res = await ollama.chatStream(
-        { model: activeModel, messages, tools: toolset, options },
+        { model: activeModel, messages, tools: toolset, options, keepAlive },
         (chunk) => { tel.chars += chunk.length; sendToUI && sendToUI('agents:stream', { sessionId, chunk }); }
       );
       finalText = res.content;
@@ -422,7 +430,7 @@ async function chat({ agentId, sessionId, message, history, effort }, sendToUI) 
 
     // Цикл самопроверки: для серьёзных режимов агент критикует свой результат
     // и при необходимости доводит задачу до конца (structured self-verify).
-    const wantVerify = store.get('settings.selfVerify', true) && useTools && !sess.stop && finalText &&
+    const wantVerify = !turbo && store.get('settings.selfVerify', true) && useTools && !sess.stop && finalText &&
       (agent.autonomy === 'autonomous' || effort === 'thorough' || effort === 'max');
     if (wantVerify) {
       sendToUI && sendToUI('agents:verify', { sessionId, stage: 'start' });
@@ -445,7 +453,8 @@ async function chat({ agentId, sessionId, message, history, effort }, sendToUI) 
   }
 
   // Усилители интеллекта: deep-reasoning + self-consistency + критик (опционально).
-  if (!sess.stop && !String(finalText).startsWith('Ошибка агента:')) {
+  // В турбо-режиме пропускаем — это самые «дорогие» доп-проходы.
+  if (!turbo && !sess.stop && !String(finalText).startsWith('Ошибка агента:')) {
     try { finalText = await reasoning.refine({ messages, model: activeModel, finalText, effort, hard: reasoning.difficulty(message) === 'hard', message, sendToUI, sessionId }); } catch { /* best effort */ }
   }
 

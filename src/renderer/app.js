@@ -1857,6 +1857,13 @@ async function viewSettings() {
     longMemory: await g('longMemory', true),
     constitutionOn: await g('constitution', true),
     appControl: await g('appControl', true),
+    keepAlive: await g('keepAlive', '30m'),
+    turbo: await g('turbo', false),
+    warmupOnStart: await g('warmupOnStart', true),
+    flashAttn: await g('flashAttn', true),
+    kvCacheType: await g('kvCacheType', ''),
+    numCtx: await g('numCtx', 0),
+    numPredict: await g('numPredict', 0),
     temperature: await g('temperature', 0.7),
     maxSteps: await g('maxSteps', 0),
     defaultModel: await g('defaultModel', ''),
@@ -1940,6 +1947,30 @@ async function viewSettings() {
           <button class="btn" id="set-pickdisk">${esc(t('set.chooseDisk'))}</button></div></label>
         <div id="drives-list" class="drives-list"></div>
         <label class="field"><span>${esc(t('set.defaultModel'))}</span><select id="set-defmodel">${modelOpts}</select></label>
+      </div>
+      <div class="card">
+        <h3>⚡ ${esc(t('set.perf'))}</h3>
+        ${toggleRow('set-turbo', t('set.turbo'), s.turbo)}
+        <p class="muted" style="font-size:11px;margin:-2px 0 8px">${esc(t('set.turboHint'))}</p>
+        ${toggleRow('set-warmup', t('set.warmup'), s.warmupOnStart)}
+        ${toggleRow('set-flash', t('set.flashAttn'), s.flashAttn)}
+        <div class="row" style="gap:8px">
+          <label class="field"><span>${esc(t('set.keepAlive'))}</span><select id="set-keepalive">
+            <option value="5m" ${s.keepAlive === '5m' ? 'selected' : ''}>5 ${esc(t('set.min'))}</option>
+            <option value="30m" ${s.keepAlive === '30m' ? 'selected' : ''}>30 ${esc(t('set.min'))}</option>
+            <option value="2h" ${s.keepAlive === '2h' ? 'selected' : ''}>2 ${esc(t('set.hr'))}</option>
+            <option value="-1" ${String(s.keepAlive) === '-1' ? 'selected' : ''}>${esc(t('set.always'))}</option></select></label>
+          <label class="field"><span>${esc(t('set.kvCache'))}</span><select id="set-kv">
+            <option value="" ${!s.kvCacheType ? 'selected' : ''}>f16 (${esc(t('set.default'))})</option>
+            <option value="q8_0" ${s.kvCacheType === 'q8_0' ? 'selected' : ''}>q8_0</option>
+            <option value="q4_0" ${s.kvCacheType === 'q4_0' ? 'selected' : ''}>q4_0</option></select></label>
+        </div>
+        <div class="row" style="gap:8px">
+          <label class="field"><span>${esc(t('set.numCtx'))}</span><input id="set-numctx" type="number" min="0" step="512" value="${esc(s.numCtx)}" placeholder="0 = авто"></label>
+          <label class="field"><span>${esc(t('set.numPredict'))}</span><input id="set-numpred" type="number" min="0" step="64" value="${esc(s.numPredict)}" placeholder="0 = ∞"></label>
+        </div>
+        <button class="btn ghost sm" id="set-warmnow" style="margin-top:6px">🔥 ${esc(t('set.warmNow'))}</button>
+        <p class="muted" style="font-size:11px;margin-top:6px">${esc(t('set.perfHint'))}</p>
       </div>
       <div class="card">
         <h3>🎙️ ${esc(t('set.voice'))}</h3>
@@ -2170,6 +2201,15 @@ async function viewSettings() {
   $('#set-temp').oninput = (e) => { $('#temp-val').textContent = (+e.target.value).toFixed(2); N.store.set('settings.temperature', +e.target.value); };
   $('#set-steps').onchange = (e) => N.store.set('settings.maxSteps', +e.target.value || 0);
   $('#set-defmodel').onchange = (e) => N.store.set('settings.defaultModel', e.target.value);
+  // Производительность.
+  bindToggle('set-turbo', (v) => { N.store.set('settings.turbo', v); toast('⚡', t('set.turbo') + ': ' + (v ? 'on' : 'off'), 'ok'); });
+  bindToggle('set-warmup', (v) => N.store.set('settings.warmupOnStart', v));
+  bindToggle('set-flash', (v) => { N.store.set('settings.flashAttn', v); toast('⚡', t('set.restartHint'), 'ok'); });
+  $('#set-keepalive').onchange = (e) => N.store.set('settings.keepAlive', e.target.value);
+  $('#set-kv').onchange = (e) => { N.store.set('settings.kvCacheType', e.target.value); toast('⚡', t('set.restartHint'), 'ok'); };
+  $('#set-numctx').onchange = (e) => N.store.set('settings.numCtx', Math.max(0, +e.target.value || 0));
+  $('#set-numpred').onchange = (e) => N.store.set('settings.numPredict', Math.max(0, +e.target.value || 0));
+  $('#set-warmnow').onclick = async () => { toast('🔥', t('set.warming'), 'ok'); const r = await N.installer.warmup(); toast(r.ok ? '🔥' : '⚠️', r.ok ? t('set.warmed') + ': ' + r.model : (r.error || ''), r.ok ? 'ok' : 'err'); };
   $('#set-lang').onchange = async (e) => { setLangCode(e.target.value); await N.store.set('settings.lang', e.target.value); applyStaticI18n(); syncNavTitles(); applyRail(document.body.classList.contains('rail')); viewSettings(); };
   $$('#accent-row .theme-swatch').forEach((sw) => sw.onclick = async () => {
     const th = await N.store.get('settings.theme', { mode: 'dark', accent: 'violet' });

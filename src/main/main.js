@@ -303,6 +303,15 @@ app.whenReady().then(async () => {
   // Кривая капитала: переоцениваем бумажный счёт по живым ценам каждые 5 минут.
   setInterval(markPaperEquity, 5 * 60000);
   setTimeout(markPaperEquity, 20000);
+  // Прогрев модели по умолчанию при старте — первый ответ без «холодной» загрузки.
+  setTimeout(async () => {
+    try {
+      if (!store.get('settings.warmupOnStart', true)) return;
+      if (!(await ollama.status()).running) return;
+      const m = store.get('settings.defaultModel', '') || ((await ollama.listModels())[0] || {}).name;
+      if (m) ollama.preload(m, store.get('settings.keepAlive', '30m')).then(() => sendToUI('ollama:warmed', { model: m })).catch(() => {});
+    } catch {}
+  }, 8000);
 
   // Очередь задач: пробрасываем события в UI и возобновляем незавершённые.
   taskQueue.load();
@@ -348,6 +357,12 @@ ipcMain.handle('system:pickFolder', async (_e, opts) => {
 ipcMain.handle('ollama:status', () => ollama.status());
 ipcMain.handle('ollama:models', () => ollama.listModels());
 ipcMain.handle('ollama:start', () => ollama.startServer());
+// Прогрев модели в память (ускоряет первый ответ). Без аргумента — модель по умолчанию.
+ipcMain.handle('ollama:warmup', async (_e, model) => {
+  const m = model || store.get('settings.defaultModel', '') || ((await ollama.listModels())[0] || {}).name;
+  if (!m) return { ok: false, error: 'нет модели' };
+  return ollama.preload(m, store.get('settings.keepAlive', '30m'));
+});
 ipcMain.handle('installer:installOllama', () => installer.installOllama((p) => sendToUI('installer:progress', p)));
 ipcMain.handle('installer:pullModel', (_e, name) => installer.pullModel(name, (p) => sendToUI('installer:progress', p)));
 ipcMain.handle('installer:deleteModel', (_e, name) => ollama.deleteModel(name));

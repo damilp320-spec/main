@@ -472,7 +472,7 @@ async function viewAgents() {
       <div class="agent-list" id="agent-list"></div>
       <div class="chat" id="chat">
         <div class="chat-head"><div id="chat-title"></div><div class="row">
-          <button class="btn ghost sm" id="mem-agent">🧠 ${esc(t('agents.memory'))}</button><button class="btn ghost sm" id="export-agent">📤</button><button class="btn ghost sm" id="edit-agent">✎</button><button class="btn ghost sm" id="clear-chat">${esc(t('agents.clear'))}</button></div></div>
+          <button class="btn ghost sm" id="mem-agent">🧠 ${esc(t('agents.memory'))}</button><button class="btn ghost sm" id="chat-export" title="${esc(t('msg.export'))}">💾</button><button class="btn ghost sm" id="export-agent">📤</button><button class="btn ghost sm" id="edit-agent">✎</button><button class="btn ghost sm" id="clear-chat">${esc(t('agents.clear'))}</button></div></div>
         <div class="chat-body" id="chat-body"></div>
         <div id="attach-bar"></div>
         <div class="chat-input">
@@ -498,6 +498,7 @@ async function viewAgents() {
   $('#export-agent').onclick = () => exportActiveAgent();
   $('#edit-agent').onclick = () => editAgent(state.agents.find(a => a.id === state.activeAgentId));
   $('#clear-chat').onclick = () => { state.chats[state.activeAgentId] = []; persistChat(); renderChat(); };
+  if ($('#chat-export')) $('#chat-export').onclick = () => exportChatMd();
   $('#mem-agent').onclick = () => showMemory(state.activeAgentId);
   $('#attach-btn').onclick = () => $('#chat-file-input').click();
   renderAttachBar();
@@ -690,11 +691,14 @@ function renderChat() {
     // Действия над ответом: копировать, озвучить, переспросить, в заметки.
     if (m.role === 'bot' && m.text) {
       const acts = el('div', 'msg-acts');
-      acts.innerHTML = `<button class="ico-btn" data-a="copy" title="${esc(t('msg.copy'))}">📋</button><button class="ico-btn" data-a="read" title="${esc(t('msg.read'))}">🔊</button><button class="ico-btn" data-a="regen" title="${esc(t('msg.regen'))}">🔄</button><button class="ico-btn" data-a="note" title="${esc(t('msg.note'))}">📌</button>`;
+      acts.innerHTML = `<button class="ico-btn" data-a="copy" title="${esc(t('msg.copy'))}">📋</button><button class="ico-btn" data-a="read" title="${esc(t('msg.read'))}">🔊</button><button class="ico-btn" data-a="edit" title="${esc(t('msg.edit'))}">✏️</button><button class="ico-btn" data-a="regen" title="${esc(t('msg.regen'))}">🔄</button><button class="ico-btn" data-a="cont" title="${esc(t('msg.cont'))}">➡️</button><button class="ico-btn" data-a="note" title="${esc(t('msg.note'))}">📌</button>`;
+      const prevUser = () => { for (let j = idx - 1; j >= 0; j--) if (chat[j].role === 'user') return chat[j]; return null; };
       acts.querySelector('[data-a="copy"]').onclick = () => { navigator.clipboard.writeText(m.text); toast('📋', t('copied'), 'ok'); };
       acts.querySelector('[data-a="read"]').onclick = () => speakOut(m.text);
       acts.querySelector('[data-a="note"]').onclick = async () => { await N.notes.save({ title: t('msg.fromChat') + ' · ' + new Date().toLocaleDateString(), body: m.text, tags: ['чат'] }); toast('📌', t('notes.saved'), 'ok'); };
-      acts.querySelector('[data-a="regen"]').onclick = () => { let up = null; for (let j = idx - 1; j >= 0; j--) { if (chat[j].role === 'user') { up = chat[j]; break; } } if (up) sendToAgent(state.activeAgentId, up.text); else toast('🔄', t('msg.noPrev'), 'err'); };
+      acts.querySelector('[data-a="regen"]').onclick = () => { const up = prevUser(); if (up) sendToAgent(state.activeAgentId, up.text); else toast('🔄', t('msg.noPrev'), 'err'); };
+      acts.querySelector('[data-a="edit"]').onclick = () => { const up = prevUser(); const ta = $('#chat-text'); if (up && ta) { ta.value = up.text; ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); } else toast('✏️', t('msg.noPrev'), 'err'); };
+      acts.querySelector('[data-a="cont"]').onclick = () => sendToAgent(state.activeAgentId, t('msg.continuePrompt'));
       body.appendChild(acts);
     }
     // Телеметрия + оценка ответа на финальных сообщениях бота.
@@ -765,6 +769,16 @@ async function sendChat() {
   ta.value = '';
   const att = state.attachment; state.attachment = null; renderAttachBar();
   await sendToAgent(state.activeAgentId, text, att);
+}
+
+// Экспорт текущего диалога в Markdown-файл.
+function exportChatMd() {
+  const msgs = chatFor().filter((m) => m.role === 'user' || m.role === 'bot');
+  if (!msgs.length) return toast('💾', t('msg.emptyChat'), 'err');
+  const body = msgs.map((m) => (m.role === 'user' ? '### 🧑 ' + t('msg.you') : '### 🤖 ' + t('msg.assistant')) + '\n\n' + (m.text || '')).join('\n\n');
+  const md = '# ' + t('msg.chatExport') + '\n\n_' + new Date().toLocaleString() + '_\n\n' + body + '\n';
+  downloadText('chat-' + new Date().toISOString().slice(0, 10) + '.md', md, 'text/markdown;charset=utf-8');
+  toast('💾', t('msg.exported') + ' (' + msgs.length + ')', 'ok');
 }
 
 function editAgent(agent) {

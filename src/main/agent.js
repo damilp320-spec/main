@@ -351,6 +351,15 @@ async function chat({ agentId, sessionId, message, history, effort }, sendToUI) 
   const numPredict = parseInt(store.get('settings.numPredict', 0), 10); if (numPredict > 0) options.num_predict = numPredict;
   const numThread = parseInt(store.get('settings.numThread', 0), 10); if (numThread > 0) options.num_thread = numThread;
   const ngRaw = store.get('settings.numGpu', ''); if (ngRaw !== '' && ngRaw != null) { const n = parseInt(ngRaw, 10); if (!isNaN(n)) options.num_gpu = n; }
+  // Авто-контекст: подгоняем num_ctx под объём диалога (короткому чату — меньше
+  // окно = быстрее). Консервативно: пол 4096, потолок 16384, не трогаем если задан вручную.
+  if (store.get('settings.autoCtx', false) && !options.num_ctx) {
+    try {
+      const chars = JSON.stringify(messages).length + (toolset ? JSON.stringify(toolset).length : 0);
+      const need = Math.ceil(chars / 4) + (numPredict > 0 ? numPredict : 1024);
+      options.num_ctx = Math.max(4096, Math.min(16384, Math.ceil(need * 1.3 / 512) * 512));
+    } catch {}
+  }
   let finalText = '';
   let activeModel = model;
   // Телеметрия: время, шаги, объём ответа, вызовы инструментов.

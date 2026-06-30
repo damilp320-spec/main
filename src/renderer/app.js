@@ -1864,6 +1864,8 @@ async function viewSettings() {
     kvCacheType: await g('kvCacheType', ''),
     numCtx: await g('numCtx', 0),
     numPredict: await g('numPredict', 0),
+    responseCache: await g('responseCache', false),
+    autoCtx: await g('autoCtx', false),
     temperature: await g('temperature', 0.7),
     maxSteps: await g('maxSteps', 0),
     defaultModel: await g('defaultModel', ''),
@@ -1954,6 +1956,8 @@ async function viewSettings() {
         <p class="muted" style="font-size:11px;margin:-2px 0 8px">${esc(t('set.turboHint'))}</p>
         ${toggleRow('set-warmup', t('set.warmup'), s.warmupOnStart)}
         ${toggleRow('set-flash', t('set.flashAttn'), s.flashAttn)}
+        ${toggleRow('set-respcache', t('set.respCache'), s.responseCache)}
+        ${toggleRow('set-autoctx', t('set.autoCtx'), s.autoCtx)}
         <div class="row" style="gap:8px">
           <label class="field"><span>${esc(t('set.keepAlive'))}</span><select id="set-keepalive">
             <option value="5m" ${s.keepAlive === '5m' ? 'selected' : ''}>5 ${esc(t('set.min'))}</option>
@@ -2205,6 +2209,8 @@ async function viewSettings() {
   bindToggle('set-turbo', (v) => { N.store.set('settings.turbo', v); toast('⚡', t('set.turbo') + ': ' + (v ? 'on' : 'off'), 'ok'); });
   bindToggle('set-warmup', (v) => N.store.set('settings.warmupOnStart', v));
   bindToggle('set-flash', (v) => { N.store.set('settings.flashAttn', v); toast('⚡', t('set.restartHint'), 'ok'); });
+  bindToggle('set-respcache', (v) => N.store.set('settings.responseCache', v));
+  bindToggle('set-autoctx', (v) => N.store.set('settings.autoCtx', v));
   $('#set-keepalive').onchange = (e) => N.store.set('settings.keepAlive', e.target.value);
   $('#set-kv').onchange = (e) => { N.store.set('settings.kvCacheType', e.target.value); toast('⚡', t('set.restartHint'), 'ok'); };
   $('#set-numctx').onchange = (e) => N.store.set('settings.numCtx', Math.max(0, +e.target.value || 0));

@@ -60,10 +60,27 @@ async function preload(model, keepAlive) {
   catch (e) { return { ok: false, error: e.message }; }
 }
 
+// Кэш ответов: одинаковый запрос (без инструментов) → мгновенный ответ из памяти.
+const _respCache = new Map(); // key -> { content, toolCalls, at }
+const RESP_TTL = 60 * 60 * 1000; // 1 час
+function _cacheKey(model, messages, options, format) { try { return model + '|' + (format || '') + '|' + JSON.stringify(options || {}) + '|' + JSON.stringify(messages); } catch { return null; } }
+
 // Стриминговый чат с поддержкой инструментов (tool calling).
 // keepAlive держит модель «тёплой»; format ('json') ограничивает вывод.
 function chatStream({ model, messages, tools, options, keepAlive, format }, onChunk) {
   return new Promise((resolve, reject) => {
+    // Кэш — только для запросов БЕЗ инструментов (нет побочных эффектов).
+    let cacheKey = null;
+    try {
+      if (!tools && require('./store').get('settings.responseCache', false)) {
+        cacheKey = _cacheKey(model, messages, options, format);
+        const hit = cacheKey && _respCache.get(cacheKey);
+        if (hit && Date.now() - hit.at < RESP_TTL) {
+          if (onChunk && hit.content) onChunk(hit.content);
+          return resolve({ content: hit.content, toolCalls: hit.toolCalls || [], cached: true });
+        }
+      }
+    } catch { cacheKey = null; }
     const payload = JSON.stringify({ model, messages, tools: tools || undefined, options: options || undefined, keep_alive: keepAlive != null ? keepAlive : undefined, format: format || undefined, stream: true });
     const req = http.request(
       { host: HOST, port: PORT, path: '/api/chat', method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } },
@@ -87,7 +104,10 @@ function chatStream({ model, messages, tools, options, keepAlive, format }, onCh
             } catch { /* ignore partial */ }
           }
         });
-        res.on('end', () => resolve({ content: full, toolCalls }));
+        res.on('end', () => {
+          if (cacheKey && full) { _respCache.set(cacheKey, { content: full, toolCalls, at: Date.now() }); if (_respCache.size > 200) _respCache.delete(_respCache.keys().next().value); }
+          resolve({ content: full, toolCalls });
+        });
       }
     );
     req.on('error', reject);

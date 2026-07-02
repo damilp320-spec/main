@@ -473,6 +473,7 @@ async function viewAgents() {
       <div class="agent-list" id="agent-list"></div>
       <div class="chat" id="chat">
         <div class="chat-head"><div id="chat-title"></div><div class="row">
+          <select id="chat-model" class="chat-model" title="${esc(t('msg.modelSwitch'))}"></select>
           <input id="chat-search" class="chat-search" placeholder="🔎 ${esc(t('msg.search'))}">
           <button class="btn ghost sm" id="chat-title-gen" title="${esc(t('msg.autoTitle'))}">✨</button>
           <button class="btn ghost sm" id="mem-agent">🧠 ${esc(t('agents.memory'))}</button><button class="btn ghost sm" id="chat-export" title="${esc(t('msg.export'))}">💾</button><button class="btn ghost sm" id="export-agent">📤</button><button class="btn ghost sm" id="edit-agent">✎</button><button class="btn ghost sm" id="clear-chat">${esc(t('agents.clear'))}</button></div></div>
@@ -520,6 +521,16 @@ async function viewAgents() {
   const active = state.agents.find(a => a.id === state.activeAgentId);
   const convTitle = active && state.chatTitles && state.chatTitles[active.id];
   $('#chat-title').innerHTML = active ? `<b>${active.icon || '🤖'} ${esc(active.name)}</b> <span class="tag">${esc(autonomyLabel(active.autonomy))}</span>${convTitle ? `<div class="conv-title">📑 ${esc(convTitle)}</div>` : ''}` : '';
+  // Быстрая смена модели агента прямо из шапки чата.
+  const cm = $('#chat-model');
+  if (cm && active) {
+    N.installer.listModels().then((models) => {
+      const names = models.map((m) => m.name);
+      if (active.model && !names.includes(active.model)) names.unshift(active.model);
+      cm.innerHTML = names.map((n) => `<option value="${esc(n)}" ${n === active.model ? 'selected' : ''}>${esc(n)}</option>`).join('') || `<option>${esc(active.model || '')}</option>`;
+      cm.onchange = async () => { await N.agents.save({ ...active, model: cm.value }); active.model = cm.value; toast('🧠', t('msg.modelSet') + ': ' + cm.value, 'ok'); };
+    }).catch(() => { cm.style.display = 'none'; });
+  } else if (cm) cm.style.display = 'none';
   renderChat();
   updateBusyIndicators();
 
@@ -696,7 +707,9 @@ function renderChat() {
     if (q) { if (m.role !== 'user' && m.role !== 'bot') return; if (!String(m.text || '').toLowerCase().includes(q)) return; shown++; }
     const d = el('div', 'msg ' + m.role);
     if (m.role === 'user' || m.role === 'bot') d.dataset.mi = idx;
-    if (q && (m.role === 'user' || m.role === 'bot')) d.innerHTML = highlightHtml(m.text, q); else d.textContent = m.text;
+    if (q && (m.role === 'user' || m.role === 'bot')) d.innerHTML = highlightHtml(m.text, q);
+    else if (m.role === 'bot' && !m.text && m.draft) { d.classList.add('msg-draft'); d.textContent = m.draft; }
+    else d.textContent = m.text;
     // Закрепить сообщение (📌) — для важных реплик.
     if (m.role === 'user' || m.role === 'bot') {
       const pin = el('button', 'msg-pin' + (m.pinned ? ' on' : ''));
@@ -1866,6 +1879,8 @@ async function viewSettings() {
     numPredict: await g('numPredict', 0),
     responseCache: await g('responseCache', false),
     autoCtx: await g('autoCtx', false),
+    speculativeDraft: await g('speculativeDraft', false),
+    draftModel: await g('draftModel', ''),
     temperature: await g('temperature', 0.7),
     maxSteps: await g('maxSteps', 0),
     defaultModel: await g('defaultModel', ''),
@@ -1958,6 +1973,11 @@ async function viewSettings() {
         ${toggleRow('set-flash', t('set.flashAttn'), s.flashAttn)}
         ${toggleRow('set-respcache', t('set.respCache'), s.responseCache)}
         ${toggleRow('set-autoctx', t('set.autoCtx'), s.autoCtx)}
+        ${toggleRow('set-specdraft', t('set.specDraft'), s.speculativeDraft)}
+        <label class="field"><span>${esc(t('set.draftModel'))}</span><select id="set-draftmodel">
+          <option value="" ${!s.draftModel ? 'selected' : ''}>${esc(t('set.draftAuto'))}</option>
+          ${(models || []).map((m) => `<option value="${esc(m.name)}" ${m.name === s.draftModel ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select></label>
+        <p class="muted" style="font-size:11px;margin:-2px 0 8px">${esc(t('set.specDraftHint'))}</p>
         <div class="row" style="gap:8px">
           <label class="field"><span>${esc(t('set.keepAlive'))}</span><select id="set-keepalive">
             <option value="5m" ${s.keepAlive === '5m' ? 'selected' : ''}>5 ${esc(t('set.min'))}</option>
@@ -2211,6 +2231,8 @@ async function viewSettings() {
   bindToggle('set-flash', (v) => { N.store.set('settings.flashAttn', v); toast('⚡', t('set.restartHint'), 'ok'); });
   bindToggle('set-respcache', (v) => N.store.set('settings.responseCache', v));
   bindToggle('set-autoctx', (v) => N.store.set('settings.autoCtx', v));
+  bindToggle('set-specdraft', (v) => N.store.set('settings.speculativeDraft', v));
+  $('#set-draftmodel').onchange = (e) => N.store.set('settings.draftModel', e.target.value);
   $('#set-keepalive').onchange = (e) => N.store.set('settings.keepAlive', e.target.value);
   $('#set-kv').onchange = (e) => { N.store.set('settings.kvCacheType', e.target.value); toast('⚡', t('set.restartHint'), 'ok'); };
   $('#set-numctx').onchange = (e) => N.store.set('settings.numCtx', Math.max(0, +e.target.value || 0));
@@ -5618,7 +5640,17 @@ N.on('agents:stream', ({ sessionId, chunk }) => {
   const agentId = sessAgent(sessionId); if (!agentId) return;
   const c = chatFor(agentId);
   const last = c[c.length - 1];
-  if (last && last.role === 'bot') { last.text += chunk; renderAgentEverywhere(agentId); }
+  if (last && last.role === 'bot') { if (last.draft) delete last.draft; last.text += chunk; renderAgentEverywhere(agentId); }
+});
+// Спекулятивный черновик: мгновенный ответ маленькой модели, пока думает основная.
+// Живёт в пузыре ответа и заменяется настоящим стримом с первым же чанком.
+N.on('agents:draft', ({ sessionId, chunk, stage }) => {
+  const agentId = sessAgent(sessionId); if (!agentId) return;
+  const c = chatFor(agentId);
+  const last = c[c.length - 1];
+  if (!last || last.role !== 'bot' || last.text) return; // основной ответ уже пошёл
+  if (stage === 'start') { last.draft = last.draft || ''; return; }
+  if (chunk) { last.draft = (last.draft || '') + chunk; renderAgentEverywhere(agentId); }
 });
 N.on('agents:tool', ({ sessionId, name, args }) => {
   const agentId = sessAgent(sessionId); if (!agentId) return;
@@ -5660,7 +5692,7 @@ N.on('agents:done', ({ sessionId, text, telemetry }) => {
   if (agentId) {
     const c = chatFor(agentId);
     // Привязываем телеметрию и финальный (возможно, уточнённый) текст к ответу бота.
-    for (let i = c.length - 1; i >= 0; i--) { if (c[i].role === 'bot') { if (telemetry) c[i].tel = telemetry; if (text && text !== c[i].text) c[i].text = text; break; } }
+    for (let i = c.length - 1; i >= 0; i--) { if (c[i].role === 'bot') { if (c[i].draft) delete c[i].draft; if (telemetry) c[i].tel = telemetry; if (text && text !== c[i].text) c[i].text = text; break; } }
     persistChat(agentId); delete state.sessions[sessionId]; renderAgentEverywhere(agentId);
   }
   if (!Object.keys(state.sessions).length) state.busy = false;

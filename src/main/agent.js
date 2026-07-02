@@ -124,6 +124,23 @@ async function dispatchToolInner(name, args) {
   return system.callTool(name, args);
 }
 
+// Модель для «спекулятивного черновика»: заданная в настройках, либо самая
+// лёгкая из установленных — и только если она ЗАМЕТНО меньше основной
+// (иначе черновик не даёт выигрыша по времени).
+async function pickDraftModel(mainModel) {
+  const conf = store.get('settings.draftModel', '');
+  if (conf) return conf !== mainModel ? conf : null;
+  try {
+    const models = await ollama.listModels();
+    const main = models.find((m) => m.name === mainModel);
+    const cand = models
+      .filter((m) => m.name !== mainModel && !/embed|bge|nomic/i.test(m.name))
+      .sort((a, b) => (a.size || 0) - (b.size || 0))[0];
+    if (cand && (!main || (cand.size || 0) < (main.size || Infinity) * 0.6)) return cand.name;
+  } catch { /* нет сервера — нет черновика */ }
+  return null;
+}
+
 // Определить тип задачи по тексту/агенту — для маршрутизации модели.
 function taskKind(message, agent, effort) {
   const s = (((agent && agent.system) || '') + ' ' + String(message || '')).toLowerCase();
@@ -366,6 +383,25 @@ async function chat({ agentId, sessionId, message, history, effort }, sendToUI) 
   const t0 = Date.now();
   const tel = { steps: 0, toolCalls: 0, chars: 0 };
 
+  // «Спекулятивный черновик»: маленькая модель отвечает мгновенно, пока думает
+  // основная. Черновик идёт отдельным каналом agents:draft и живёт в пузыре
+  // ответа, пока не придёт первый чанк настоящего ответа (тогда заменяется).
+  let mainStreamed = false;
+  if (store.get('settings.speculativeDraft', false) && sendToUI && !sess.stop) {
+    pickDraftModel(model).then((dm) => {
+      if (!dm || sess.stop || mainStreamed) return;
+      sendToUI('agents:draft', { sessionId, stage: 'start', model: dm });
+      return ollama.chatStream({
+        model: dm,
+        messages: [
+          { role: 'system', content: 'Дай КРАТКИЙ предварительный ответ (2-4 предложения, без вступлений). Это черновик, пока думает основная модель.' },
+          { role: 'user', content: message }
+        ],
+        options: { temperature: 0.5, num_predict: 200 }, keepAlive
+      }, (chunk) => { if (!sess.stop && !mainStreamed) sendToUI('agents:draft', { sessionId, chunk }); });
+    }).catch(() => { /* черновик — best effort */ });
+  }
+
   // Видимое мышление: для серьёзных режимов сначала набрасываем короткий план
   // и показываем его пользователю (структурно, не «спам инструментов»).
   const wantPlan = !turbo && store.get('settings.visibleThinking', true) && (agent.autonomy === 'autonomous' || effort === 'thorough' || effort === 'max');
@@ -390,7 +426,7 @@ async function chat({ agentId, sessionId, message, history, effort }, sendToUI) 
       tel.steps++;
       const res = await ollama.chatStream(
         { model: activeModel, messages, tools: toolset, options, keepAlive },
-        (chunk) => { tel.chars += chunk.length; sendToUI && sendToUI('agents:stream', { sessionId, chunk }); }
+        (chunk) => { mainStreamed = true; tel.chars += chunk.length; sendToUI && sendToUI('agents:stream', { sessionId, chunk }); }
       );
       finalText = res.content;
 

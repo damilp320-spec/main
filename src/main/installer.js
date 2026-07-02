@@ -98,6 +98,53 @@ const CATALOG = [
     desc: 'Специализирована на программировании — для агента-разработчика и автоматизации скриптов.'
   },
   {
+    id: 'qwen3-coder:30b',
+    name: 'Qwen3-Coder 30B (MoE)',
+    vendor: 'Alibaba',
+    size: '19 GB',
+    ram: 32,
+    tags: ['код', 'agentic', 'tool-calling', 'SWE-bench', 'CLI'],
+    desc: 'Лучший открытый агентный кодер 2026: дообучен на SWE-Bench, нативный tool-calling, длинный контекст (256K). MoE 30B с ~3B активных — быстрее плотных моделей. Идеален для «Qwen-Code»-режима: читает репозиторий, планирует, правит много файлов, гоняет тесты.',
+    best: true
+  },
+  {
+    id: 'devstral:24b',
+    name: 'Devstral Small 2 24B',
+    vendor: 'Mistral AI',
+    size: '14 GB',
+    ram: 24,
+    tags: ['код', 'agentic', 'SWE-agent', 'Apache-2.0'],
+    desc: 'Специально создана для software-engineering агентов (исследование кодовой базы, multi-file edits, инструменты). ~68% SWE-bench Verified, лучшая в классе <100B. Быстрее тяжёлых MoE.',
+    best: true
+  },
+  {
+    id: 'deepseek-coder-v2:16b',
+    name: 'DeepSeek-Coder V2 16B',
+    vendor: 'DeepSeek',
+    size: '9 GB',
+    ram: 16,
+    tags: ['код', 'кодоген', 'reasoning'],
+    desc: 'Сильный кодоген и рассуждение, 338 языков, длинный контекст. Хорош для генерации и объяснения кода на mid-range железе.'
+  },
+  {
+    id: 'glm4:9b',
+    name: 'GLM-4 9B',
+    vendor: 'Z.ai / THUDM',
+    size: '5.5 GB',
+    ram: 16,
+    tags: ['код', 'agentic', 'универсальная'],
+    desc: 'Линейка GLM сильна в terminal-agent и UI/веб-разработке. Версия 9B — компактный вход; старшие GLM-5.x требуют серверного железа.'
+  },
+  {
+    id: 'codegeex4:9b',
+    name: 'CodeGeeX4 9B (GLM-кодер)',
+    vendor: 'Z.ai / THUDM',
+    size: '5.5 GB',
+    ram: 16,
+    tags: ['код', 'кодоген', 'agentic'],
+    desc: 'Кодерская модель семейства GLM: автодополнение, генерация и объяснение кода. Локальный аналог GLM для разработки. Маршрутизатор моделей подхватит её как кодер.'
+  },
+  {
     id: 'nomic-embed-text',
     name: 'Nomic Embed (эмбеддинги)',
     vendor: 'Nomic',
@@ -136,9 +183,19 @@ function recommend() {
   const totalGb = Math.round(os.totalmem() / (1024 ** 3));
   let picks;
   if (totalGb <= 8) picks = ['llama3.2:3b', 'phi3.5:3.8b', 'nomic-embed-text'];
-  else if (totalGb <= 16) picks = ['qwen2.5:7b', 'llama3.2:3b', 'nomic-embed-text'];
-  else picks = ['qwen2.5:7b', 'gemma2:9b', 'qwen2.5-coder:7b', 'nomic-embed-text'];
-  return { totalGb, models: CATALOG.filter((m) => picks.includes(m.id)) };
+  else if (totalGb <= 16) picks = ['qwen2.5:7b', 'qwen2.5-coder:7b', 'nomic-embed-text'];
+  else if (totalGb <= 32) picks = ['qwen2.5:7b', 'devstral:24b', 'qwen2.5-coder:7b', 'nomic-embed-text'];
+  else picks = ['qwen2.5:7b', 'qwen3-coder:30b', 'devstral:24b', 'nomic-embed-text'];
+  return { totalGb, models: CATALOG.filter((m) => picks.includes(m.id)), coder: recommendCoder() };
+}
+
+// Рекомендация именно кодерской модели под объём ОЗУ (для «Qwen-Code»-режима).
+function recommendCoder() {
+  const totalGb = Math.round(os.totalmem() / (1024 ** 3));
+  if (totalGb >= 36) return 'qwen3-coder:30b';
+  if (totalGb >= 22) return 'devstral:24b';
+  if (totalGb >= 14) return 'deepseek-coder-v2:16b';
+  return 'qwen2.5-coder:7b';
 }
 
 function checkOllamaInstalled() {
@@ -272,4 +329,4 @@ async function quickSetup(onProgress, models) {
   return { ok: true, installed: ids };
 }
 
-module.exports = { getCatalog, recommend, installOllama, pullModel, quickSetup, checkOllamaInstalled, setModelsDir, getModelsDir };
+module.exports = { getCatalog, recommend, recommendCoder, installOllama, pullModel, quickSetup, checkOllamaInstalled, setModelsDir, getModelsDir };

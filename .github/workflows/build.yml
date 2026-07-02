@@ -7,7 +7,10 @@ on:
 
 jobs:
   build-windows:
-    runs-on: windows-latest
+    # Пинуем windows-2022 для воспроизводимости (windows-latest уезжает на
+    # windows-2025 и может менять тулчейн). Actions — последние мажоры (v4),
+    # это текущий способ уйти от устаревшего Node 20 в действиях.
+    runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
 
@@ -28,7 +31,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: nexus-ai-hub-windows
+          name: mythera-ai-hub-windows
           path: |
             dist/*.exe
           if-no-files-found: warn

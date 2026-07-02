@@ -83,7 +83,11 @@ async function retrieve(scopes, query, k = TOP_K) {
 // Блок контекста для системного промпта.
 async function buildContext(agentId, query) {
   if (!cfg.get('settings.rag', false)) return '';
-  const hits = await retrieve([agentId, 'kb'], query, TOP_K);
+  // Подмешиваем знания активного проекта (если задан), не смешивая проекты между собой.
+  const scopes = [agentId, 'kb'];
+  if (listDocs('code').length) scopes.push('code'); // проиндексированная кодовая база
+  try { const ps = require('./projects').activeScope(); if (ps) scopes.push(ps); } catch { /* projects optional */ }
+  const hits = await retrieve(scopes, query, TOP_K);
   if (!hits.length) return '';
   return '\n\nРелевантные знания (RAG):\n' + hits.map((h) => `• [${h.source}] ${h.text}`).join('\n');
 }

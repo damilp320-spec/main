@@ -52,10 +52,36 @@ async function deleteModel(name) {
   }
 }
 
+// Прогрев модели: пустой запрос загружает её в память (keep_alive держит её там),
+// чтобы первый реальный ответ не ждал «холодной» загрузки (часто 2-10 с).
+async function preload(model, keepAlive) {
+  if (!model) return { ok: false };
+  try { await request('POST', '/api/generate', { model, prompt: '', keep_alive: keepAlive != null ? keepAlive : '30m' }); return { ok: true, model }; }
+  catch (e) { return { ok: false, error: e.message }; }
+}
+
+// Кэш ответов: одинаковый запрос (без инструментов) → мгновенный ответ из памяти.
+const _respCache = new Map(); // key -> { content, toolCalls, at }
+const RESP_TTL = 60 * 60 * 1000; // 1 час
+function _cacheKey(model, messages, options, format) { try { return model + '|' + (format || '') + '|' + JSON.stringify(options || {}) + '|' + JSON.stringify(messages); } catch { return null; } }
+
 // Стриминговый чат с поддержкой инструментов (tool calling).
-function chatStream({ model, messages, tools, options }, onChunk) {
+// keepAlive держит модель «тёплой»; format ('json') ограничивает вывод.
+function chatStream({ model, messages, tools, options, keepAlive, format }, onChunk) {
   return new Promise((resolve, reject) => {
-    const payload = JSON.stringify({ model, messages, tools: tools || undefined, options: options || undefined, stream: true });
+    // Кэш — только для запросов БЕЗ инструментов (нет побочных эффектов).
+    let cacheKey = null;
+    try {
+      if (!tools && require('./store').get('settings.responseCache', false)) {
+        cacheKey = _cacheKey(model, messages, options, format);
+        const hit = cacheKey && _respCache.get(cacheKey);
+        if (hit && Date.now() - hit.at < RESP_TTL) {
+          if (onChunk && hit.content) onChunk(hit.content);
+          return resolve({ content: hit.content, toolCalls: hit.toolCalls || [], cached: true });
+        }
+      }
+    } catch { cacheKey = null; }
+    const payload = JSON.stringify({ model, messages, tools: tools || undefined, options: options || undefined, keep_alive: keepAlive != null ? keepAlive : undefined, format: format || undefined, stream: true });
     const req = http.request(
       { host: HOST, port: PORT, path: '/api/chat', method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } },
       (res) => {
@@ -78,7 +104,10 @@ function chatStream({ model, messages, tools, options }, onChunk) {
             } catch { /* ignore partial */ }
           }
         });
-        res.on('end', () => resolve({ content: full, toolCalls }));
+        res.on('end', () => {
+          if (cacheKey && full) { _respCache.set(cacheKey, { content: full, toolCalls, at: Date.now() }); if (_respCache.size > 200) _respCache.delete(_respCache.keys().next().value); }
+          resolve({ content: full, toolCalls });
+        });
       }
     );
     req.on('error', reject);
@@ -99,6 +128,13 @@ function startServer() {
         try { require('fs').mkdirSync(modelsDir, { recursive: true }); } catch { /* noop */ }
         env.OLLAMA_MODELS = modelsDir;
       }
+      // Ускорение инференса (применяется, когда сервер стартует из приложения):
+      env.OLLAMA_KEEP_ALIVE = store.get('settings.keepAlive', '30m') || '30m';        // держим модели «тёплыми»
+      if (store.get('settings.flashAttn', true)) env.OLLAMA_FLASH_ATTENTION = '1';     // flash-attention: быстрее и меньше памяти
+      const kv = store.get('settings.kvCacheType', '');                                // квантованный KV-кэш
+      if (kv) env.OLLAMA_KV_CACHE_TYPE = kv;
+      const par = parseInt(store.get('settings.numParallel', 0), 10);
+      if (par > 0) env.OLLAMA_NUM_PARALLEL = String(par);
       const proc = spawn(cmd, ['serve'], { detached: true, stdio: 'ignore', env });
       proc.unref();
       setTimeout(async () => resolve(await status()), 1500);
@@ -108,4 +144,4 @@ function startServer() {
   });
 }
 
-module.exports = { status, listModels, deleteModel, chatStream, startServer, request };
+module.exports = { status, listModels, deleteModel, chatStream, startServer, request, preload };

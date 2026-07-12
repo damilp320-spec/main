@@ -6,8 +6,12 @@
   "main": "src/main/main.js",
   "author": "Mythera AI Hub",
   "license": "MIT",
+  "bin": {
+    "mythera-bot": "src/cli/bot.js"
+  },
   "scripts": {
     "start": "electron .",
+    "bot": "node src/cli/bot.js",
     "icon": "node scripts/gen-icon.js",
     "dist:win": "node scripts/gen-icon.js && electron-builder --win nsis portable",
     "dist:linux": "node scripts/gen-icon.js && electron-builder --linux AppImage",

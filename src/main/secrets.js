@@ -1,6 +1,9 @@
 // Шифрование секретов «на месте» через OS-хранилище (Electron safeStorage).
-// Пароли/ключи SSH не лежат в открытом виде в конфиге.
-const { safeStorage } = require('electron');
+// Пароли/ключи SSH не лежат в открытом виде в конфиге. Без Electron
+// (headless-режим) шифрование недоступно: encrypt отдаёт значение как есть,
+// decrypt зашифрованных значений возвращает пустую строку.
+let safeStorage = null;
+try { safeStorage = require('electron').safeStorage; } catch {}
 
 const PREFIX = 'enc:v1:';
 

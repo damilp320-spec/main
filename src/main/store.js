@@ -1,12 +1,30 @@
-// Простое JSON-хранилище конфигурации в каталоге userData.
+// Простое JSON-хранилище конфигурации в каталоге userData. Работает и БЕЗ
+// Electron (headless-режим бота): тогда берётся тот же каталог, который
+// Electron выбрал бы по умолчанию, чтобы конфиг был общим с приложением,
+// либо путь из переменной окружения MYTHERA_DATA_DIR.
 const fs = require('fs');
 const path = require('path');
-const { app } = require('electron');
+const os = require('os');
 
 let cache = null;
+let dataDir = null;
+
+function resolveDataDir() {
+  if (dataDir) return dataDir;
+  if (process.env.MYTHERA_DATA_DIR) return (dataDir = process.env.MYTHERA_DATA_DIR);
+  try { const { app } = require('electron'); if (app && app.getPath) return (dataDir = app.getPath('userData')); } catch {}
+  const name = 'Mythera AI Hub'; // = productName (каталог userData Electron)
+  const home = os.homedir();
+  dataDir = process.platform === 'win32'
+    ? path.join(process.env.APPDATA || path.join(home, 'AppData', 'Roaming'), name)
+    : process.platform === 'darwin'
+      ? path.join(home, 'Library', 'Application Support', name)
+      : path.join(process.env.XDG_CONFIG_HOME || path.join(home, '.config'), name);
+  return dataDir;
+}
 
 function file() {
-  return path.join(app.getPath('userData'), 'nexus-config.json');
+  return path.join(resolveDataDir(), 'nexus-config.json');
 }
 
 function load() {

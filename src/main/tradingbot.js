@@ -12,7 +12,13 @@ const indicators = require('./indicators');
 
 let uiSender = null, timer = null;
 function setUISender(fn) { uiSender = fn; }
-function emit(kind, payload) { uiSender && uiSender('bot:event', { kind, ...payload }); }
+function emit(kind, payload) {
+  uiSender && uiSender('bot:event', { kind, ...payload });
+  // Внешние уведомления (Telegram/webhook) — работают и в headless-режиме.
+  if (['trade', 'exit', 'error', 'signal', 'order'].includes(kind)) {
+    try { require('./notifier').notifyBot(kind, payload).catch(() => {}); } catch {}
+  }
+}
 
 // Готовые торговые режимы (профили риска) — чтобы ИИ/пользователю было просто.
 const PROFILES = {
@@ -45,7 +51,7 @@ function cfg() {
     tp1SellPct: +c.tp1SellPct || 50,         // сколько % позиции продать на первой цели
     breakeven: c.breakeven === true,         // после цели 1 — стоп в безубыток
     regimeFilter: c.regimeFilter === true,   // лонги только при risk-on (широта рынка)
-    sizeMode: c.sizeMode === 'risk' ? 'risk' : 'fixed', // сайзинг: фикс или по риску/волатильности
+    sizeMode: ['risk', 'kelly'].includes(c.sizeMode) ? c.sizeMode : 'fixed', // сайзинг: фикс / по риску / по Келли
     riskAmount: +c.riskAmount || 200,        // риск на сделку для sizeMode=risk
     shadowMode: c.shadowMode === true,       // параллельно тестировать все стратегии «вхолостую»
     maxDrawdownPct: +c.maxDrawdownPct || 0,  // автостоп: выключиться при просадке счёта выше %
@@ -59,6 +65,9 @@ function cfg() {
     maxPosPct: +c.maxPosPct || 0,            // портфель: макс. % капитала на одну позицию (0 = выкл)
     corrMax: +c.corrMax || 0,                // портфель: не покупать при корреляции с позицией выше порога (0 = выкл)
     cooldownMin: +c.cooldownMin || 0,        // пауза после выхода из тикера, мин (0 = выкл)
+    tradeHours: c.tradeHours || '',          // торговая сессия, часы UTC 'H-H' (напр. '9-18'; '' = всегда)
+    skipWeekend: c.skipWeekend === true,     // не открывать позиции по акциям в выходные (крипта — можно)
+    maxDailyLossPct: +c.maxDailyLossPct || 0,// пауза до конца дня (UTC) при дневном убытке выше % (0 = выкл)
     _state: c._state || {}
   };
 }
@@ -99,12 +108,41 @@ async function pickStrategy(c, symbol, candles) {
 function sizeQty(c, candles, price) {
   let qty = c.qty;
   if (c.sizeMode === 'risk') { const av = backtest.atr(candles, 14); if (av) { const dist = c.stopType === 'atr' ? c.atrMult * av : price * (c.stopLossPct || 5) / 100; if (dist > 0) qty = Math.max(1, Math.floor(c.riskAmount / dist)); } }
+  // Сайзинг по критерию Келли (половинный, потолок 25% капитала) — считается
+  // от реальной статистики сделок бота; включается после 10+ закрытых сделок.
+  if (c.sizeMode === 'kelly' && c.mode === 'paper' && price > 0) {
+    const s = botStats();
+    if (s.ok && s.trades >= 10 && s.avgLoss > 0) {
+      const W = s.winRate / 100, R = s.avgWin / s.avgLoss;
+      const f = Math.max(0, Math.min(0.25, (W - (1 - W) / (R || 1)) / 2));
+      if (f > 0) qty = Math.max(1, Math.floor(paper.valuation().equity * f / price));
+    }
+  }
   // Портфельный лимит: не больше maxPosPct % капитала на одну позицию.
   if (c.maxPosPct && c.mode === 'paper' && price > 0) {
     const cap = Math.floor(paper.valuation().equity * c.maxPosPct / 100 / price);
     qty = Math.min(qty, Math.max(1, cap));
   }
   return qty;
+}
+
+// Торговая сессия: часы UTC и выходные. Крипта (тикеры с «-», напр. BTC-USD)
+// торгуется круглосуточно — фильтр выходных её не касается. Ограничивает
+// только НОВЫЕ входы; управление открытыми позициями (стопы) работает всегда.
+function inSession(c, symbol) {
+  if (c.skipWeekend && !String(symbol || '').includes('-')) {
+    const d = new Date().getUTCDay();
+    if (d === 0 || d === 6) return false;
+  }
+  if (c.tradeHours) {
+    const m = /^(\d{1,2})\s*-\s*(\d{1,2})$/.exec(String(c.tradeHours).trim());
+    if (m) {
+      const h = new Date().getUTCHours(); const a = +m[1], b = +m[2];
+      const ok = a <= b ? (h >= a && h < b) : (h >= a || h < b); // диапазон через полночь тоже работает
+      if (!ok) return false;
+    }
+  }
+  return true;
 }
 
 // Корреляция дневных доходностей двух тикеров за 3 месяца (свечи кэширует markets).
@@ -163,10 +201,13 @@ async function entryVeto(c, symbol, candles, price, st) {
   return null;
 }
 
-async function evaluate() {
+async function evaluate(force) {
   const c = cfg();
-  if (!c.enabled) return;
+  if (!c.enabled && !force) return;
   const state = c._state || {};
+  // Пауза по дневному лимиту убытка: блокирует только НОВЫЕ входы,
+  // управление открытыми позициями (стопы/тейки) продолжается.
+  const paused = (store.get('botPausedUntil', 0) || 0) > Date.now();
   // Фильтр режима рынка: широта считается один раз за прогон.
   let regimeOff = false;
   if (c.regimeFilter) { try { const b = await require('./screener').breadth(); if (b.ok) regimeOff = b.regime === 'risk-off'; } catch {} }
@@ -232,6 +273,9 @@ async function evaluate() {
       if (sig === 'buy') {
         if (st.side === 'buy') { state[symbol] = st; continue; } // уже в позиции
         const noPos = { side: null, lastExitAt: st.lastExitAt }; // сохраняем время выхода для паузы
+        // Пауза дневного лимита убытка и торговая сессия (часы/выходные).
+        if (paused) { emit('skip', { symbol, message: 'пропуск buy: пауза до конца дня (дневной лимит убытка)' }); state[symbol] = noPos; continue; }
+        if (!inSession(c, symbol)) { emit('skip', { symbol, message: 'пропуск buy: вне торговой сессии' }); state[symbol] = noPos; continue; }
         // Фильтр режима рынка.
         if (regimeOff) { emit('skip', { symbol, message: 'пропуск buy: рынок risk-off (широта)' }); state[symbol] = noPos; continue; }
         // Расширенные фильтры: пауза/портфель/объём/ADX/паттерны/уровни/конфлюэнс.
@@ -267,6 +311,22 @@ async function evaluate() {
     } catch (e) { emit('error', { symbol, message: e.message }); }
   }
   saveState(state);
+  // Дневной лимит убытка: при превышении — пауза новых входов до конца дня (UTC).
+  if (c.maxDailyLossPct && c.mode === 'paper' && !paused) {
+    try {
+      const v = paper.valuation(quotes);
+      const today = new Date().toISOString().slice(0, 10);
+      let day = store.get('botDayEquity', null);
+      if (!day || day.date !== today) { day = { date: today, equity: v.equity }; store.set('botDayEquity', day); }
+      const loss = day.equity > 0 ? (day.equity - v.equity) / day.equity * 100 : 0;
+      if (loss >= c.maxDailyLossPct) {
+        const until = new Date(); until.setUTCHours(24, 0, 0, 0);
+        store.set('botPausedUntil', until.getTime());
+        emit('exit', { symbol: '—', reason: `дневной лимит убытка ${loss.toFixed(1)}% — пауза до завтра`, price: 0 });
+        uiSender && uiSender('watcher:fired', { title: '⏸️ Бот на паузе', message: `Дневной убыток ${loss.toFixed(1)}% превысил лимит ${c.maxDailyLossPct}%. Новые входы — со следующего дня (UTC).` });
+      }
+    } catch {}
+  }
   // Защитный автостоп: при просадке бумажного счёта выше лимита — выключаемся.
   if (c.maxDrawdownPct && c.mode === 'paper') {
     try {

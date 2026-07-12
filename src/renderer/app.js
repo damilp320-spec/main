@@ -2755,6 +2755,7 @@ async function viewTrading() {
       </div>
       <div class="card" id="bot-card"><h3>🤖 ${esc(t('bot.title'))}</h3><div id="bot-body"></div></div>
       <div class="card" id="paper-card"><h3>🧪 ${esc(t('bot.paper'))}</h3><div id="paper-body"></div></div>
+      <div class="card" id="ntf-card"><h3>🔔 ${esc(t('ntf.title'))}</h3><div id="ntf-body"></div></div>
       <div class="card" id="eq-card" style="grid-column:1/-1">
         <div class="row between"><h3>📈 ${esc(t('eq.title'))}</h3>
           <span class="row" style="gap:8px;align-items:center"><span id="eq-stat" class="muted" style="font-size:12px"></span>
@@ -2800,6 +2801,7 @@ async function viewTrading() {
   renderCopilot();
   renderBotCard();
   renderPaperCard();
+  renderNotifierCard();
   renderEquityCurve();
   renderPortfolioAnalytics();
   renderDca();
@@ -2894,9 +2896,15 @@ async function renderBotCard() {
     <label class="field"><span>${esc(t('bot.route'))}</span><select id="bot-route"><option value="direct" ${c.signalRoute !== 'ai' ? 'selected' : ''}>⚡ ${esc(t('bot.routeDirect'))}</option><option value="ai" ${c.signalRoute === 'ai' ? 'selected' : ''}>🧭 ${esc(t('bot.routeAi'))}</option></select></label>
     <p class="muted" style="font-size:11px;margin:-2px 0 4px">${esc(c.signalRoute === 'ai' ? t('bot.routeAiHint') : t('bot.routeDirectHint'))}</p>
     <div class="row" style="gap:8px">
-      <label class="field" style="max-width:150px"><span>${esc(t('bot.sizeMode'))}</span><select id="bot-size"><option value="fixed" ${c.sizeMode !== 'risk' ? 'selected' : ''}>${esc(t('bot.fixedQty'))}</option><option value="risk" ${c.sizeMode === 'risk' ? 'selected' : ''}>${esc(t('bot.riskSize'))}</option></select></label>
+      <label class="field" style="max-width:150px"><span>${esc(t('bot.sizeMode'))}</span><select id="bot-size"><option value="fixed" ${c.sizeMode !== 'risk' && c.sizeMode !== 'kelly' ? 'selected' : ''}>${esc(t('bot.fixedQty'))}</option><option value="risk" ${c.sizeMode === 'risk' ? 'selected' : ''}>${esc(t('bot.riskSize'))}</option><option value="kelly" ${c.sizeMode === 'kelly' ? 'selected' : ''}>${esc(t('bot.kelly'))}</option></select></label>
       <label class="field" style="max-width:120px ${c.sizeMode === 'risk' ? '' : 'display:none'}" id="bot-riskwrap"><span>${esc(t('bot.riskAmt'))}</span><input id="bot-riskamt" type="number" value="${c.riskAmount}"></label>
       <label class="field" style="max-width:150px"><span>${esc(t('bot.maxDD'))} %</span><input id="bot-maxdd" type="number" value="${c.maxDrawdownPct}" title="${esc(t('bot.maxDDHint'))}"></label>
+    </div>
+    ${c.sizeMode === 'kelly' ? `<p class="muted" style="font-size:11px;margin:-2px 0 4px">${esc(t('bot.kellyHint'))}</p>` : ''}
+    <div class="row" style="gap:8px">
+      <label class="field" style="max-width:150px"><span>${esc(t('bot.maxDayLoss'))} %</span><input id="bot-maxdayloss" type="number" value="${c.maxDailyLossPct}" title="${esc(t('bot.maxDayLossHint'))}"></label>
+      <label class="field" style="max-width:150px"><span>${esc(t('bot.tradeHours'))}</span><input id="bot-hours" value="${esc(c.tradeHours)}" placeholder="9-18" title="${esc(t('bot.tradeHoursHint'))}"></label>
+      <label class="mk-ind" style="align-self:flex-end;padding-bottom:8px"><input type="checkbox" id="bot-weekend" ${c.skipWeekend ? 'checked' : ''}> ${esc(t('bot.skipWeekend'))}</label>
     </div>
     <div class="row" style="gap:14px;flex-wrap:wrap;margin:4px 0">
       <label class="mk-ind"><input type="checkbox" id="bot-regime" ${c.regimeFilter ? 'checked' : ''}> ${esc(t('bot.regime'))}</label>
@@ -2949,7 +2957,7 @@ async function renderBotCard() {
     <div id="bot-bt-res" style="margin-top:8px"></div>
     <div id="bot-log" class="op-log" style="max-height:150px;margin-top:8px"></div>
     <p class="muted" style="font-size:11px;margin-top:6px">${esc(t('bot.note'))}</p>`;
-  const saveCfg = () => N.bot.setCfg({ mode: $('#bot-mode').value, strategy: $('#bot-strat').value, qty: +$('#bot-qty').value || 1, intervalMin: +$('#bot-int').value || 15, interval: $('#bot-candle').value, symbols: $('#bot-syms').value.split(',').map((s) => s.trim()).filter(Boolean), useSentiment: $('#bot-sent').checked, confirmTf: $('#bot-mtf').value, stopLossPct: +$('#bot-sl').value || 0, takeProfitPct: +$('#bot-tp').value || 0, trailingPct: +$('#bot-trail').value || 0, stopType: $('#bot-stoptype').value, atrMult: +$('#bot-atr').value || 2, tp1Pct: +$('#bot-tp1').value || 0, tp1SellPct: +$('#bot-tp1sell').value || 50, sizeMode: $('#bot-size').value, riskAmount: +$('#bot-riskamt').value || 200, regimeFilter: $('#bot-regime').checked, breakeven: $('#bot-be').checked, shadowMode: $('#bot-shadow').checked, maxDrawdownPct: +$('#bot-maxdd').value || 0, signalRoute: $('#bot-route').value, volumeFilter: $('#bot-vol').checked, patternFilter: $('#bot-pat').checked, srFilter: $('#bot-srf').checked, adxMin: +$('#bot-adx').value || 0, minConfluence: +$('#bot-confl').value || 0, cooldownMin: +$('#bot-cool').value || 0, maxPositions: +$('#bot-maxpos').value || 0, maxPosPct: +$('#bot-maxpospct').value || 0, corrMax: +$('#bot-corr').value || 0 });
+  const saveCfg = () => N.bot.setCfg({ mode: $('#bot-mode').value, strategy: $('#bot-strat').value, qty: +$('#bot-qty').value || 1, intervalMin: +$('#bot-int').value || 15, interval: $('#bot-candle').value, symbols: $('#bot-syms').value.split(',').map((s) => s.trim()).filter(Boolean), useSentiment: $('#bot-sent').checked, confirmTf: $('#bot-mtf').value, stopLossPct: +$('#bot-sl').value || 0, takeProfitPct: +$('#bot-tp').value || 0, trailingPct: +$('#bot-trail').value || 0, stopType: $('#bot-stoptype').value, atrMult: +$('#bot-atr').value || 2, tp1Pct: +$('#bot-tp1').value || 0, tp1SellPct: +$('#bot-tp1sell').value || 50, sizeMode: $('#bot-size').value, riskAmount: +$('#bot-riskamt').value || 200, regimeFilter: $('#bot-regime').checked, breakeven: $('#bot-be').checked, shadowMode: $('#bot-shadow').checked, maxDrawdownPct: +$('#bot-maxdd').value || 0, signalRoute: $('#bot-route').value, volumeFilter: $('#bot-vol').checked, patternFilter: $('#bot-pat').checked, srFilter: $('#bot-srf').checked, adxMin: +$('#bot-adx').value || 0, minConfluence: +$('#bot-confl').value || 0, cooldownMin: +$('#bot-cool').value || 0, maxPositions: +$('#bot-maxpos').value || 0, maxPosPct: +$('#bot-maxpospct').value || 0, corrMax: +$('#bot-corr').value || 0, maxDailyLossPct: +$('#bot-maxdayloss').value || 0, tradeHours: $('#bot-hours').value.trim(), skipWeekend: $('#bot-weekend').checked });
   $('#bot-bt').onclick = async () => {
     const c2 = await N.bot.cfg(); const sym = (c2.symbols[0] || 'AAPL'); const res = $('#bot-bt-res');
     res.innerHTML = '<span class="spin">⏳</span> ' + esc(t('bot.btRun')) + ' ' + esc(sym);
@@ -3000,7 +3008,7 @@ async function renderBotCard() {
   };
   $$('#bot-body [data-prof]').forEach((b) => b.onclick = async () => { await N.bot.applyProfile(b.dataset.prof); toast('🤖', t('bot.profileSet') + ': ' + b.textContent.trim(), 'ok'); renderBotCard(); });
   bindToggle('bot-enable', async (v) => { if (v && !await confirmModal('🤖 ' + t('bot.title'), t('bot.enableWarn'))) return renderBotCard(); await N.bot.setCfg({ enabled: v }); renderBotCard(); });
-  ['#bot-mode', '#bot-strat', '#bot-route', '#bot-qty', '#bot-int', '#bot-candle', '#bot-syms', '#bot-mtf', '#bot-sl', '#bot-tp', '#bot-trail', '#bot-stoptype', '#bot-atr', '#bot-tp1', '#bot-tp1sell', '#bot-size', '#bot-riskamt', '#bot-regime', '#bot-be', '#bot-shadow', '#bot-maxdd', '#bot-vol', '#bot-pat', '#bot-srf', '#bot-adx', '#bot-confl', '#bot-cool', '#bot-maxpos', '#bot-maxpospct', '#bot-corr'].forEach((s) => { const e = $(s); if (e) e.onchange = async () => { await saveCfg(); if (s === '#bot-mode' || s === '#bot-stoptype' || s === '#bot-size' || s === '#bot-shadow' || s === '#bot-route') renderBotCard(); }; });
+  ['#bot-mode', '#bot-strat', '#bot-route', '#bot-qty', '#bot-int', '#bot-candle', '#bot-syms', '#bot-mtf', '#bot-sl', '#bot-tp', '#bot-trail', '#bot-stoptype', '#bot-atr', '#bot-tp1', '#bot-tp1sell', '#bot-size', '#bot-riskamt', '#bot-regime', '#bot-be', '#bot-shadow', '#bot-maxdd', '#bot-vol', '#bot-pat', '#bot-srf', '#bot-adx', '#bot-confl', '#bot-cool', '#bot-maxpos', '#bot-maxpospct', '#bot-corr', '#bot-maxdayloss', '#bot-hours', '#bot-weekend'].forEach((s) => { const e = $(s); if (e) e.onchange = async () => { await saveCfg(); if (s === '#bot-mode' || s === '#bot-stoptype' || s === '#bot-size' || s === '#bot-shadow' || s === '#bot-route') renderBotCard(); }; });
   bindToggle('bot-sent', () => saveCfg());
   $('#bot-once').onclick = async () => { $('#bot-status').textContent = '⏳'; await N.bot.runOnce(); $('#bot-status').textContent = '✓ ' + t('bot.evaluated'); renderPaperCard(); };
 }
@@ -3029,6 +3037,35 @@ async function renderPaperCard() {
         $('#rs-ok', m).onclick = async () => { const cap = Math.max(1000, +$('#rs-cap', m).value || 100000); await N.paper.reset(cap); close(); renderPaperCard(); renderEquityCurve(); renderPortfolioAnalytics(); toast('↺', t('eq.startCapital') + ': ' + cap.toLocaleString(), 'ok'); };
       });
   };
+}
+async function renderNotifierCard() {
+  const box = $('#ntf-body'); if (!box) return;
+  const c = await N.notify.cfg();
+  box.innerHTML = `
+    <p class="muted" style="font-size:12px;margin:0 0 8px">${esc(t('ntf.sub'))}</p>
+    <label class="field"><span>${esc(t('ntf.tgToken'))}</span><input id="ntf-tgtoken" placeholder="123456:ABC-DEF..." value="${c.telegramToken ? esc(c.telegramToken) : ''}"></label>
+    <div class="row" style="gap:8px">
+      <label class="field"><span>${esc(t('ntf.tgChat'))}</span><input id="ntf-tgchat" value="${esc(c.telegramChat || '')}"></label>
+    </div>
+    <label class="field"><span>${esc(t('ntf.webhook'))}</span><input id="ntf-webhook" placeholder="https://…" value="${esc(c.webhookUrl || '')}"></label>
+    <div class="row" style="gap:14px;flex-wrap:wrap;margin:6px 0">
+      <label class="mk-ind"><input type="checkbox" id="ntf-ontrade" ${c.onTrade ? 'checked' : ''}> ${esc(t('ntf.onTrade'))}</label>
+      <label class="mk-ind"><input type="checkbox" id="ntf-onexit" ${c.onExit ? 'checked' : ''}> ${esc(t('ntf.onExit'))}</label>
+      <label class="mk-ind"><input type="checkbox" id="ntf-onerror" ${c.onError ? 'checked' : ''}> ${esc(t('ntf.onError'))}</label>
+      <label class="mk-ind"><input type="checkbox" id="ntf-onsignal" ${c.onSignal ? 'checked' : ''}> ${esc(t('ntf.onSignal'))}</label>
+    </div>
+    <div class="row" style="gap:6px"><button class="btn ghost sm" id="ntf-save">💾 ${esc(t('ntf.save'))}</button><button class="btn ghost sm" id="ntf-test">📨 ${esc(t('ntf.test'))}</button><span id="ntf-status" class="muted" style="font-size:12px"></span></div>
+    <p class="muted" style="font-size:11px;margin-top:8px">🖥️ ${esc(t('ntf.cliHint'))}</p>`;
+  const save = async () => {
+    // Токен с маской (•••XXXX) не перезаписываем — отправляем только если изменён.
+    const tok = $('#ntf-tgtoken').value;
+    const patch = { telegramChat: $('#ntf-tgchat').value.trim(), webhookUrl: $('#ntf-webhook').value.trim(), onTrade: $('#ntf-ontrade').checked, onExit: $('#ntf-onexit').checked, onError: $('#ntf-onerror').checked, onSignal: $('#ntf-onsignal').checked };
+    if (tok && !tok.startsWith('•••')) patch.telegramToken = tok.trim();
+    await N.notify.setCfg(patch);
+  };
+  $('#ntf-save').onclick = async () => { await save(); $('#ntf-status').textContent = '✓'; renderNotifierCard(); };
+  $('#ntf-test').onclick = async () => { await save(); $('#ntf-status').textContent = '⏳'; const r = await N.notify.test(); $('#ntf-status').textContent = r.ok ? '✓ ' + t('ntf.sent') : '⚠️ ' + (r.error || ''); };
+  ['#ntf-ontrade', '#ntf-onexit', '#ntf-onerror', '#ntf-onsignal'].forEach((s) => { const e = $(s); if (e) e.onchange = save; });
 }
 function eqLocalStats(pts) {
   const vals = pts.map((p) => p.equity);

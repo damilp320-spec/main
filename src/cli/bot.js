@@ -133,29 +133,28 @@ async function main() {
     case 'set': {
       const patch = parseSet(rest);
       if (!Object.keys(patch).length) { console.error('Нечего менять. Пример: set mode=paper symbols=AAPL,BTC-USD enabled=true'); process.exit(1); }
-      tradingbot.setCfg(patch);
+      tradingbot.setCfg(patch, { noStart: true }); // только сохранить, без торговли
       console.log(c(C.green, '✓ сохранено'));
       printCfg();
-      tradingbot.stop(); // не оставляем таймер, запущенный setCfg
       break;
     }
 
     case 'profile': {
       const name = rest[0];
-      const r = tradingbot.applyProfile(name);
-      if (!r.ok) { console.error(c(C.red, '⚠️ ' + r.error + '. Доступно: ' + Object.keys(tradingbot.PROFILES).join(', '))); process.exit(1); }
+      const p = tradingbot.PROFILES[name];
+      if (!p) { console.error(c(C.red, '⚠️ Неизвестный режим. Доступно: ' + Object.keys(tradingbot.PROFILES).join(', '))); process.exit(1); }
+      tradingbot.setCfg({ profile: name, strategy: p.strategy, params: p.params, interval: p.interval, range: p.range, intervalMin: p.intervalMin, useSentiment: p.useSentiment, confirmTf: p.confirmTf, stopLossPct: p.stopLossPct, takeProfitPct: p.takeProfitPct, trailingPct: p.trailingPct }, { noStart: true });
       console.log(c(C.green, `✓ профиль «${name}» применён`));
       printCfg();
-      tradingbot.stop();
       break;
     }
 
     case 'enable':
-      tradingbot.setCfg({ enabled: true }); tradingbot.stop();
+      tradingbot.setCfg({ enabled: true }, { noStart: true });
       console.log(c(C.green, '✓ бот включён (запустите `run` для автономной работы)'));
       break;
     case 'disable':
-      tradingbot.setCfg({ enabled: false });
+      tradingbot.setCfg({ enabled: false }, { noStart: true });
       console.log(c(C.yellow, '✓ бот выключен'));
       break;
 
@@ -170,7 +169,7 @@ async function main() {
     case 'run': {
       const cfg = tradingbot.publicCfg();
       if (!cfg.symbols.length) { console.error(c(C.red, '⚠️ нет тикеров. Задайте: set symbols=AAPL,BTC-USD')); process.exit(1); }
-      if (!cfg.enabled) { console.log(c(C.yellow, 'ℹ️ бот выключен — включаю для этого запуска (enabled=true)')); tradingbot.setCfg({ enabled: true }); }
+      if (!cfg.enabled) { console.log(c(C.yellow, 'ℹ️ бот выключен — включаю для этого запуска (enabled=true)')); tradingbot.setCfg({ enabled: true }, { noStart: true }); }
       const iv = tradingbot.publicCfg().intervalMin;
       console.log(c(C.bold, `🤖 Автономный бот запущен. Режим: ${cfg.mode} · стратегия: ${cfg.strategy} · тикеры: ${cfg.symbols.join(', ')} · интервал: ${iv} мин.`));
       console.log(c(C.dim, 'Ctrl+C для остановки. Уведомления: ' + (notifier.cfg().telegramToken || notifier.cfg().webhookUrl ? 'настроены' : 'нет')));
@@ -213,6 +212,14 @@ async function main() {
       else if (sub === 'set') { notifier.setCfg(parseSet(rest.slice(1))); console.log(c(C.green, '✓ сохранено'), notifier.publicCfg()); }
       else console.log('notify test | notify set telegramToken=... telegramChat=... webhookUrl=...');
       break;
+    }
+
+    case 'serve': {
+      // Запуск отдельного веб-терминала (тот же процесс).
+      const p = rest.find((a) => /^\d+$/.test(a));
+      if (p) process.env.PORT = p;
+      require(path.join(__dirname, '..', 'server', 'server'));
+      break; // сервер держит процесс живым
     }
 
     case 'panic':

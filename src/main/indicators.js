@@ -86,7 +86,7 @@ function supertrend(c, period = 10, mult = 3) {
   const trend = new Array(len).fill(null), line = new Array(len).fill(null);
   let fu = null, fl = null, tr = 1;
   for (let i = 0; i < len; i++) {
-    if (a[i] == null) continue;
+    if (a[i] == null || i === 0) continue; // i===0 защищает обращение к c[i-1]
     const mid = (c[i].h + c[i].l) / 2;
     const bu = mid + mult * a[i], bl = mid - mult * a[i];
     fu = (fu == null || bu < fu || c[i - 1].c > fu) ? bu : fu;

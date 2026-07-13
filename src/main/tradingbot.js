@@ -77,10 +77,13 @@ function applyProfile(name) {
   const p = PROFILES[name]; if (!p) return { ok: false, error: 'Неизвестный режим' };
   return setCfg({ profile: name, strategy: p.strategy, params: p.params, interval: p.interval, range: p.range, intervalMin: p.intervalMin, useSentiment: p.useSentiment, confirmTf: p.confirmTf, stopLossPct: p.stopLossPct, takeProfitPct: p.takeProfitPct, trailingPct: p.trailingPct });
 }
-function setCfg(patch) {
+// opts.noStart — только сохранить настройки, НЕ запускать цикл/evaluate
+// (для CLI-команд конфигурации: `set`/`profile`/`enable` не должны торговать).
+function setCfg(patch, opts) {
   const c = Object.assign(cfg(), patch || {});
   store.set('settings.bot', c);
-  if (c.enabled) restart(); else stop();
+  if (opts && opts.noStart) stop();
+  else if (c.enabled) restart(); else stop();
   return { ok: true, cfg: publicCfg() };
 }
 function saveState(st) { const c = store.get('settings.bot', {}) || {}; c._state = st; store.set('settings.bot', c); }

@@ -8,10 +8,17 @@ const store = require('./store');
 const markets = require('./markets');
 const backtest = require('./backtest');
 const paper = require('./paper');
+const indicators = require('./indicators');
 
 let uiSender = null, timer = null;
 function setUISender(fn) { uiSender = fn; }
-function emit(kind, payload) { uiSender && uiSender('bot:event', { kind, ...payload }); }
+function emit(kind, payload) {
+  uiSender && uiSender('bot:event', { kind, ...payload });
+  // Внешние уведомления (Telegram/webhook) — работают и в headless-режиме.
+  if (['trade', 'exit', 'error', 'signal', 'order'].includes(kind)) {
+    try { require('./notifier').notifyBot(kind, payload).catch(() => {}); } catch {}
+  }
+}
 
 // Готовые торговые режимы (профили риска) — чтобы ИИ/пользователю было просто.
 const PROFILES = {
@@ -44,11 +51,23 @@ function cfg() {
     tp1SellPct: +c.tp1SellPct || 50,         // сколько % позиции продать на первой цели
     breakeven: c.breakeven === true,         // после цели 1 — стоп в безубыток
     regimeFilter: c.regimeFilter === true,   // лонги только при risk-on (широта рынка)
-    sizeMode: c.sizeMode === 'risk' ? 'risk' : 'fixed', // сайзинг: фикс или по риску/волатильности
+    sizeMode: ['risk', 'kelly'].includes(c.sizeMode) ? c.sizeMode : 'fixed', // сайзинг: фикс / по риску / по Келли
     riskAmount: +c.riskAmount || 200,        // риск на сделку для sizeMode=risk
     shadowMode: c.shadowMode === true,       // параллельно тестировать все стратегии «вхолостую»
     maxDrawdownPct: +c.maxDrawdownPct || 0,  // автостоп: выключиться при просадке счёта выше %
     signalRoute: c.signalRoute === 'ai' ? 'ai' : 'direct', // 'direct' — бот торгует сам; 'ai' — через ИИ-супервайзера
+    volumeFilter: c.volumeFilter === true,   // вход только при объёме выше среднего (подтверждение)
+    adxMin: +c.adxMin || 0,                  // мин. сила тренда ADX для входа (0 = выкл)
+    patternFilter: c.patternFilter === true, // не покупать против медвежьих свечных паттернов
+    srFilter: c.srFilter === true,           // не покупать вплотную под сопротивлением (< 1×ATR)
+    minConfluence: +c.minConfluence || 0,    // мин. конфлюэнс-скор (-100…100) для входа (0 = выкл)
+    maxPositions: +c.maxPositions || 0,      // портфель: макс. одновременных позиций (0 = без лимита)
+    maxPosPct: +c.maxPosPct || 0,            // портфель: макс. % капитала на одну позицию (0 = выкл)
+    corrMax: +c.corrMax || 0,                // портфель: не покупать при корреляции с позицией выше порога (0 = выкл)
+    cooldownMin: +c.cooldownMin || 0,        // пауза после выхода из тикера, мин (0 = выкл)
+    tradeHours: c.tradeHours || '',          // торговая сессия, часы UTC 'H-H' (напр. '9-18'; '' = всегда)
+    skipWeekend: c.skipWeekend === true,     // не открывать позиции по акциям в выходные (крипта — можно)
+    maxDailyLossPct: +c.maxDailyLossPct || 0,// пауза до конца дня (UTC) при дневном убытке выше % (0 = выкл)
     _state: c._state || {}
   };
 }
@@ -58,10 +77,13 @@ function applyProfile(name) {
   const p = PROFILES[name]; if (!p) return { ok: false, error: 'Неизвестный режим' };
   return setCfg({ profile: name, strategy: p.strategy, params: p.params, interval: p.interval, range: p.range, intervalMin: p.intervalMin, useSentiment: p.useSentiment, confirmTf: p.confirmTf, stopLossPct: p.stopLossPct, takeProfitPct: p.takeProfitPct, trailingPct: p.trailingPct });
 }
-function setCfg(patch) {
+// opts.noStart — только сохранить настройки, НЕ запускать цикл/evaluate
+// (для CLI-команд конфигурации: `set`/`profile`/`enable` не должны торговать).
+function setCfg(patch, opts) {
   const c = Object.assign(cfg(), patch || {});
   store.set('settings.bot', c);
-  if (c.enabled) restart(); else stop();
+  if (opts && opts.noStart) stop();
+  else if (c.enabled) restart(); else stop();
   return { ok: true, cfg: publicCfg() };
 }
 function saveState(st) { const c = store.get('settings.bot', {}) || {}; c._state = st; store.set('settings.bot', c); }
@@ -87,14 +109,108 @@ async function pickStrategy(c, symbol, candles) {
   return best;
 }
 function sizeQty(c, candles, price) {
-  if (c.sizeMode === 'risk') { const av = backtest.atr(candles, 14); if (av) { const dist = c.stopType === 'atr' ? c.atrMult * av : price * (c.stopLossPct || 5) / 100; if (dist > 0) return Math.max(1, Math.floor(c.riskAmount / dist)); } }
-  return c.qty;
+  let qty = c.qty;
+  if (c.sizeMode === 'risk') { const av = backtest.atr(candles, 14); if (av) { const dist = c.stopType === 'atr' ? c.atrMult * av : price * (c.stopLossPct || 5) / 100; if (dist > 0) qty = Math.max(1, Math.floor(c.riskAmount / dist)); } }
+  // Сайзинг по критерию Келли (половинный, потолок 25% капитала) — считается
+  // от реальной статистики сделок бота; включается после 10+ закрытых сделок.
+  if (c.sizeMode === 'kelly' && c.mode === 'paper' && price > 0) {
+    const s = botStats();
+    if (s.ok && s.trades >= 10 && s.avgLoss > 0) {
+      const W = s.winRate / 100, R = s.avgWin / s.avgLoss;
+      const f = Math.max(0, Math.min(0.25, (W - (1 - W) / (R || 1)) / 2));
+      if (f > 0) qty = Math.max(1, Math.floor(paper.valuation().equity * f / price));
+    }
+  }
+  // Портфельный лимит: не больше maxPosPct % капитала на одну позицию.
+  if (c.maxPosPct && c.mode === 'paper' && price > 0) {
+    const cap = Math.floor(paper.valuation().equity * c.maxPosPct / 100 / price);
+    qty = Math.min(qty, Math.max(1, cap));
+  }
+  return qty;
 }
 
-async function evaluate() {
+// Торговая сессия: часы UTC и выходные. Крипта (тикеры с «-», напр. BTC-USD)
+// торгуется круглосуточно — фильтр выходных её не касается. Ограничивает
+// только НОВЫЕ входы; управление открытыми позициями (стопы) работает всегда.
+function inSession(c, symbol) {
+  if (c.skipWeekend && !String(symbol || '').includes('-')) {
+    const d = new Date().getUTCDay();
+    if (d === 0 || d === 6) return false;
+  }
+  if (c.tradeHours) {
+    const m = /^(\d{1,2})\s*-\s*(\d{1,2})$/.exec(String(c.tradeHours).trim());
+    if (m) {
+      const h = new Date().getUTCHours(); const a = +m[1], b = +m[2];
+      const ok = a <= b ? (h >= a && h < b) : (h >= a || h < b); // диапазон через полночь тоже работает
+      if (!ok) return false;
+    }
+  }
+  return true;
+}
+
+// Корреляция дневных доходностей двух тикеров за 3 месяца (свечи кэширует markets).
+async function dailyCorrelation(a, b) {
+  const [da, db] = await Promise.all([markets.candles({ symbol: a, interval: '1d', range: '3mo' }), markets.candles({ symbol: b, interval: '1d', range: '3mo' })]);
+  if (!da.ok || !db.ok) return null;
+  const rets = (d) => { const cl = d.candles.map((x) => x.c); return cl.slice(1).map((v, i) => v / cl[i] - 1); };
+  const xa = rets(da), xb = rets(db); const n = Math.min(xa.length, xb.length);
+  if (n < 20) return null;
+  const va = xa.slice(-n), vb = xb.slice(-n);
+  const ma = va.reduce((s, v) => s + v, 0) / n, mb = vb.reduce((s, v) => s + v, 0) / n;
+  let num = 0, dda = 0, ddb = 0;
+  for (let i = 0; i < n; i++) { num += (va[i] - ma) * (vb[i] - mb); dda += (va[i] - ma) ** 2; ddb += (vb[i] - mb) ** 2; }
+  return dda && ddb ? num / Math.sqrt(dda * ddb) : null;
+}
+
+// Расширенные фильтры входа: пауза после выхода, портфельные лимиты, объём,
+// ADX, свечные паттерны, уровни и конфлюэнс. Возвращает причину-вето или null.
+async function entryVeto(c, symbol, candles, price, st) {
+  if (c.cooldownMin && st.lastExitAt && Date.now() - st.lastExitAt < c.cooldownMin * 60000) {
+    const left = Math.ceil((c.cooldownMin * 60000 - (Date.now() - st.lastExitAt)) / 60000);
+    return `пауза после выхода (ещё ${left} мин)`;
+  }
+  if (c.mode === 'paper') {
+    const positions = paper.valuation().positions;
+    if (c.maxPositions && positions.length >= c.maxPositions) return `лимит позиций (${positions.length}/${c.maxPositions})`;
+    if (c.corrMax) {
+      for (const p of positions) {
+        if (p.symbol === symbol.toUpperCase()) continue;
+        const corr = await dailyCorrelation(symbol, p.symbol);
+        if (corr != null && corr > c.corrMax) return `корреляция с ${p.symbol} ${corr.toFixed(2)} > ${c.corrMax} (риск концентрации)`;
+      }
+    }
+  }
+  if (c.volumeFilter) {
+    const vols = candles.map((x) => x.v || 0);
+    const va = indicators.sma(vols, 20)[vols.length - 1];
+    if (va && vols[vols.length - 1] < va) return 'объём ниже среднего за 20 свечей (нет подтверждения)';
+  }
+  if (c.adxMin) {
+    const ad = indicators.adx(candles, 14); const i = candles.length - 1;
+    if (ad.adx[i] != null && (ad.adx[i] < c.adxMin || ad.plus[i] <= ad.minus[i])) return `слабый/медвежий тренд: ADX ${ad.adx[i].toFixed(0)} (порог ${c.adxMin})`;
+  }
+  if (c.patternFilter) {
+    const bears = indicators.lastPatterns(candles).filter((p) => p.dir === -1);
+    if (bears.length) return 'медвежий свечной паттерн: ' + bears.map((p) => p.name).join(', ');
+  }
+  if (c.srFilter) {
+    const sr = indicators.srLevels(candles);
+    if (sr.resistance && sr.atr && (sr.resistance.price - price) < sr.atr) return `сопротивление ${sr.resistance.price} ближе 1×ATR — мало запаса хода`;
+  }
+  if (c.minConfluence) {
+    const an = indicators.analyze(candles);
+    if (an.ok && an.score < c.minConfluence) return `конфлюэнс ${an.score} < ${c.minConfluence}`;
+  }
+  return null;
+}
+
+async function evaluate(force) {
   const c = cfg();
-  if (!c.enabled) return;
+  if (!c.enabled && !force) return;
   const state = c._state || {};
+  // Пауза по дневному лимиту убытка: блокирует только НОВЫЕ входы,
+  // управление открытыми позициями (стопы/тейки) продолжается.
+  const paused = (store.get('botPausedUntil', 0) || 0) > Date.now();
   // Фильтр режима рынка: широта считается один раз за прогон.
   let regimeOff = false;
   if (c.regimeFilter) { try { const b = await require('./screener').breadth(); if (b.ok) regimeOff = b.regime === 'risk-off'; } catch {} }
@@ -117,7 +233,7 @@ async function evaluate() {
       if (c.mode === 'paper') {
         const pos = paper.valuation().positions.find((p) => p.symbol === symbol.toUpperCase());
         if (pos && st.side !== 'buy') st = { side: 'buy', entry: pos.avg, peak: Math.max(pos.avg, price), at: Date.now() };
-        if (!pos && st.side === 'buy') st = { side: null };
+        if (!pos && st.side === 'buy') st = { side: null, lastExitAt: Date.now() };
       }
 
       // 1) Управление открытой позицией: лесенка ТП / тейк-профит / стоп / трейлинг.
@@ -148,7 +264,7 @@ async function evaluate() {
         }
         // Стоп в безубыток после первой цели.
         if (!exit && c.breakeven && st.tp1Done && price <= st.entry) exit = 'breakeven (безубыток)';
-        if (exit) { await sell(c, symbol, price, exit); emit('exit', { symbol, reason: exit, price }); state[symbol] = { side: null }; clearOverride(symbol); continue; }
+        if (exit) { await sell(c, symbol, price, exit); emit('exit', { symbol, reason: exit, price }); state[symbol] = { side: null, lastExitAt: Date.now() }; clearOverride(symbol); continue; }
       }
 
       // 2) Сигнал стратегии (с авто-выбором лучшей под тикер, если включено).
@@ -159,14 +275,21 @@ async function evaluate() {
 
       if (sig === 'buy') {
         if (st.side === 'buy') { state[symbol] = st; continue; } // уже в позиции
+        const noPos = { side: null, lastExitAt: st.lastExitAt }; // сохраняем время выхода для паузы
+        // Пауза дневного лимита убытка и торговая сессия (часы/выходные).
+        if (paused) { emit('skip', { symbol, message: 'пропуск buy: пауза до конца дня (дневной лимит убытка)' }); state[symbol] = noPos; continue; }
+        if (!inSession(c, symbol)) { emit('skip', { symbol, message: 'пропуск buy: вне торговой сессии' }); state[symbol] = noPos; continue; }
         // Фильтр режима рынка.
-        if (regimeOff) { emit('skip', { symbol, message: 'пропуск buy: рынок risk-off (широта)' }); state[symbol] = { side: null }; continue; }
+        if (regimeOff) { emit('skip', { symbol, message: 'пропуск buy: рынок risk-off (широта)' }); state[symbol] = noPos; continue; }
+        // Расширенные фильтры: пауза/портфель/объём/ADX/паттерны/уровни/конфлюэнс.
+        const veto = await entryVeto(c, symbol, d.candles, price, st);
+        if (veto) { emit('skip', { symbol, message: 'пропуск buy: ' + veto }); state[symbol] = noPos; continue; }
         // Фильтр по сентименту.
-        if (c.useSentiment) { try { const s = await require('./news').sentiment(symbol); if (s.ok && s.score < -20) { emit('skip', { symbol, message: `пропуск buy: негативный сентимент (${s.score})` }); state[symbol] = { side: null }; continue; } } catch {} }
+        if (c.useSentiment) { try { const s = await require('./news').sentiment(symbol); if (s.ok && s.score < -20) { emit('skip', { symbol, message: `пропуск buy: негативный сентимент (${s.score})` }); state[symbol] = noPos; continue; } } catch {} }
         // Мульти-таймфрейм подтверждение: старший ТФ не должен быть против покупки.
         if (c.confirmTf) {
           const tr = await markets.trend({ symbol, interval: c.confirmTf });
-          if (tr.ok && tr.trend === 'down') { emit('skip', { symbol, message: `пропуск buy: старший ТФ ${c.confirmTf} вниз` }); state[symbol] = { side: null }; continue; }
+          if (tr.ok && tr.trend === 'down') { emit('skip', { symbol, message: `пропуск buy: старший ТФ ${c.confirmTf} вниз` }); state[symbol] = noPos; continue; }
           emit('confirm', { symbol, message: `${c.confirmTf} тренд: ${tr.trend || '?'}` });
         }
         // Маршрут сигнала: по умолчанию бот торгует САМ. Опционально (signalRoute='ai')
@@ -179,18 +302,34 @@ async function evaluate() {
             // Возвращаем итог в лог бота, чтобы сигнал не «исчезал» молча.
             emit('confirm', { symbol, message: dec && dec.approved ? `ИИ одобрил (${dec.confidence}%) → создано предложение` : `ИИ отклонил${dec ? ' (' + dec.confidence + '%)' : ''}: ${(dec && dec.reason) || 'нет ответа'}` });
           } catch (e) { emit('error', { symbol, message: 'ИИ-супервайзер недоступен: ' + e.message + ' (проверьте, запущен ли Ollama)' }); }
-          state[symbol] = { side: null };
+          state[symbol] = noPos;
           continue;
         }
         await buy(c, symbol, price, sizeQty(c, d.candles, price));
         state[symbol] = { side: 'buy', entry: price, peak: price, at: Date.now() };
       } else { // sell-сигнал
         if (st.side === 'buy') { await sell(c, symbol, price, c.strategy + ' сигнал'); }
-        state[symbol] = { side: null };
+        state[symbol] = { side: null, lastExitAt: st.side === 'buy' ? Date.now() : st.lastExitAt };
       }
     } catch (e) { emit('error', { symbol, message: e.message }); }
   }
   saveState(state);
+  // Дневной лимит убытка: при превышении — пауза новых входов до конца дня (UTC).
+  if (c.maxDailyLossPct && c.mode === 'paper' && !paused) {
+    try {
+      const v = paper.valuation(quotes);
+      const today = new Date().toISOString().slice(0, 10);
+      let day = store.get('botDayEquity', null);
+      if (!day || day.date !== today) { day = { date: today, equity: v.equity }; store.set('botDayEquity', day); }
+      const loss = day.equity > 0 ? (day.equity - v.equity) / day.equity * 100 : 0;
+      if (loss >= c.maxDailyLossPct) {
+        const until = new Date(); until.setUTCHours(24, 0, 0, 0);
+        store.set('botPausedUntil', until.getTime());
+        emit('exit', { symbol: '—', reason: `дневной лимит убытка ${loss.toFixed(1)}% — пауза до завтра`, price: 0 });
+        uiSender && uiSender('watcher:fired', { title: '⏸️ Бот на паузе', message: `Дневной убыток ${loss.toFixed(1)}% превысил лимит ${c.maxDailyLossPct}%. Новые входы — со следующего дня (UTC).` });
+      }
+    } catch {}
+  }
   // Защитный автостоп: при просадке бумажного счёта выше лимита — выключаемся.
   if (c.maxDrawdownPct && c.mode === 'paper') {
     try {
@@ -260,4 +399,46 @@ async function runOnce() {
   return { ok: true, positions: after };
 }
 
-module.exports = { init, setUISender, setCfg, applyProfile, publicCfg, start, stop, runOnce, evaluate, PROFILES };
+// Мульти-факторный разбор тикера: все индикаторы + паттерны + уровни + Фибо +
+// дивергенции + конфлюэнс, плюс старший ТФ и сентимент новостей (если включены).
+async function insight(symbol) {
+  const c = cfg();
+  symbol = String(symbol || c.symbols[0] || '').trim();
+  if (!symbol) return { ok: false, error: 'Не указан тикер.' };
+  const d = await markets.candles({ symbol, interval: c.interval, range: c.range });
+  if (!d.ok) return { ok: false, error: d.error };
+  const an = indicators.analyze(d.candles);
+  if (!an.ok) return an;
+  let htf = null;
+  if (c.confirmTf) { try { const tr = await markets.trend({ symbol, interval: c.confirmTf }); if (tr.ok) htf = { interval: c.confirmTf, trend: tr.trend }; } catch {} }
+  let news = null;
+  if (c.useSentiment) { try { const s = await require('./news').sentiment(symbol); if (s.ok) news = { score: s.score, summary: s.summary }; } catch {} }
+  return { ok: true, symbol: d.symbol, interval: c.interval, ...an, htf, news };
+}
+
+// Статистика сделок бота по бумажному счёту: винрейт, профит-фактор,
+// матожидание, средние прибыль/убыток и разбивка по тикерам.
+function botStats() {
+  const hist = paper.state().history.filter((h) => h.source === 'bot');
+  const closed = hist.filter((h) => h.side === 'sell' && h.pnl != null);
+  if (!closed.length) return { ok: false, error: 'no trades', buys: hist.filter((h) => h.side === 'buy').length };
+  const wins = closed.filter((t) => t.pnl > 0), losses = closed.filter((t) => t.pnl <= 0);
+  const gp = wins.reduce((s, t) => s + t.pnl, 0), gl = Math.abs(losses.reduce((s, t) => s + t.pnl, 0));
+  const bySymbol = {};
+  for (const t of closed) { const b = bySymbol[t.symbol] || (bySymbol[t.symbol] = { trades: 0, pnl: 0, wins: 0 }); b.trades++; b.pnl += t.pnl; if (t.pnl > 0) b.wins++; }
+  const symbols = Object.entries(bySymbol).map(([symbol, b]) => ({ symbol, trades: b.trades, pnl: +b.pnl.toFixed(2), winRate: +(b.wins / b.trades * 100).toFixed(0) })).sort((a, b) => b.pnl - a.pnl);
+  return {
+    ok: true, trades: closed.length, buys: hist.filter((h) => h.side === 'buy').length,
+    winRate: +(wins.length / closed.length * 100).toFixed(1),
+    profitFactor: gl ? +(gp / gl).toFixed(2) : (gp ? 99 : 0),
+    totalPnl: +(gp - gl).toFixed(2),
+    expectancy: +((gp - gl) / closed.length).toFixed(2),
+    avgWin: wins.length ? +(gp / wins.length).toFixed(2) : 0,
+    avgLoss: losses.length ? +(gl / losses.length).toFixed(2) : 0,
+    best: +Math.max(...closed.map((t) => t.pnl)).toFixed(2),
+    worst: +Math.min(...closed.map((t) => t.pnl)).toFixed(2),
+    lastAt: closed[closed.length - 1].at, symbols
+  };
+}
+
+module.exports = { init, setUISender, setCfg, applyProfile, publicCfg, start, stop, runOnce, evaluate, insight, botStats, PROFILES };

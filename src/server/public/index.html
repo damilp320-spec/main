@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>📈 Торговый терминал</title>
+<style>
+  :root { --bg:#0d1117; --card:#161b22; --border:#26303d; --fg:#e6edf3; --muted:#8b949e; --accent:#3b82f6; --up:#26a69a; --down:#ef5350; --warn:#e3b341; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.5 -apple-system,Segoe UI,Roboto,Arial,sans-serif; background:var(--bg); color:var(--fg); }
+  header { display:flex; align-items:center; gap:14px; padding:12px 18px; border-bottom:1px solid var(--border); background:var(--card); position:sticky; top:0; z-index:10; flex-wrap:wrap; }
+  header h1 { font-size:17px; margin:0; }
+  .dot { display:inline-block; width:9px; height:9px; border-radius:50%; background:var(--muted); }
+  .dot.on { background:var(--up); box-shadow:0 0 6px var(--up); }
+  .grow { flex:1; }
+  main { display:grid; grid-template-columns:340px 1fr; gap:14px; padding:14px; max-width:1500px; margin:0 auto; }
+  @media (max-width:900px){ main { grid-template-columns:1fr; } }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:14px; margin-bottom:14px; }
+  .card h3 { margin:0 0 10px; font-size:14px; }
+  label { display:block; font-size:12px; color:var(--muted); margin:8px 0 3px; }
+  input, select { width:100%; padding:7px 9px; background:#0d1117; border:1px solid var(--border); border-radius:7px; color:var(--fg); font-size:13px; }
+  input[type=checkbox]{ width:auto; }
+  .row { display:flex; gap:8px; }
+  .row > * { flex:1; }
+  .chk { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--fg); margin:6px 0; }
+  button { padding:8px 12px; border:1px solid var(--border); border-radius:7px; background:#1f6feb22; color:var(--fg); cursor:pointer; font-size:13px; }
+  button:hover { background:#1f6feb44; }
+  button.primary { background:var(--accent); border-color:var(--accent); }
+  button.danger { background:var(--down); border-color:var(--down); }
+  button.ghost { background:transparent; }
+  button.sm { padding:5px 9px; font-size:12px; }
+  .up { color:var(--up); } .down { color:var(--down); } .muted { color:var(--muted); }
+  .stat-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(90px,1fr)); gap:8px; }
+  .stat { background:#0d1117; border:1px solid var(--border); border-radius:8px; padding:8px; text-align:center; }
+  .stat span { display:block; font-size:11px; color:var(--muted); }
+  .stat b { font-size:15px; }
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  th, td { text-align:left; padding:5px 6px; border-bottom:1px solid var(--border); }
+  th { color:var(--muted); font-weight:500; }
+  #log { height:220px; overflow-y:auto; font:12px/1.5 Consolas,monospace; background:#0d1117; border-radius:8px; padding:8px; }
+  .log-line { padding:1px 0; }
+  #chart-wrap { position:relative; }
+  canvas { width:100%; display:block; }
+  .pill { padding:2px 8px; border-radius:20px; font-size:12px; background:#0d1117; border:1px solid var(--border); }
+  .seg button { border-radius:0; border-right:none; }
+  .seg button:first-child{ border-radius:7px 0 0 7px; } .seg button:last-child{ border-radius:0 7px 7px 0; border-right:1px solid var(--border); }
+  .seg button.on { background:var(--accent); border-color:var(--accent); }
+  .comp-bar { height:6px; border-radius:3px; background:linear-gradient(90deg,var(--down),#555 50%,var(--up)); position:relative; margin:6px 0; }
+  .comp-bar i { position:absolute; top:-3px; width:3px; height:12px; background:var(--fg); border-radius:2px; }
+  .toast { position:fixed; bottom:16px; right:16px; background:var(--card); border:1px solid var(--accent); border-radius:8px; padding:10px 14px; opacity:0; transition:.3s; z-index:50; }
+  .toast.show { opacity:1; }
+</style>
+</head>
+<body>
+<header>
+  <h1>📈 Торговый терминал</h1>
+  <span class="pill"><span class="dot" id="run-dot"></span> <span id="run-label">…</span></span>
+  <span class="pill" id="mode-pill">—</span>
+  <span class="grow"></span>
+  <span class="muted" id="equity-hdr">—</span>
+  <button class="primary sm" id="btn-start">▶ Старт</button>
+  <button class="sm" id="btn-stop">⏹ Стоп</button>
+  <button class="ghost sm" id="btn-once">↻ Прогон</button>
+  <button class="danger sm" id="btn-panic">🛑</button>
+</header>
+<main>
+  <!-- ЛЕВАЯ КОЛОНКА: настройки + счёт + уведомления -->
+  <div>
+    <div class="card">
+      <h3>⚙️ Настройки бота</h3>
+      <div class="seg" id="profiles" style="display:flex;margin-bottom:8px"></div>
+      <div class="row">
+        <div><label>Режим</label><select id="f-mode"><option value="paper">🧪 Бумага</option><option value="broker">💹 Брокер</option></select></div>
+        <div><label>Стратегия</label><select id="f-strategy"></select></div>
+      </div>
+      <label>Тикеры (через запятую)</label><input id="f-symbols" placeholder="AAPL, BTC-USD, MSFT">
+      <div class="row">
+        <div><label>Свечи</label><select id="f-interval"><option value="1d">1д</option><option value="1h">1ч</option><option value="15m">15м</option></select></div>
+        <div><label>Кол-во</label><input id="f-qty" type="number"></div>
+        <div><label>Каждые, мин</label><input id="f-intervalMin" type="number"></div>
+      </div>
+      <div class="row">
+        <div><label>Сайзинг</label><select id="f-sizeMode"><option value="fixed">Фикс</option><option value="risk">По риску</option><option value="kelly">Келли ½</option></select></div>
+        <div><label>Стоп-лосс %</label><input id="f-stopLossPct" type="number"></div>
+        <div><label>Тейк %</label><input id="f-takeProfitPct" type="number"></div>
+      </div>
+      <div class="row">
+        <div><label>Трейлинг %</label><input id="f-trailingPct" type="number"></div>
+        <div><label>Дн. лимит убытка %</label><input id="f-maxDailyLossPct" type="number"></div>
+        <div><label>Часы UTC</label><input id="f-tradeHours" placeholder="9-18"></div>
+      </div>
+      <details style="margin-top:8px">
+        <summary class="muted" style="cursor:pointer;font-size:12px">Фильтры входа и риск</summary>
+        <label class="chk"><input type="checkbox" id="f-volumeFilter"> Объём выше среднего</label>
+        <label class="chk"><input type="checkbox" id="f-patternFilter"> Не входить против свечных паттернов</label>
+        <label class="chk"><input type="checkbox" id="f-srFilter"> Не покупать под сопротивлением</label>
+        <label class="chk"><input type="checkbox" id="f-regimeFilter"> Фильтр режима рынка</label>
+        <label class="chk"><input type="checkbox" id="f-useSentiment"> Учитывать сентимент новостей</label>
+        <label class="chk"><input type="checkbox" id="f-skipWeekend"> Не входить в выходные (кроме крипты)</label>
+        <div class="row">
+          <div><label>ADX ≥</label><input id="f-adxMin" type="number"></div>
+          <div><label>Конфлюэнс ≥</label><input id="f-minConfluence" type="number"></div>
+          <div><label>Пауза, мин</label><input id="f-cooldownMin" type="number"></div>
+        </div>
+        <div class="row">
+          <div><label>Макс. позиций</label><input id="f-maxPositions" type="number"></div>
+          <div><label>Макс. % на поз.</label><input id="f-maxPosPct" type="number"></div>
+          <div><label>Макс. корр.</label><input id="f-corrMax" type="number" step="0.1"></div>
+        </div>
+      </details>
+      <button class="primary" id="btn-save" style="width:100%;margin-top:10px">💾 Сохранить</button>
+      <div class="muted" id="save-status" style="font-size:12px;text-align:center;margin-top:4px"></div>
+    </div>
+
+    <div class="card">
+      <h3>🧪 Бумажный счёт <button class="ghost sm" id="btn-reset" style="float:right">↺ Сброс</button></h3>
+      <div class="stat-grid" id="acct-stats"></div>
+      <canvas id="eq-canvas" height="70" style="margin-top:8px"></canvas>
+      <table id="pos-tbl" style="margin-top:8px"></table>
+      <details style="margin-top:8px"><summary class="muted" style="cursor:pointer;font-size:12px">История сделок</summary><table id="hist-tbl" style="margin-top:6px"></table></details>
+    </div>
+
+    <div class="card">
+      <h3>🔔 Уведомления</h3>
+      <label>Telegram Bot Token</label><input id="n-telegramToken" placeholder="123:ABC">
+      <label>Telegram Chat ID</label><input id="n-telegramChat">
+      <label>Webhook URL</label><input id="n-webhookUrl" placeholder="https://…">
+      <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:6px">
+        <label class="chk"><input type="checkbox" id="n-onTrade"> Сделки</label>
+        <label class="chk"><input type="checkbox" id="n-onExit"> Выходы</label>
+        <label class="chk"><input type="checkbox" id="n-onError"> Ошибки</label>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:8px"><button class="sm" id="n-save">💾 Сохранить</button><button class="ghost sm" id="n-test">📨 Тест</button><span class="muted" id="n-status" style="font-size:12px;align-self:center"></span></div>
+    </div>
+  </div>
+
+  <!-- ПРАВАЯ КОЛОНКА: график + анализ + статистика + лог -->
+  <div>
+    <div class="card">
+      <h3>📊 График <span class="muted" id="chart-title"></span>
+        <span style="float:right" class="seg" id="chart-range">
+          <button data-r="1mo" class="sm">1М</button><button data-r="6mo" class="sm on">6М</button><button data-r="1y" class="sm">1Г</button>
+        </span>
+      </h3>
+      <div class="row" style="margin-bottom:8px">
+        <input id="chart-sym" placeholder="Тикер для графика/анализа (напр. AAPL)" style="flex:3">
+        <button class="sm" id="btn-load" style="flex:1">Загрузить</button>
+        <button class="primary sm" id="btn-insight" style="flex:1">🔍 Анализ</button>
+        <button class="sm" id="btn-backtest" style="flex:1">🧪 Бэктест</button>
+      </div>
+      <div id="chart-wrap"><canvas id="chart" height="300"></canvas></div>
+      <div id="bt-result" class="stat-grid" style="margin-top:8px"></div>
+    </div>
+
+    <div class="card" id="insight-card" style="display:none">
+      <h3>🔍 Мульти-факторный анализ <span id="insight-verdict" style="float:right"></span></h3>
+      <div class="comp-bar"><i id="insight-marker"></i></div>
+      <div id="insight-body" style="font-size:12px"></div>
+    </div>
+
+    <div class="card">
+      <h3>📈 Статистика сделок бота</h3>
+      <div class="stat-grid" id="stats-grid"></div>
+      <table id="stats-tbl" style="margin-top:8px"></table>
+    </div>
+
+    <div class="card">
+      <h3>📜 Живой лог <button class="ghost sm" id="btn-clearlog" style="float:right">Очистить</button></h3>
+      <div id="log"></div>
+    </div>
+  </div>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const api = async (p, opts) => (await fetch(p, opts)).json();
+const post = (p, body) => api(p, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body||{}) });
+const fmt = (n) => (n==null?'—':(+n).toLocaleString(undefined,{maximumFractionDigits:2}));
+const cls = (n) => n>=0?'up':'down';
+const sign = (n) => (n>=0?'+':'')+fmt(n);
+let toastT;
+function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),2500); }
+
+// Поля конфига, которыми управляет форма.
+const BOOL_FIELDS = ['volumeFilter','patternFilter','srFilter','regimeFilter','useSentiment','skipWeekend'];
+const NUM_FIELDS = ['qty','intervalMin','stopLossPct','takeProfitPct','trailingPct','maxDailyLossPct','adxMin','minConfluence','cooldownMin','maxPositions','maxPosPct','corrMax'];
+const STR_FIELDS = ['mode','strategy','interval','sizeMode','tradeHours'];
+
+let STATE = null;
+async function refresh(){
+  STATE = await api('/api/state');
+  const { cfg, account, stats, notify } = STATE;
+  // Хедер
+  $('#run-dot').classList.toggle('on', cfg.running);
+  $('#run-label').textContent = cfg.running ? 'работает' : 'остановлен';
+  $('#mode-pill').textContent = `${cfg.mode} · ${cfg.strategy}`;
+  $('#equity-hdr').innerHTML = `Капитал <b>${fmt(account.equity)}</b> · <span class="${cls(account.totalPnl)}">${sign(account.totalPnl)} (${account.totalPnlPct}%)</span>`;
+  // Стратегии
+  if (!$('#f-strategy').options.length) {
+    $('#f-strategy').innerHTML = '<option value="auto">🤖 Авто</option>' + STATE.strategies.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');
+    $('#profiles').innerHTML = STATE.profiles.map(p=>`<button class="sm" data-prof="${p}">${p}</button>`).join('');
+    $('#profiles').querySelectorAll('[data-prof]').forEach(b=> b.onclick=async()=>{ await post('/api/profile',{name:b.dataset.prof}); toast('Профиль: '+b.dataset.prof); refresh(); });
+  }
+  // Форма (не перетираем во время редактирования — только при первой загрузке)
+  if (!window.__formInit) {
+    STR_FIELDS.forEach(f=>{ const e=$('#f-'+f); if(e) e.value=cfg[f]??''; });
+    NUM_FIELDS.forEach(f=>{ const e=$('#f-'+f); if(e) e.value=cfg[f]??0; });
+    BOOL_FIELDS.forEach(f=>{ const e=$('#f-'+f); if(e) e.checked=!!cfg[f]; });
+    $('#f-symbols').value = (cfg.symbols||[]).join(', ');
+    $('#n-telegramToken').value = notify.telegramToken||'';
+    $('#n-telegramChat').value = notify.telegramChat||'';
+    $('#n-webhookUrl').value = notify.webhookUrl||'';
+    $('#n-onTrade').checked = notify.onTrade; $('#n-onExit').checked = notify.onExit; $('#n-onError').checked = notify.onError;
+    window.__formInit = true;
+  }
+  // Счёт
+  $('#acct-stats').innerHTML = `
+    <div class="stat"><span>Капитал</span><b>${fmt(account.equity)}</b></div>
+    <div class="stat"><span>Наличные</span><b>${fmt(account.cash)}</b></div>
+    <div class="stat"><span>P&L</span><b class="${cls(account.totalPnl)}">${sign(account.totalPnl)}</b></div>`;
+  $('#pos-tbl').innerHTML = account.positions.length
+    ? '<tr><th>Тикер</th><th>Кол</th><th>Ср.</th><th>Тек.</th><th>P&L</th></tr>' + account.positions.map(p=>`<tr><td>${p.symbol}</td><td>${p.qty}</td><td>${fmt(p.avg)}</td><td>${fmt(p.price)}</td><td class="${cls(p.pnl)}">${p.pnlPct}%</td></tr>`).join('')
+    : '<tr><td class="muted">Позиций нет</td></tr>';
+  drawEquity(); loadHistory();
+  // Статистика
+  if (stats.ok) {
+    $('#stats-grid').innerHTML = `
+      <div class="stat"><span>Сделок</span><b>${stats.trades}</b></div>
+      <div class="stat"><span>Винрейт</span><b class="${stats.winRate>=50?'up':'down'}">${stats.winRate}%</b></div>
+      <div class="stat"><span>Profit Factor</span><b class="${stats.profitFactor>=1?'up':'down'}">${stats.profitFactor}</b></div>
+      <div class="stat"><span>P&L</span><b class="${cls(stats.totalPnl)}">${sign(stats.totalPnl)}</b></div>
+      <div class="stat"><span>Матож.</span><b class="${cls(stats.expectancy)}">${stats.expectancy}</b></div>
+      <div class="stat"><span>Ср.+/−</span><b>+${stats.avgWin}/−${stats.avgLoss}</b></div>`;
+    $('#stats-tbl').innerHTML = '<tr><th>Тикер</th><th>Сделок</th><th>Винрейт</th><th>P&L</th></tr>' + stats.symbols.slice(0,8).map(s=>`<tr><td>${s.symbol}</td><td>${s.trades}</td><td>${s.winRate}%</td><td class="${cls(s.pnl)}">${sign(s.pnl)}</td></tr>`).join('');
+  } else {
+    $('#stats-grid').innerHTML = '<div class="muted" style="grid-column:1/-1">Закрытых сделок бота ещё нет'+(stats.buys?` (открытых покупок: ${stats.buys})`:'')+'.</div>';
+    $('#stats-tbl').innerHTML = '';
+  }
+}
+
+// Сохранение конфига
+$('#btn-save').onclick = async () => {
+  const patch = { symbols: $('#f-symbols').value.split(',').map(s=>s.trim()).filter(Boolean) };
+  STR_FIELDS.forEach(f=>{ const e=$('#f-'+f); if(e) patch[f]=e.value; });
+  NUM_FIELDS.forEach(f=>{ const e=$('#f-'+f); if(e) patch[f]=+e.value||0; });
+  BOOL_FIELDS.forEach(f=>{ const e=$('#f-'+f); if(e) patch[f]=e.checked; });
+  await post('/api/set', patch);
+  $('#save-status').textContent = '✓ сохранено'; setTimeout(()=>$('#save-status').textContent='',2000);
+  refresh();
+};
+$('#btn-start').onclick = async () => { const r=await post('/api/start'); if(!r.ok) toast('⚠️ '+r.error); else toast('▶ Бот запущен'); refresh(); };
+$('#btn-stop').onclick = async () => { await post('/api/stop'); toast('⏹ Остановлен'); refresh(); };
+$('#btn-once').onclick = async () => { toast('↻ Прогон…'); await post('/api/run-once'); toast('✓ Прогон завершён'); refresh(); };
+$('#btn-panic').onclick = async () => { if(confirm('Аварийно остановить бота?')){ await post('/api/panic'); toast('🛑 Стоп-кран'); refresh(); } };
+$('#btn-reset').onclick = async () => { const cap=+prompt('Начальный капитал:','100000'); if(cap){ await post('/api/reset',{cap}); toast('↺ Счёт сброшен'); refresh(); } };
+
+// Уведомления
+$('#n-save').onclick = async () => {
+  const body = { telegramChat:$('#n-telegramChat').value.trim(), webhookUrl:$('#n-webhookUrl').value.trim(), onTrade:$('#n-onTrade').checked, onExit:$('#n-onExit').checked, onError:$('#n-onError').checked };
+  const tok = $('#n-telegramToken').value; if (tok && !tok.startsWith('•••')) body.telegramToken = tok.trim();
+  await post('/api/notify', body); $('#n-status').textContent='✓';
+};
+$('#n-test').onclick = async () => { $('#n-status').textContent='⏳'; const r=await post('/api/notify',{_test:true}); $('#n-status').textContent = r.ok?'✓ отправлено':'⚠️ '+(r.error||''); };
+
+// ---- График (свечи на canvas) ----
+let chartRange = '6mo';
+async function loadChart(sym){
+  sym = (sym||$('#chart-sym').value||'AAPL').trim().toUpperCase();
+  $('#chart-sym').value = sym;
+  $('#chart-title').textContent = 'загрузка…';
+  const d = await api(`/api/candles?symbol=${encodeURIComponent(sym)}&range=${chartRange}`);
+  if (!d.ok){ $('#chart-title').textContent = '⚠️ '+(d.error||'нет данных'); return; }
+  $('#chart-title').textContent = `${d.symbol} · ${d.candles.length} свечей`;
+  drawCandles(d.candles);
+}
+function drawCandles(candles){
+  const cv=$('#chart'), wrap=$('#chart-wrap'); const W=wrap.clientWidth, H=300, dpr=devicePixelRatio||1;
+  cv.width=W*dpr; cv.height=H*dpr; cv.style.height=H+'px';
+  const ctx=cv.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,W,H);
+  if(!candles.length) return;
+  const padL=6,padR=54,padT=8,padB=18, cw=W-padL-padR, ch=H-padT-padB;
+  let lo=Infinity,hi=-Infinity; candles.forEach(c=>{ if(c.l<lo)lo=c.l; if(c.h>hi)hi=c.h; });
+  const pad=(hi-lo)*0.05||1; lo-=pad; hi+=pad;
+  const x=i=>padL+i/(candles.length-1||1)*cw, y=v=>padT+(1-(v-lo)/(hi-lo))*ch;
+  // сетка + ценовая шкала
+  ctx.strokeStyle='#26303d'; ctx.fillStyle='#8b949e'; ctx.font='10px monospace'; ctx.lineWidth=1;
+  for(let g=0;g<=4;g++){ const yy=padT+g/4*ch, val=hi-(hi-lo)*g/4; ctx.beginPath(); ctx.moveTo(padL,yy); ctx.lineTo(padL+cw,yy); ctx.stroke(); ctx.fillText(val.toFixed(2),padL+cw+4,yy+3); }
+  // SMA20/50
+  const closes=candles.map(c=>c.c);
+  const sma=(n)=>closes.map((_,i)=> i<n-1?null: closes.slice(i-n+1,i+1).reduce((a,b)=>a+b,0)/n);
+  [['#e3b341',sma(20)],['#3b82f6',sma(50)]].forEach(([col,s])=>{ ctx.strokeStyle=col; ctx.lineWidth=1.2; ctx.beginPath(); let started=false; s.forEach((v,i)=>{ if(v==null)return; if(!started){ctx.moveTo(x(i),y(v));started=true;}else ctx.lineTo(x(i),y(v)); }); ctx.stroke(); });
+  // свечи
+  const bw=Math.max(1,cw/candles.length*0.6);
+  candles.forEach((c,i)=>{ const up=c.c>=c.o; ctx.strokeStyle=ctx.fillStyle=up?'#26a69a':'#ef5350'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(x(i),y(c.h)); ctx.lineTo(x(i),y(c.l)); ctx.stroke();
+    const yo=y(c.o),yc=y(c.c); ctx.fillRect(x(i)-bw/2, Math.min(yo,yc), bw, Math.max(1,Math.abs(yc-yo)));
+  });
+}
+$('#btn-load').onclick = () => loadChart();
+$('#chart-sym').addEventListener('keydown', e=>{ if(e.key==='Enter') loadChart(); });
+$('#chart-range').querySelectorAll('[data-r]').forEach(b=> b.onclick=()=>{ chartRange=b.dataset.r; $('#chart-range').querySelectorAll('button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); loadChart(); });
+
+// ---- Анализ ----
+const VERDICT = { strong_buy:['🟢 Сильная покупка','up'], buy:['🟢 Покупка','up'], neutral:['⚪ Нейтрально','muted'], sell:['🔴 Продажа','down'], strong_sell:['🔴 Сильная продажа','down'] };
+$('#btn-insight').onclick = async () => {
+  const sym=($('#chart-sym').value||'AAPL').trim().toUpperCase();
+  $('#insight-card').style.display='block'; $('#insight-body').innerHTML='<span class="muted">анализ…</span>'; $('#insight-verdict').textContent='';
+  const r = await api('/api/insight?symbol='+encodeURIComponent(sym));
+  if(!r.ok){ $('#insight-body').innerHTML='<span class="down">⚠️ '+r.error+'</span>'; return; }
+  const [vl,vc]=VERDICT[r.verdict]||[r.verdict,'muted'];
+  $('#insight-verdict').innerHTML = `<span class="${vc}">${vl} · ${r.score}</span>`;
+  $('#insight-marker').style.left = ((r.score+100)/2)+'%';
+  const rows = r.components.map(k=>`<div style="display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px solid var(--border)"><span>${k.label}${k.note?' <span class="muted">· '+k.note+'</span>':''}</span><b class="${k.score>=0?'up':'down'}">${k.score>=0?'+':''}${k.score}</b></div>`).join('');
+  const extra=[]; if(r.sr&&r.sr.support)extra.push('⬇️ поддержка '+r.sr.support.price); if(r.sr&&r.sr.resistance)extra.push('⬆️ сопротивление '+r.sr.resistance.price); if(r.htf)extra.push(r.htf.interval+': '+r.htf.trend); if(r.news)extra.push('📰 '+(r.news.score>0?'+':'')+r.news.score);
+  $('#insight-body').innerHTML = rows + (extra.length?`<p class="muted" style="margin-top:6px">${extra.join(' · ')}</p>`:'');
+  loadChart(sym);
+};
+
+// ---- Кривая капитала (спарклайн) ----
+async function drawEquity(){
+  const cv=$('#eq-canvas'); if(!cv) return;
+  const d=await api('/api/equity'); const pts=(d.curve||[]).map(p=>p.equity);
+  const W=cv.parentElement.clientWidth-28, H=70, dpr=devicePixelRatio||1;
+  cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
+  const ctx=cv.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,W,H);
+  if(pts.length<2){ ctx.fillStyle='#8b949e'; ctx.font='11px sans-serif'; ctx.fillText('кривая капитала появится после сделок',4,40); return; }
+  let lo=Math.min(...pts),hi=Math.max(...pts); const pad=(hi-lo)*0.1||1; lo-=pad; hi+=pad;
+  const x=i=>i/(pts.length-1)*W, y=v=>H-(v-lo)/(hi-lo)*H;
+  const up=pts[pts.length-1]>=pts[0];
+  ctx.strokeStyle=up?'#26a69a':'#ef5350'; ctx.lineWidth=1.6; ctx.beginPath();
+  pts.forEach((v,i)=> i?ctx.lineTo(x(i),y(v)):ctx.moveTo(x(i),y(v))); ctx.stroke();
+  ctx.lineTo(x(pts.length-1),H); ctx.lineTo(0,H); ctx.closePath();
+  ctx.fillStyle=up?'rgba(38,166,154,.15)':'rgba(239,83,80,.15)'; ctx.fill();
+}
+// ---- История сделок ----
+async function loadHistory(){
+  const box=$('#hist-tbl'); if(!box) return;
+  const d=await api('/api/history'); const h=d.history||[];
+  box.innerHTML = h.length
+    ? '<tr><th>Время</th><th>Тикер</th><th></th><th>Кол</th><th>Цена</th><th>P&L</th></tr>' + h.slice(0,20).map(t=>`<tr><td>${new Date(t.at).toLocaleString().slice(0,-3)}</td><td>${t.symbol}</td><td class="${t.side==='buy'?'up':'down'}">${t.side==='buy'?'▲':'▼'}</td><td>${t.qty}</td><td>${fmt(t.price)}</td><td class="${t.pnl>=0?'up':'down'}">${t.pnl!=null?sign(t.pnl):'—'}</td></tr>`).join('')
+    : '<tr><td class="muted">Сделок ещё нет</td></tr>';
+}
+// ---- Бэктест текущей конфигурации на тикере из поля графика ----
+$('#btn-backtest').onclick = async () => {
+  const cfg=(STATE&&STATE.cfg)||{}; const sym=($('#chart-sym').value||(cfg.symbols&&cfg.symbols[0])||'AAPL').trim().toUpperCase();
+  const box=$('#bt-result'); box.innerHTML='<div class="muted" style="grid-column:1/-1">🧪 прогон на истории…</div>';
+  const r=await post('/api/backtest', { symbol:sym, interval:cfg.interval, range:cfg.range, strategy:cfg.strategy==='auto'?'macd':cfg.strategy, params:cfg.params, stopLossPct:cfg.stopLossPct, takeProfitPct:cfg.takeProfitPct, trailingPct:cfg.trailingPct, tp1Pct:cfg.tp1Pct, tp1SellPct:cfg.tp1SellPct, stopType:cfg.stopType, atrMult:cfg.atrMult });
+  if(!r.ok){ box.innerHTML='<div class="down" style="grid-column:1/-1">⚠️ '+r.error+'</div>'; return; }
+  box.innerHTML = `
+    <div class="stat"><span>${sym} доходность</span><b class="${cls(r.return)}">${r.return}%</b></div>
+    <div class="stat"><span>Buy&Hold</span><b>${r.buyHold}%</b></div>
+    <div class="stat"><span>Sharpe</span><b class="${r.sharpe>=1?'up':''}">${r.sharpe}</b></div>
+    <div class="stat"><span>Profit Factor</span><b>${r.profitFactor}</b></div>
+    <div class="stat"><span>Сделок</span><b>${r.trades}</b></div>
+    <div class="stat"><span>Винрейт</span><b>${r.winRate}%</b></div>
+    <div class="stat"><span>Макс. просадка</span><b class="down">-${r.maxDrawdown}%</b></div>`;
+};
+
+// ---- Живой лог (SSE) ----
+const ICONS = { signal:'📊', trade:'✅', order:'📤', skip:'⤵️', error:'⚠️', exit:'🚪', confirm:'🧭', notice:'🔔', autoStrat:'🧠', status:'🔄' };
+function logLine(e){
+  const log=$('#log'); const t=new Date(e.at||Date.now()).toLocaleTimeString();
+  let msg;
+  if(e.kind==='trade') msg=`${e.symbol}: ${e.side} ${e.qty} @ ${fmt(e.price)}${e.pnl!=null?' · P&L '+e.pnl:''}`;
+  else if(e.kind==='exit') msg=`${e.symbol}: выход (${e.reason}) @ ${fmt(e.price)}`;
+  else if(e.kind==='signal') msg=`${e.symbol}: сигнал ${e.signal} @ ${fmt(e.price)}`;
+  else if(e.kind==='notice') msg=`${e.title} ${e.message||''}`;
+  else msg=`${e.symbol||''} ${e.message||''}`.trim();
+  if(!msg) return;
+  const col = e.kind==='trade'?'up':e.kind==='error'?'down':e.kind==='exit'?'up':'';
+  const d=document.createElement('div'); d.className='log-line'+(col?' '+col:''); d.textContent=`[${t}] ${ICONS[e.kind]||'•'} ${msg}`;
+  log.appendChild(d); log.scrollTop=log.scrollHeight;
+  while(log.children.length>300) log.removeChild(log.firstChild);
+  if(e.kind==='trade'||e.kind==='exit'||e.kind==='notice') refresh();
+}
+$('#btn-clearlog').onclick = () => $('#log').innerHTML='';
+function connectSSE(){
+  const es=new EventSource('/api/events');
+  es.onmessage=(m)=>{ try{ logLine(JSON.parse(m.data)); }catch{} };
+  es.onerror=()=>{ es.close(); setTimeout(connectSSE,3000); };
+}
+
+// init
+refresh();
+connectSSE();
+loadChart('AAPL');
+setInterval(refresh, 20000);
+</script>
+</body>
+</html>

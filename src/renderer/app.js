@@ -2755,6 +2755,7 @@ async function viewTrading() {
       </div>
       <div class="card" id="bot-card"><h3>🤖 ${esc(t('bot.title'))}</h3><div id="bot-body"></div></div>
       <div class="card" id="paper-card"><h3>🧪 ${esc(t('bot.paper'))}</h3><div id="paper-body"></div></div>
+      <div class="card" id="ntf-card"><h3>🔔 ${esc(t('ntf.title'))}</h3><div id="ntf-body"></div></div>
       <div class="card" id="eq-card" style="grid-column:1/-1">
         <div class="row between"><h3>📈 ${esc(t('eq.title'))}</h3>
           <span class="row" style="gap:8px;align-items:center"><span id="eq-stat" class="muted" style="font-size:12px"></span>
@@ -2800,6 +2801,7 @@ async function viewTrading() {
   renderCopilot();
   renderBotCard();
   renderPaperCard();
+  renderNotifierCard();
   renderEquityCurve();
   renderPortfolioAnalytics();
   renderDca();
@@ -2894,9 +2896,15 @@ async function renderBotCard() {
     <label class="field"><span>${esc(t('bot.route'))}</span><select id="bot-route"><option value="direct" ${c.signalRoute !== 'ai' ? 'selected' : ''}>⚡ ${esc(t('bot.routeDirect'))}</option><option value="ai" ${c.signalRoute === 'ai' ? 'selected' : ''}>🧭 ${esc(t('bot.routeAi'))}</option></select></label>
     <p class="muted" style="font-size:11px;margin:-2px 0 4px">${esc(c.signalRoute === 'ai' ? t('bot.routeAiHint') : t('bot.routeDirectHint'))}</p>
     <div class="row" style="gap:8px">
-      <label class="field" style="max-width:150px"><span>${esc(t('bot.sizeMode'))}</span><select id="bot-size"><option value="fixed" ${c.sizeMode !== 'risk' ? 'selected' : ''}>${esc(t('bot.fixedQty'))}</option><option value="risk" ${c.sizeMode === 'risk' ? 'selected' : ''}>${esc(t('bot.riskSize'))}</option></select></label>
+      <label class="field" style="max-width:150px"><span>${esc(t('bot.sizeMode'))}</span><select id="bot-size"><option value="fixed" ${c.sizeMode !== 'risk' && c.sizeMode !== 'kelly' ? 'selected' : ''}>${esc(t('bot.fixedQty'))}</option><option value="risk" ${c.sizeMode === 'risk' ? 'selected' : ''}>${esc(t('bot.riskSize'))}</option><option value="kelly" ${c.sizeMode === 'kelly' ? 'selected' : ''}>${esc(t('bot.kelly'))}</option></select></label>
       <label class="field" style="max-width:120px ${c.sizeMode === 'risk' ? '' : 'display:none'}" id="bot-riskwrap"><span>${esc(t('bot.riskAmt'))}</span><input id="bot-riskamt" type="number" value="${c.riskAmount}"></label>
       <label class="field" style="max-width:150px"><span>${esc(t('bot.maxDD'))} %</span><input id="bot-maxdd" type="number" value="${c.maxDrawdownPct}" title="${esc(t('bot.maxDDHint'))}"></label>
+    </div>
+    ${c.sizeMode === 'kelly' ? `<p class="muted" style="font-size:11px;margin:-2px 0 4px">${esc(t('bot.kellyHint'))}</p>` : ''}
+    <div class="row" style="gap:8px">
+      <label class="field" style="max-width:150px"><span>${esc(t('bot.maxDayLoss'))} %</span><input id="bot-maxdayloss" type="number" value="${c.maxDailyLossPct}" title="${esc(t('bot.maxDayLossHint'))}"></label>
+      <label class="field" style="max-width:150px"><span>${esc(t('bot.tradeHours'))}</span><input id="bot-hours" value="${esc(c.tradeHours)}" placeholder="9-18" title="${esc(t('bot.tradeHoursHint'))}"></label>
+      <label class="mk-ind" style="align-self:flex-end;padding-bottom:8px"><input type="checkbox" id="bot-weekend" ${c.skipWeekend ? 'checked' : ''}> ${esc(t('bot.skipWeekend'))}</label>
     </div>
     <div class="row" style="gap:14px;flex-wrap:wrap;margin:4px 0">
       <label class="mk-ind"><input type="checkbox" id="bot-regime" ${c.regimeFilter ? 'checked' : ''}> ${esc(t('bot.regime'))}</label>
@@ -2913,6 +2921,23 @@ async function renderBotCard() {
     <div class="row" style="gap:8px">
       <label class="field" style="max-width:150px"><span>${esc(t('bot.mtf'))}</span><select id="bot-mtf"><option value="" ${!c.confirmTf ? 'selected' : ''}>${esc(t('bot.mtfOff'))}</option><option value="1d" ${c.confirmTf === '1d' ? 'selected' : ''}>1д</option><option value="1wk" ${c.confirmTf === '1wk' ? 'selected' : ''}>1нед</option></select></label>
     </div>
+    <p class="muted" style="font-size:12px;margin:4px 0">${esc(t('bot.filters'))}:</p>
+    <div class="row" style="gap:14px;flex-wrap:wrap;margin:4px 0">
+      <label class="mk-ind"><input type="checkbox" id="bot-vol" ${c.volumeFilter ? 'checked' : ''}> ${esc(t('bot.volume'))}</label>
+      <label class="mk-ind"><input type="checkbox" id="bot-pat" ${c.patternFilter ? 'checked' : ''}> ${esc(t('bot.patterns'))}</label>
+      <label class="mk-ind"><input type="checkbox" id="bot-srf" ${c.srFilter ? 'checked' : ''}> ${esc(t('bot.srf'))}</label>
+    </div>
+    <div class="row" style="gap:8px">
+      <label class="field" style="max-width:110px"><span>ADX ≥</span><input id="bot-adx" type="number" value="${c.adxMin}" title="${esc(t('bot.adxHint'))}"></label>
+      <label class="field" style="max-width:130px"><span>${esc(t('bot.confl'))}</span><input id="bot-confl" type="number" value="${c.minConfluence}" title="${esc(t('bot.conflHint'))}"></label>
+      <label class="field" style="max-width:140px"><span>${esc(t('bot.cooldown'))}</span><input id="bot-cool" type="number" value="${c.cooldownMin}"></label>
+    </div>
+    <p class="muted" style="font-size:12px;margin:4px 0">${esc(t('bot.portRisk'))}:</p>
+    <div class="row" style="gap:8px">
+      <label class="field" style="max-width:110px"><span>${esc(t('bot.maxPos'))}</span><input id="bot-maxpos" type="number" value="${c.maxPositions}"></label>
+      <label class="field" style="max-width:140px"><span>${esc(t('bot.maxPosPct'))}</span><input id="bot-maxpospct" type="number" value="${c.maxPosPct}"></label>
+      <label class="field" style="max-width:140px"><span>${esc(t('bot.corrMax'))}</span><input id="bot-corr" type="number" step="0.1" min="0" max="1" value="${c.corrMax}"></label>
+    </div>
     <div class="row" style="gap:8px">
       <label class="field" style="max-width:130px"><span>${esc(t('bot.stopType'))}</span><select id="bot-stoptype"><option value="percent" ${c.stopType !== 'atr' ? 'selected' : ''}>${esc(t('bot.percent'))}</option><option value="atr" ${c.stopType === 'atr' ? 'selected' : ''}>ATR</option></select></label>
       <label class="field" style="max-width:120px ${c.stopType === 'atr' ? '' : 'display:none'}" id="bot-atrwrap"><span>${esc(t('bot.atrMult'))}</span><input id="bot-atr" type="number" step="0.5" value="${c.atrMult}"></label>
@@ -2928,11 +2953,11 @@ async function renderBotCard() {
     </div>
     ${toggleRow('bot-sent', t('bot.sentiment'), c.useSentiment)}
     ${c.mode === 'broker' && safe ? `<div class="card ${safe.live && !safe.dryRun ? 'tr-live' : 'tr-safe'}" style="margin:6px 0;font-size:12px"><b>${safe.live ? '🔴 LIVE' : '🟢 sandbox'}</b>${safe.dryRun ? ' · 🧪 dry-run' : ''} · ${safe.confirm ? '✅ ' + esc(t('bot.willConfirm')) : '⚠️ ' + esc(t('bot.willAuto'))}</div>` : ''}
-    <div class="row" style="gap:6px;flex-wrap:wrap"><button class="btn ghost sm" id="bot-once">▶ ${esc(t('bot.runOnce'))}</button><button class="btn ghost sm" id="bot-bt">🧪 ${esc(t('bot.backtest'))}</button><button class="btn ghost sm" id="bot-mc">🎲 ${esc(t('bot.mc'))}</button><span id="bot-status" class="muted" style="font-size:12px">${c.running ? '🟢 ' + esc(t('bot.running')) : ''}</span></div>
+    <div class="row" style="gap:6px;flex-wrap:wrap"><button class="btn ghost sm" id="bot-once">▶ ${esc(t('bot.runOnce'))}</button><button class="btn ghost sm" id="bot-bt">🧪 ${esc(t('bot.backtest'))}</button><button class="btn ghost sm" id="bot-mc">🎲 ${esc(t('bot.mc'))}</button><button class="btn ghost sm" id="bot-insight">🔍 ${esc(t('bot.insight'))}</button><button class="btn ghost sm" id="bot-stats">📊 ${esc(t('bot.stats'))}</button><span id="bot-status" class="muted" style="font-size:12px">${c.running ? '🟢 ' + esc(t('bot.running')) : ''}</span></div>
     <div id="bot-bt-res" style="margin-top:8px"></div>
     <div id="bot-log" class="op-log" style="max-height:150px;margin-top:8px"></div>
     <p class="muted" style="font-size:11px;margin-top:6px">${esc(t('bot.note'))}</p>`;
-  const saveCfg = () => N.bot.setCfg({ mode: $('#bot-mode').value, strategy: $('#bot-strat').value, qty: +$('#bot-qty').value || 1, intervalMin: +$('#bot-int').value || 15, interval: $('#bot-candle').value, symbols: $('#bot-syms').value.split(',').map((s) => s.trim()).filter(Boolean), useSentiment: $('#bot-sent').checked, confirmTf: $('#bot-mtf').value, stopLossPct: +$('#bot-sl').value || 0, takeProfitPct: +$('#bot-tp').value || 0, trailingPct: +$('#bot-trail').value || 0, stopType: $('#bot-stoptype').value, atrMult: +$('#bot-atr').value || 2, tp1Pct: +$('#bot-tp1').value || 0, tp1SellPct: +$('#bot-tp1sell').value || 50, sizeMode: $('#bot-size').value, riskAmount: +$('#bot-riskamt').value || 200, regimeFilter: $('#bot-regime').checked, breakeven: $('#bot-be').checked, shadowMode: $('#bot-shadow').checked, maxDrawdownPct: +$('#bot-maxdd').value || 0, signalRoute: $('#bot-route').value });
+  const saveCfg = () => N.bot.setCfg({ mode: $('#bot-mode').value, strategy: $('#bot-strat').value, qty: +$('#bot-qty').value || 1, intervalMin: +$('#bot-int').value || 15, interval: $('#bot-candle').value, symbols: $('#bot-syms').value.split(',').map((s) => s.trim()).filter(Boolean), useSentiment: $('#bot-sent').checked, confirmTf: $('#bot-mtf').value, stopLossPct: +$('#bot-sl').value || 0, takeProfitPct: +$('#bot-tp').value || 0, trailingPct: +$('#bot-trail').value || 0, stopType: $('#bot-stoptype').value, atrMult: +$('#bot-atr').value || 2, tp1Pct: +$('#bot-tp1').value || 0, tp1SellPct: +$('#bot-tp1sell').value || 50, sizeMode: $('#bot-size').value, riskAmount: +$('#bot-riskamt').value || 200, regimeFilter: $('#bot-regime').checked, breakeven: $('#bot-be').checked, shadowMode: $('#bot-shadow').checked, maxDrawdownPct: +$('#bot-maxdd').value || 0, signalRoute: $('#bot-route').value, volumeFilter: $('#bot-vol').checked, patternFilter: $('#bot-pat').checked, srFilter: $('#bot-srf').checked, adxMin: +$('#bot-adx').value || 0, minConfluence: +$('#bot-confl').value || 0, cooldownMin: +$('#bot-cool').value || 0, maxPositions: +$('#bot-maxpos').value || 0, maxPosPct: +$('#bot-maxpospct').value || 0, corrMax: +$('#bot-corr').value || 0, maxDailyLossPct: +$('#bot-maxdayloss').value || 0, tradeHours: $('#bot-hours').value.trim(), skipWeekend: $('#bot-weekend').checked });
   $('#bot-bt').onclick = async () => {
     const c2 = await N.bot.cfg(); const sym = (c2.symbols[0] || 'AAPL'); const res = $('#bot-bt-res');
     res.innerHTML = '<span class="spin">⏳</span> ' + esc(t('bot.btRun')) + ' ' + esc(sym);
@@ -2950,9 +2975,40 @@ async function renderBotCard() {
       <div class="mc-hist">${r.hist.map((b) => `<span style="height:${Math.max(2, b.count / Math.max(...r.hist.map((x) => x.count)) * 60)}px;background:${b.x >= 0 ? 'var(--accent-2)' : 'var(--danger)'}" title="${b.x}%: ${b.count}"></span>`).join('')}</div>
       <p class="muted" style="font-size:11px">${esc(t('mc.note'))}</p>`;
   };
+  // Мульти-факторный разбор: все индикаторы + паттерны + уровни + Фибо + дивергенции.
+  $('#bot-insight').onclick = async () => {
+    const c2 = await N.bot.cfg(); const sym = (c2.symbols[0] || 'AAPL'); const res = $('#bot-bt-res');
+    res.innerHTML = '<span class="spin">⏳</span> ' + esc(t('bot.insightRun')) + ' ' + esc(sym) + '…';
+    const r = await N.bot.insight(sym);
+    if (!r.ok) { res.innerHTML = `<span class="mk-down">⚠️ ${esc(r.error)}</span>`; return; }
+    const vLbl = { strong_buy: '🟢 ' + t('bot.vStrongBuy'), buy: '🟢 ' + t('bot.vBuy'), neutral: '⚪ ' + t('bot.vNeutral'), sell: '🔴 ' + t('bot.vSell'), strong_sell: '🔴 ' + t('bot.vStrongSell') }[r.verdict] || r.verdict;
+    const pct = Math.round((r.score + 100) / 2);
+    const fib618 = r.fib && r.fib.levels.find((l) => l.k === 0.618);
+    res.innerHTML = `
+      <div class="row between" style="align-items:center"><b>${esc(r.symbol)} @ ${r.price}</b><b class="${r.score >= 0 ? 'mk-up' : 'mk-down'}">${esc(vLbl)} · ${r.score}</b></div>
+      <div style="height:8px;border-radius:4px;background:linear-gradient(90deg,var(--danger),#888 50%,var(--accent-2));position:relative;margin:6px 0"><span style="position:absolute;left:${pct}%;top:-3px;width:3px;height:14px;background:var(--fg);border-radius:2px"></span></div>
+      <div style="font-size:12px;max-height:190px;overflow:auto">${r.components.map((k) => `<div class="row between" style="padding:2px 0;border-bottom:1px solid var(--border)"><span>${esc(k.label)}${k.note ? ` <span class="muted">· ${esc(k.note)}</span>` : ''}</span><b class="${k.score >= 0 ? 'mk-up' : 'mk-down'}">${k.score >= 0 ? '+' : ''}${k.score}</b></div>`).join('')}</div>
+      <p class="muted" style="font-size:12px;margin-top:6px">${r.sr && r.sr.support ? `⬇️ ${esc(t('bot.support'))} ${r.sr.support.price}` : ''}${r.sr && r.sr.resistance ? ` · ⬆️ ${esc(t('bot.resistance'))} ${r.sr.resistance.price}` : ''}${fib618 ? ` · Fib 0.618: ${fib618.price}` : ''}${r.htf ? ` · ${esc(r.htf.interval)}: ${r.htf.trend === 'up' ? '↗' : r.htf.trend === 'down' ? '↘' : '→'}` : ''}${r.news ? ` · 📰 ${r.news.score > 0 ? '+' : ''}${r.news.score}` : ''}</p>`;
+  };
+  // Статистика реальных сделок бота на бумажном счёте.
+  $('#bot-stats').onclick = async () => {
+    const res = $('#bot-bt-res');
+    const r = await N.bot.stats();
+    if (!r.ok) { res.innerHTML = `<p class="muted">${esc(t('bot.statsEmpty'))}${r.buys ? ` (${t('bot.openOnly')}: ${r.buys})` : ''}</p>`; return; }
+    res.innerHTML = `<div class="bt-stats">
+      <div class="bt-stat"><span>${esc(t('bt.trades'))}</span><b>${r.trades}</b></div>
+      <div class="bt-stat"><span>${esc(t('bt.winRate'))}</span><b class="${r.winRate >= 50 ? 'mk-up' : 'mk-down'}">${r.winRate}%</b></div>
+      <div class="bt-stat"><span>${esc(t('bt.pf'))}</span><b class="${r.profitFactor >= 1 ? 'mk-up' : 'mk-down'}">${r.profitFactor}</b></div>
+      <div class="bt-stat"><span>P&L</span><b class="${r.totalPnl >= 0 ? 'mk-up' : 'mk-down'}">${r.totalPnl >= 0 ? '+' : ''}${r.totalPnl}</b></div>
+      <div class="bt-stat"><span>${esc(t('bot.expectancy'))}</span><b class="${r.expectancy >= 0 ? 'mk-up' : 'mk-down'}">${r.expectancy}</b></div>
+      <div class="bt-stat"><span>${esc(t('bot.avgWinLoss'))}</span><b>+${r.avgWin} / -${r.avgLoss}</b></div>
+      <div class="bt-stat"><span>${esc(t('bot.bestWorst'))}</span><b>+${r.best} / ${r.worst}</b></div>
+    </div>
+    ${r.symbols.length ? `<table class="tr-pf-tbl" style="margin-top:6px"><tr><th>Тикер</th><th>${esc(t('bt.trades'))}</th><th>${esc(t('bt.winRate'))}</th><th>P&L</th></tr>${r.symbols.slice(0, 8).map((s) => `<tr><td>${esc(s.symbol)}</td><td>${s.trades}</td><td>${s.winRate}%</td><td class="${s.pnl >= 0 ? 'mk-up' : 'mk-down'}">${s.pnl >= 0 ? '+' : ''}${s.pnl}</td></tr>`).join('')}</table>` : ''}`;
+  };
   $$('#bot-body [data-prof]').forEach((b) => b.onclick = async () => { await N.bot.applyProfile(b.dataset.prof); toast('🤖', t('bot.profileSet') + ': ' + b.textContent.trim(), 'ok'); renderBotCard(); });
   bindToggle('bot-enable', async (v) => { if (v && !await confirmModal('🤖 ' + t('bot.title'), t('bot.enableWarn'))) return renderBotCard(); await N.bot.setCfg({ enabled: v }); renderBotCard(); });
-  ['#bot-mode', '#bot-strat', '#bot-route', '#bot-qty', '#bot-int', '#bot-candle', '#bot-syms', '#bot-mtf', '#bot-sl', '#bot-tp', '#bot-trail', '#bot-stoptype', '#bot-atr', '#bot-tp1', '#bot-tp1sell', '#bot-size', '#bot-riskamt', '#bot-regime', '#bot-be', '#bot-shadow', '#bot-maxdd'].forEach((s) => { const e = $(s); if (e) e.onchange = async () => { await saveCfg(); if (s === '#bot-mode' || s === '#bot-stoptype' || s === '#bot-size' || s === '#bot-shadow' || s === '#bot-route') renderBotCard(); }; });
+  ['#bot-mode', '#bot-strat', '#bot-route', '#bot-qty', '#bot-int', '#bot-candle', '#bot-syms', '#bot-mtf', '#bot-sl', '#bot-tp', '#bot-trail', '#bot-stoptype', '#bot-atr', '#bot-tp1', '#bot-tp1sell', '#bot-size', '#bot-riskamt', '#bot-regime', '#bot-be', '#bot-shadow', '#bot-maxdd', '#bot-vol', '#bot-pat', '#bot-srf', '#bot-adx', '#bot-confl', '#bot-cool', '#bot-maxpos', '#bot-maxpospct', '#bot-corr', '#bot-maxdayloss', '#bot-hours', '#bot-weekend'].forEach((s) => { const e = $(s); if (e) e.onchange = async () => { await saveCfg(); if (s === '#bot-mode' || s === '#bot-stoptype' || s === '#bot-size' || s === '#bot-shadow' || s === '#bot-route') renderBotCard(); }; });
   bindToggle('bot-sent', () => saveCfg());
   $('#bot-once').onclick = async () => { $('#bot-status').textContent = '⏳'; await N.bot.runOnce(); $('#bot-status').textContent = '✓ ' + t('bot.evaluated'); renderPaperCard(); };
 }
@@ -2981,6 +3037,35 @@ async function renderPaperCard() {
         $('#rs-ok', m).onclick = async () => { const cap = Math.max(1000, +$('#rs-cap', m).value || 100000); await N.paper.reset(cap); close(); renderPaperCard(); renderEquityCurve(); renderPortfolioAnalytics(); toast('↺', t('eq.startCapital') + ': ' + cap.toLocaleString(), 'ok'); };
       });
   };
+}
+async function renderNotifierCard() {
+  const box = $('#ntf-body'); if (!box) return;
+  const c = await N.notify.cfg();
+  box.innerHTML = `
+    <p class="muted" style="font-size:12px;margin:0 0 8px">${esc(t('ntf.sub'))}</p>
+    <label class="field"><span>${esc(t('ntf.tgToken'))}</span><input id="ntf-tgtoken" placeholder="123456:ABC-DEF..." value="${c.telegramToken ? esc(c.telegramToken) : ''}"></label>
+    <div class="row" style="gap:8px">
+      <label class="field"><span>${esc(t('ntf.tgChat'))}</span><input id="ntf-tgchat" value="${esc(c.telegramChat || '')}"></label>
+    </div>
+    <label class="field"><span>${esc(t('ntf.webhook'))}</span><input id="ntf-webhook" placeholder="https://…" value="${esc(c.webhookUrl || '')}"></label>
+    <div class="row" style="gap:14px;flex-wrap:wrap;margin:6px 0">
+      <label class="mk-ind"><input type="checkbox" id="ntf-ontrade" ${c.onTrade ? 'checked' : ''}> ${esc(t('ntf.onTrade'))}</label>
+      <label class="mk-ind"><input type="checkbox" id="ntf-onexit" ${c.onExit ? 'checked' : ''}> ${esc(t('ntf.onExit'))}</label>
+      <label class="mk-ind"><input type="checkbox" id="ntf-onerror" ${c.onError ? 'checked' : ''}> ${esc(t('ntf.onError'))}</label>
+      <label class="mk-ind"><input type="checkbox" id="ntf-onsignal" ${c.onSignal ? 'checked' : ''}> ${esc(t('ntf.onSignal'))}</label>
+    </div>
+    <div class="row" style="gap:6px"><button class="btn ghost sm" id="ntf-save">💾 ${esc(t('ntf.save'))}</button><button class="btn ghost sm" id="ntf-test">📨 ${esc(t('ntf.test'))}</button><span id="ntf-status" class="muted" style="font-size:12px"></span></div>
+    <p class="muted" style="font-size:11px;margin-top:8px">🖥️ ${esc(t('ntf.cliHint'))}</p>`;
+  const save = async () => {
+    // Токен с маской (•••XXXX) не перезаписываем — отправляем только если изменён.
+    const tok = $('#ntf-tgtoken').value;
+    const patch = { telegramChat: $('#ntf-tgchat').value.trim(), webhookUrl: $('#ntf-webhook').value.trim(), onTrade: $('#ntf-ontrade').checked, onExit: $('#ntf-onexit').checked, onError: $('#ntf-onerror').checked, onSignal: $('#ntf-onsignal').checked };
+    if (tok && !tok.startsWith('•••')) patch.telegramToken = tok.trim();
+    await N.notify.setCfg(patch);
+  };
+  $('#ntf-save').onclick = async () => { await save(); $('#ntf-status').textContent = '✓'; renderNotifierCard(); };
+  $('#ntf-test').onclick = async () => { await save(); $('#ntf-status').textContent = '⏳'; const r = await N.notify.test(); $('#ntf-status').textContent = r.ok ? '✓ ' + t('ntf.sent') : '⚠️ ' + (r.error || ''); };
+  ['#ntf-ontrade', '#ntf-onexit', '#ntf-onerror', '#ntf-onsignal'].forEach((s) => { const e = $(s); if (e) e.onchange = save; });
 }
 function eqLocalStats(pts) {
   const vals = pts.map((p) => p.equity);

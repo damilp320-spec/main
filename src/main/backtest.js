@@ -69,6 +69,39 @@ function signals(strategy, c, p) {
   } else if (strategy === 'golden_cross') {
     const f = sma(closes, p.fast || 50), s = sma(closes, p.slow || 200);
     for (let i = 1; i < closes.length; i++) sig[i] = cross(f, s, i);
+  } else if (strategy === 'stochastic') {
+    const ind = require('./indicators');
+    const st = ind.stochastic(c, p.k || 14, p.d || 3); const lo = p.oversold || 20, hi = p.overbought || 80;
+    for (let i = 1; i < closes.length; i++) {
+      const x = cross(st.K, st.D, i); if (!x) continue;
+      if (x === 'buy' && st.K[i] < lo + 15) sig[i] = 'buy';        // бычье пересечение в зоне перепроданности
+      else if (x === 'sell' && st.K[i] > hi - 15) sig[i] = 'sell';
+    }
+  } else if (strategy === 'supertrend') {
+    const ind = require('./indicators');
+    const st = ind.supertrend(c, p.period || 10, p.mult || 3);
+    for (let i = 1; i < closes.length; i++) {
+      if (st.trend[i] == null || st.trend[i - 1] == null) continue;
+      if (st.trend[i - 1] === -1 && st.trend[i] === 1) sig[i] = 'buy';
+      else if (st.trend[i - 1] === 1 && st.trend[i] === -1) sig[i] = 'sell';
+    }
+  } else if (strategy === 'ichimoku') {
+    const ind = require('./indicators');
+    const ich = ind.ichimoku(c, p.tenkan || 9, p.kijun || 26);
+    for (let i = 1; i < closes.length; i++) {
+      if (ich.cloudTop[i] == null || ich.cloudTop[i - 1] == null) continue;
+      if (closes[i - 1] <= ich.cloudTop[i - 1] && closes[i] > ich.cloudTop[i]) sig[i] = 'buy';    // выход вверх из облака
+      else if (closes[i - 1] >= ich.cloudBot[i - 1] && closes[i] < ich.cloudBot[i]) sig[i] = 'sell';
+    }
+  } else if (strategy === 'confluence') {
+    // Ансамбль: взвешенное голосование всех индикаторов, вход/выход по порогам.
+    const ind = require('./indicators');
+    const sc = ind.confluenceSeries(c); const buyAt = p.buyAt != null ? p.buyAt : 30, sellAt = p.sellAt != null ? p.sellAt : -30;
+    for (let i = 1; i < closes.length; i++) {
+      if (sc[i] == null || sc[i - 1] == null) continue;
+      if (sc[i - 1] < buyAt && sc[i] >= buyAt) sig[i] = 'buy';
+      else if (sc[i - 1] > sellAt && sc[i] <= sellAt) sig[i] = 'sell';
+    }
   }
   return sig;
 }
@@ -142,7 +175,11 @@ const STRATEGIES = [
   { id: 'bollinger', name: 'Полосы Боллинджера', params: [['period', 'Период', 20], ['mult', 'Множитель σ', 2]] },
   { id: 'momentum', name: 'Моментум (ROC)', params: [['period', 'Период', 10], ['threshold', 'Порог %', 5]] },
   { id: 'breakout', name: 'Пробой канала', params: [['lookback', 'Окно (свечей)', 20]] },
-  { id: 'golden_cross', name: 'Золотой крест (50/200)', params: [['fast', 'Быстрая SMA', 50], ['slow', 'Медленная SMA', 200]] }
+  { id: 'golden_cross', name: 'Золотой крест (50/200)', params: [['fast', 'Быстрая SMA', 50], ['slow', 'Медленная SMA', 200]] },
+  { id: 'stochastic', name: 'Стохастик', params: [['k', '%K период', 14], ['d', '%D период', 3], ['oversold', 'Перепроданность', 20], ['overbought', 'Перекупленность', 80]] },
+  { id: 'supertrend', name: 'SuperTrend', params: [['period', 'Период ATR', 10], ['mult', 'Множитель', 3]] },
+  { id: 'ichimoku', name: 'Ишимоку (облако)', params: [['tenkan', 'Тенкан', 9], ['kijun', 'Киджун', 26]] },
+  { id: 'confluence', name: 'Конфлюэнс (ансамбль всех)', params: [['buyAt', 'Порог входа', 30], ['sellAt', 'Порог выхода', -30]] }
 ];
 
 // Average True Range — для адаптивных (волатильностных) стопов.
@@ -174,7 +211,11 @@ async function optimize({ symbol, interval, range, strategy, walkForward }) {
     bollinger: [{ k: 'period', v: [14, 20, 30] }, { k: 'mult', v: [1.5, 2, 2.5] }],
     momentum: [{ k: 'period', v: [5, 10, 20] }, { k: 'threshold', v: [3, 5, 8] }],
     breakout: [{ k: 'lookback', v: [10, 20, 30, 55] }],
-    golden_cross: [{ k: 'fast', v: [20, 50] }, { k: 'slow', v: [100, 200] }]
+    golden_cross: [{ k: 'fast', v: [20, 50] }, { k: 'slow', v: [100, 200] }],
+    stochastic: [{ k: 'k', v: [9, 14, 21] }, { k: 'oversold', v: [20, 30] }, { k: 'overbought', v: [70, 80] }],
+    supertrend: [{ k: 'period', v: [7, 10, 14] }, { k: 'mult', v: [2, 3, 4] }],
+    ichimoku: [{ k: 'tenkan', v: [7, 9] }, { k: 'kijun', v: [22, 26] }],
+    confluence: [{ k: 'buyAt', v: [20, 30, 40] }, { k: 'sellAt', v: [-40, -30, -20] }]
   }[strategy || 'sma_cross'];
   if (!grids) return { ok: false, error: 'Нет сетки для стратегии' };
   const d = await markets.candles({ symbol, interval, range }); // фетч один раз

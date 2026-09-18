@@ -6,7 +6,24 @@
 
 ![tech](https://img.shields.io/badge/Electron-33-7c5cff) ![platform](https://img.shields.io/badge/Windows-11-29d3c2) ![local](https://img.shields.io/badge/100%25-локально-3ddc84)
 
+## ⬇️ Скачать в один клик
+
+### **[⬇️ Скачать для Windows (последний релиз)](https://github.com/damilp320-spec/main/releases/latest)**
+
+[![Download](https://img.shields.io/badge/Download-Windows%20installer-7c5cff?style=for-the-badge&logo=windows)](https://github.com/damilp320-spec/main/releases/latest)
+
+Одна кнопка — установщик `.exe` (NSIS) или portable-версия с [последнего релиза](https://github.com/damilp320-spec/main/releases/latest). Также есть [страница загрузки (GitHub Pages)](https://damilp320-spec.github.io/main/) с большой кнопкой (включается в Settings → Pages → ветка, папка `/docs`). Релизы собираются автоматически при пуше тега `v*`.
+
 ---
+
+## 🆕 Новое: браузер, звук, умный дом и режим профи
+
+- 🎵 **Музыка в браузере** — «включи …» открывает трек/поиск в Spotify, Apple Music, YouTube Music, **Яндекс Музыке, VK, Звук**, SoundCloud, Deezer (без встроенного плеера; сервис по умолчанию настраивается). Плюс «открой YouTube/Ozon/…» и веб-поиск.
+- 🔊 **Громкость системы** — точная установка/изменение/mute (Windows Core Audio API; на Linux/mac — pactl/osascript). Слайдер в настройках и голосом: «сделай громче на 10».
+- 🏠 **Умный дом — все протоколы** — Home Assistant (REST), **MQTT/Zigbee2MQTT** (нативная публикация), **Яндекс Умный дом (Алиса)**, **SberDevices (Салют)**, Tuya, Xiaomi/Aqara, Google Home, HomeKit, Matter, Tasmota, ESPHome, Sonoff/eWeLink, IFTTT, универсальный вебхук. Секреты шифруются (`safeStorage`).
+- 🧲 **Сортировка вкладок** — перетаскивайте пункты бокового меню, порядок сохраняется.
+- 🛠️ **Режим «полного контроля» (для профи)** — раздел «Разработчику»: сырые параметры Ollama (top_p, top_k, num_ctx, repeat_penalty, seed, num_predict, mirostat, stop), включение/отключение отдельных инструментов агента, сырой вызов модели и **редактор всего конфига в JSON** (экспорт/импорт).
+- ✨ **UX-мелочи** — фокус-режим `Ctrl+B` (скрыть меню), быстрый запуск музыки и mute из командной палитры `Ctrl+K`, кнопка «Скачать последнюю версию» прямо в приложении.
 
 ## ✨ Возможности
 
@@ -91,12 +108,25 @@
 | **Gemma 2 9B** (Google) | 5.4 ГБ | 16 ГБ | Сильное качество ответов. |
 | **Mistral 7B** | 4.1 ГБ | 16 ГБ | Очень быстрая, поддерживает инструменты. |
 | **Phi 3.5 Mini** (Microsoft) | 2.2 ГБ | 8 ГБ | Работает даже на ноутбуках с 8 ГБ. |
-| **Qwen 2.5 Coder 7B** | 4.7 ГБ | 16 ГБ | Для агента-программиста. |
+| **Qwen 2.5 Coder 7B** | 4.7 ГБ | 16 ГБ | Лёгкий кодер для скриптов и быстрых задач. |
 | **Nomic Embed** | 0.3 ГБ | 8 ГБ | Эмбеддинги для памяти/поиска по документам (RAG). |
 
-Приложение **само определяет объём ОЗУ** и предлагает подходящий набор: ≤8 ГБ → Llama 3.2 + Phi; 16 ГБ → Qwen 2.5 + Llama 3.2; больше → добавляет Gemma и Coder.
+### 🆕 Кодинг-модели 2026 (agentic, в духе Qwen Code CLI)
 
-Источники ресерча: обзоры локальных моделей и агентов 2026 (Ollama-модели для 8/16 ГБ, открытые агенты для управления Windows — Open Interpreter, UI-TARS, AgentS, OpenClaw).
+Для автономной работы над кодом (читать репозиторий → планировать → править много файлов → запускать тесты → итерировать) добавлены лучшие открытые модели июня 2026:
+
+| Модель | Размер | ОЗУ | Почему |
+|---|---|---|---|
+| **Qwen3-Coder 30B (MoE)** (Alibaba) ★ | ~19 ГБ | 32 ГБ | Лучший открытый агентный кодер: RL-дообучен на SWE-Bench, нативный tool-calling, контекст до 256K. MoE (~3B активных) — быстрее плотных. Основа «Qwen-Code»-режима. |
+| **Devstral Small 2 24B** (Mistral) ★ | ~14 ГБ | 24 ГБ | Создана под SWE-агентов (исследование кодовой базы, multi-file edits). ~68% SWE-bench Verified, Apache-2.0. |
+| **DeepSeek-Coder V2 16B** | ~9 ГБ | 16 ГБ | Сильный кодоген и рассуждение, 338 языков. |
+| **GLM-4 9B** (Z.ai) | ~5.5 ГБ | 16 ГБ | Хороша в terminal-agent и UI/веб-разработке; старшие GLM-5.x — для серверов. |
+
+В приложении есть готовый агент **«Qwen-Code (CLI-агент)»** и сценарий **«Qwen-Code студия»**, которые предлагают скачать подходящую под ваше железо кодерскую модель и работают полностью автономно (write_file/create_directory/run_command/run_python + проверка тестами).
+
+Приложение **само определяет объём ОЗУ** и предлагает набор: ≤8 ГБ → Llama 3.2 + Phi; 16 ГБ → Qwen 2.5 + Coder 7B; 17–32 ГБ → добавляет **Devstral**; 32+ ГБ → **Qwen3-Coder 30B**.
+
+Источники ресерча: обзоры локальных кодинг-моделей и агентов июня 2026 (SWE-Bench/Terminal-Bench, Qwen3-Coder, Devstral, GLM-5.1, Kimi K2.6, DeepSeek V4; агенты Qwen Code CLI, Aider, OpenHands, Continue.dev).
 
 ---
 

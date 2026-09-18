@@ -10,6 +10,39 @@ const translator = require('./translator');
 const skills = require('./skills');
 const rag = require('./rag');
 const screen = require('./screen');
+const browser = require('./browser');
+const audio = require('./audio');
+const smarthome = require('./smarthome');
+const constitution = require('./constitution');
+const appcontrol = require('./appcontrol');
+const router = require('./router');
+const modelrouter = require('./modelrouter');
+const webagent = require('./webagent');
+const gui = require('./gui');
+const mcp = require('./mcp');
+const docs = require('./docs');
+const learner = require('./learner');
+const reasoning = require('./reasoning');
+const analysis = require('./analysis');
+const markets = require('./markets');
+const trading = require('./trading');
+const analyst = require('./analyst');
+const portfolio = require('./portfolio');
+const journal = require('./journal');
+const screener = require('./screener');
+const shadowlab = require('./shadowlab');
+const vault = require('./vault');
+const codebase = require('./codebase');
+const imagegen = require('./imagegen');
+const news = require('./news');
+const crawler = require('./crawler');
+const notes = require('./notes');
+const datastudio = require('./datastudio');
+const rss = require('./rss');
+const connections = require('./connections');
+const calendar = require('./calendar');
+const email = require('./email');
+const activity = require('./activity');
 
 const activeSessions = new Map(); // sessionId -> { stop: bool }
 
@@ -20,20 +53,66 @@ const visionToolSchema = {
 };
 
 // Полный набор инструментов = базовые + расширения + скилы + зрение.
+// Новые возможности (веб/GUI-автоматизация, MCP) подключаются по настройкам.
 function allToolSchemas() {
-  return [
+  const disabled = store.get('settings.disabledTools', []);
+  const all = [
     ...system.toolSchemas,
     ...minecraft.toolSchemas,
     ...remote.toolSchemas,
     ...translator.toolSchemas,
+    ...browser.toolSchemas,
+    ...audio.toolSchemas,
+    ...smarthome.toolSchemas,
+    ...docs.toolSchemas,
+    ...analysis.toolSchemas,
+    ...markets.toolSchemas,
+    ...analyst.toolSchemas,
+    ...portfolio.toolSchemas,
+    ...journal.toolSchemas,
+    ...screener.toolSchemas,
+    ...shadowlab.toolSchemas,
+    ...(store.get('settings.vaultAgentAccess', false) ? vault.toolSchemas : []),
+    ...codebase.toolSchemas,
+    ...news.toolSchemas,
+    ...crawler.toolSchemas,
+    ...notes.toolSchemas,
+    ...datastudio.toolSchemas,
+    ...rss.toolSchemas,
+    ...connections.toolSchemas,
+    ...calendar.toolSchemas,
+    ...(store.get('settings.emailEnabled', false) ? email.toolSchemas : []),
+    ...imagegen.toolSchemas,
+    ...(store.get('settings.tradingEnabled', false) ? trading.toolSchemas : []),
+    ...(store.get('settings.webAutomation', false) ? webagent.toolSchemas : []),
+    ...(store.get('settings.guiAutomation', false) ? gui.toolSchemas : []),
+    ...(store.get('settings.mcpEnabled', false) ? mcp.toolSchemas() : []),
+    ...(store.get('settings.appControl', true) ? appcontrol.toolSchemas : []),
     ...skills.toolSchemas(),
     visionToolSchema
   ];
+  // «Полный контроль»: можно отключать отдельные инструменты.
+  return disabled.length ? all.filter((t) => !disabled.includes(t.function.name)) : all;
 }
 
-const extraHandlers = { ...minecraft.toolHandlers, ...remote.toolHandlers, ...translator.toolHandlers };
+const extraHandlers = { ...minecraft.toolHandlers, ...remote.toolHandlers, ...translator.toolHandlers, ...browser.toolHandlers, ...audio.toolHandlers, ...smarthome.toolHandlers, ...appcontrol.toolHandlers, ...webagent.toolHandlers, ...gui.toolHandlers, ...docs.toolHandlers, ...analysis.toolHandlers, ...markets.toolHandlers, ...analyst.toolHandlers, ...portfolio.toolHandlers, ...journal.toolHandlers, ...screener.toolHandlers, ...shadowlab.toolHandlers, ...vault.toolHandlers, ...codebase.toolHandlers, ...news.toolHandlers, ...crawler.toolHandlers, ...notes.toolHandlers, ...datastudio.toolHandlers, ...rss.toolHandlers, ...connections.toolHandlers, ...calendar.toolHandlers, ...email.toolHandlers, ...imagegen.toolHandlers, ...trading.toolHandlers };
 
 async function dispatchTool(name, args) {
+  const res = await dispatchToolInner(name, args);
+  // Аудит: фиксируем каждый вызов инструмента в единой ленте активности.
+  try {
+    const err = typeof res === 'string' && /^Ошибка/i.test(res);
+    const brief = Object.keys(args || {}).slice(0, 3).map((k) => `${k}=${String(args[k]).slice(0, 40)}`).join(', ');
+    activity.log({ type: 'tool', source: name, title: name, detail: err ? String(res).slice(0, 200) : brief, level: err ? 'error' : 'info' });
+  } catch {}
+  return res;
+}
+
+async function dispatchToolInner(name, args) {
+  if (mcp.isMcpTool(name)) {
+    try { return await mcp.callTool(name, args || {}); }
+    catch (e) { return `Ошибка MCP ${name}: ${e.message}`; }
+  }
   if (skills.isSkillTool(name)) {
     try { return await skills.runSkill(name, args || {}); }
     catch (e) { return `Ошибка скила ${name}: ${e.message}`; }
@@ -43,6 +122,31 @@ async function dispatchTool(name, args) {
     catch (e) { return `Ошибка инструмента ${name}: ${e.message}`; }
   }
   return system.callTool(name, args);
+}
+
+// Модель для «спекулятивного черновика»: заданная в настройках, либо самая
+// лёгкая из установленных — и только если она ЗАМЕТНО меньше основной
+// (иначе черновик не даёт выигрыша по времени).
+async function pickDraftModel(mainModel) {
+  const conf = store.get('settings.draftModel', '');
+  if (conf) return conf !== mainModel ? conf : null;
+  try {
+    const models = await ollama.listModels();
+    const main = models.find((m) => m.name === mainModel);
+    const cand = models
+      .filter((m) => m.name !== mainModel && !/embed|bge|nomic/i.test(m.name))
+      .sort((a, b) => (a.size || 0) - (b.size || 0))[0];
+    if (cand && (!main || (cand.size || 0) < (main.size || Infinity) * 0.6)) return cand.name;
+  } catch { /* нет сервера — нет черновика */ }
+  return null;
+}
+
+// Определить тип задачи по тексту/агенту — для маршрутизации модели.
+function taskKind(message, agent, effort) {
+  const s = (((agent && agent.system) || '') + ' ' + String(message || '')).toLowerCase();
+  if (/код|програм|python|java|script|debug|компил|тест|sql|repo|git\b/.test(s) || /coder|debug|review|devops/.test((agent && agent.id) || '')) return 'code';
+  if (effort === 'fast') return 'fast';
+  return 'chat';
 }
 
 // Агенты, создаваемые при первом запуске.
@@ -65,6 +169,7 @@ const TEMPLATES = [
 
   // — Разработка —
   { id: 'tpl-coder', cat: 'Разработка', name: 'Программист', icon: '💻', model: 'qwen2.5-coder:7b', autonomy: 'balanced', desc: 'Пишет, читает и запускает код.', system: 'Ты — агент-программист. Пишешь, читаешь и запускаешь код, создаёшь файлы проектов, выполняешь сборку. Объясняй кратко.' },
+  { id: 'tpl-qwencode', cat: 'Разработка', name: 'Qwen-Code (CLI-агент)', icon: '⌨️', model: 'qwen3-coder:30b', autonomy: 'autonomous', desc: 'Автономный кодер: читает репозиторий, планирует, правит много файлов, гоняет тесты, итерирует — как Qwen Code CLI / Aider.', system: 'Ты — автономный инженер-агент (в духе Qwen Code CLI / OpenHands). Работаешь над кодовой базой в рабочем пространстве полностью самостоятельно:\n1) ОСМОТР: сначала изучи проект — list_dir по дереву, read_file ключевых файлов, чтобы понять структуру, стек и стиль.\n2) ПЛАН: кратко сформулируй план (какие файлы создать/изменить и почему).\n3) ПРАВКИ: создавай и редактируй файлы через write_file (и create_directory для папок). Меняй несколько файлов согласованно. Пиши идиоматичный код в стиле проекта.\n4) ПРОВЕРКА: запускай сборку/тесты через run_command или run_python (npm test, pytest, node, и т.п.), читай вывод.\n5) ИТЕРАЦИЯ: если тесты/сборка падают — анализируй ошибку, откатывай неверное решение, исправляй и проверяй заново, пока не заработает.\nНикогда не утверждай, что код работает, без реального запуска. Не выдумывай содержимое файлов — читай их. По завершении дай краткое резюме изменений и как запустить.' },
   { id: 'tpl-minecraft', cat: 'Разработка', name: 'Minecraft-разработчик', icon: '🧱', model: 'qwen2.5-coder:7b', autonomy: 'autonomous', desc: 'Создаёт и компилирует плагины Paper/Spigot.', system: 'Ты — разработчик плагинов Minecraft (Paper/Spigot). Создавай проекты через mc_create_plugin, правь Java через write_file, собирай mc_compile_plugin и исправляй ошибки по логам. Пиши корректный код под Bukkit/Paper API.' },
   { id: 'tpl-devops', cat: 'Разработка', name: 'Серверный администратор', icon: '🖥️', model: 'qwen2.5:7b', autonomy: 'autonomous', desc: 'SSH, конфиги, команды на серверах.', system: 'Ты — администратор удалённых серверов. Через remote_* изучаешь ФС по SSH, читаешь и правишь конфиги, выполняешь команды. Перед изменением конфига читай его. Без разрушительных операций.' },
   { id: 'tpl-reviewer', cat: 'Разработка', name: 'Ревьюер кода', icon: '🔬', model: 'qwen2.5-coder:7b', autonomy: 'balanced', desc: 'Находит баги и предлагает улучшения.', system: 'Ты — ревьюер кода. Читаешь файлы и ищешь баги, уязвимости, нарушения стиля. Предлагаешь конкретные правки с пояснением.' },
@@ -181,19 +286,50 @@ function stopSession(sessionId) {
   return { ok: true };
 }
 
+// Глобальная директива поведения для ВСЕХ агентов: честность о результатах
+// инструментов (главная причина «вранья» про созданные файлы/папки) и проактивность.
+const HONESTY = `\n\n[Важные правила]\n` +
+  `1. ЧЕСТНОСТЬ: никогда не утверждай, что действие выполнено, если соответствующий инструмент не вернул подтверждение (OK/путь). Если инструмент вернул «ОШИБКА» — честно сообщи это пользователю и НЕ выдавай за успех.\n` +
+  `2. ФАЙЛЫ И ПАПКИ: чтобы создать файл — используй write_file, чтобы папку — create_directory. Реальные пути узнавай через user_paths. Для рабочего стола используй «Рабочий стол/имя». Если путь не указан — создавай в рабочем пространстве и ЯВНО назови итоговый путь.\n` +
+  `3. КОД: можешь создавать .py и другие файлы через write_file и запускать их через run_python.\n` +
+  `4. ИНИЦИАТИВА: если видишь лучший вариант или риск — предложи его пользователю до выполнения.`;
+
+// Директивы уровня усилий (как «effort» у Claude).
+const EFFORT = {
+  fast: { steps: 4, temp: 0.4, note: '\n[Режим: быстро] Отвечай кратко и по делу, минимум шагов.' },
+  balanced: { steps: null, temp: null, note: '' },
+  thorough: { steps: 60, temp: 0.7, note: '\n[Режим: тщательно] Думай пошагово, проверяй промежуточные результаты, не торопись.' },
+  max: { steps: 100, temp: 0.7, note: '\n[Режим: максимум] Доводи задачу до конца, перепроверяй каждый шаг несколько раз, не останавливайся, пока цель не достигнута и проверена.' }
+};
+
 // Основной агентный цикл с tool-calling.
-async function chat({ agentId, sessionId, message, history }, sendToUI) {
+async function chat({ agentId, sessionId, message, history, effort }, sendToUI) {
   const agent = listAgents().find((a) => a.id === agentId) || TEMPLATES[0];
   sessionId = sessionId || randomUUID();
   const sess = { stop: false };
   activeSessions.set(sessionId, sess);
 
-  const model = agent.model || store.get('settings.defaultModel', '') || 'qwen2.5:7b';
+  let model = agent.model || store.get('settings.defaultModel', '') || 'qwen2.5:7b';
+  // Адаптивное усилие: для сложных запросов авто-повышаем «тщательность».
+  if (effort === 'balanced' && store.get('settings.adaptiveEffort', false) && reasoning.difficulty(message) === 'hard') {
+    effort = 'thorough';
+    sendToUI && sendToUI('agents:reason', { sessionId, note: 'сложный запрос → режим «тщательно»' });
+  }
+  const eff = EFFORT[effort] || EFFORT.balanced;
+  // Маршрутизация модели: под кодовые задачи — кодер, под быстрые — лёгкая.
+  let visionModel = model;
+  if (store.get('settings.modelRouting', false)) {
+    try {
+      model = await modelrouter.pick(taskKind(message, agent, effort), model);
+      visionModel = await modelrouter.pick('vision', model);
+    } catch { /* роутер best effort */ }
+  }
   // Инжектируем долговременную память (факты) + RAG-знания под конкретный запрос.
-  const memCtx = memory.buildContext(agent.id);
+  const memCtx = memory.buildContext(agent.id, message);
   let ragCtx = '';
   try { ragCtx = await rag.buildContext(agent.id, message); } catch { /* RAG best effort */ }
-  const messages = [{ role: 'system', content: agent.system + memCtx + ragCtx }];
+  let fewShot = ''; try { fewShot = await reasoning.fewShotContext(agent.id, message); } catch {}
+  const messages = [{ role: 'system', content: agent.system + constitution.build() + HONESTY + eff.note + memCtx + ragCtx + fewShot }];
   // Сжимаем длинную историю, чтобы контекст жил долго, но не разрастался.
   let hist = history || [];
   if (hist.length > memory.COMPACT_AFTER) hist = await memory.compactHistory(hist, model);
@@ -201,28 +337,103 @@ async function chat({ agentId, sessionId, message, history }, sendToUI) {
   messages.push({ role: 'user', content: message });
 
   const useTools = agent.autonomy !== 'chat-only';
-  // Многошаговые задачи: до 40 шагов в автономном режиме (можно поднять в настройках до 100).
+  // Маршрутизация инструментов: вместо всех 40+ подбираем релевантное
+  // подмножество под запрос и роль — точнее вызовы на локальных моделях.
+  let toolset = null;
+  if (useTools) {
+    const full = allToolSchemas();
+    toolset = store.get('settings.toolRouting', false)
+      ? router.selectTools(full, message, agent, parseInt(store.get('settings.toolRoutingCap', 16), 10) || 16)
+      : full;
+  }
+  // Многошаговые задачи: база 40 шагов в автономном режиме; effort и настройки переопределяют.
   const baseSteps = agent.autonomy === 'autonomous' ? 40 : 8;
   const override = parseInt(store.get('settings.maxSteps', 0), 10);
-  const maxSteps = Math.min(100, override > 0 ? override : baseSteps);
-  const temperature = store.get('settings.temperature', 0.7);
+  const maxSteps = Math.min(100, override > 0 ? override : (eff.steps || baseSteps));
+  const temperature = eff.temp != null ? eff.temp : store.get('settings.temperature', 0.7);
   const options = { temperature: typeof temperature === 'number' ? temperature : 0.7 };
+  // Режим «полного контроля»: профи задают сырые параметры Ollama.
+  const adv = store.get('settings.advanced', {}) || {};
+  if (store.get('settings.fullControl', false)) {
+    for (const k of ['top_p', 'top_k', 'num_ctx', 'repeat_penalty', 'seed', 'num_predict', 'min_p', 'tfs_z', 'mirostat']) {
+      if (adv[k] !== undefined && adv[k] !== null && adv[k] !== '') options[k] = +adv[k];
+    }
+    if (adv.stop) options.stop = String(adv.stop).split(',').map((s) => s.trim()).filter(Boolean);
+  }
+  // Производительность: keep_alive держит модель «тёплой» (нет холодной загрузки),
+  // лимиты контекста/токенов ускоряют генерацию, num_gpu/thread — под железо.
+  const keepAlive = store.get('settings.keepAlive', '30m');
+  const turbo = store.get('settings.turbo', false); // турбо: пропускаем тяжёлые доп-проходы ради скорости
+  const numCtx = parseInt(store.get('settings.numCtx', 0), 10); if (numCtx > 0) options.num_ctx = numCtx;
+  const numPredict = parseInt(store.get('settings.numPredict', 0), 10); if (numPredict > 0) options.num_predict = numPredict;
+  const numThread = parseInt(store.get('settings.numThread', 0), 10); if (numThread > 0) options.num_thread = numThread;
+  const ngRaw = store.get('settings.numGpu', ''); if (ngRaw !== '' && ngRaw != null) { const n = parseInt(ngRaw, 10); if (!isNaN(n)) options.num_gpu = n; }
+  // Авто-контекст: подгоняем num_ctx под объём диалога (короткому чату — меньше
+  // окно = быстрее). Консервативно: пол 4096, потолок 16384, не трогаем если задан вручную.
+  if (store.get('settings.autoCtx', false) && !options.num_ctx) {
+    try {
+      const chars = JSON.stringify(messages).length + (toolset ? JSON.stringify(toolset).length : 0);
+      const need = Math.ceil(chars / 4) + (numPredict > 0 ? numPredict : 1024);
+      options.num_ctx = Math.max(4096, Math.min(16384, Math.ceil(need * 1.3 / 512) * 512));
+    } catch {}
+  }
   let finalText = '';
+  let activeModel = model;
+  // Телеметрия: время, шаги, объём ответа, вызовы инструментов.
+  const t0 = Date.now();
+  const tel = { steps: 0, toolCalls: 0, chars: 0 };
 
-  try {
-    for (let step = 0; step < maxSteps; step++) {
+  // «Спекулятивный черновик»: маленькая модель отвечает мгновенно, пока думает
+  // основная. Черновик идёт отдельным каналом agents:draft и живёт в пузыре
+  // ответа, пока не придёт первый чанк настоящего ответа (тогда заменяется).
+  let mainStreamed = false;
+  if (store.get('settings.speculativeDraft', false) && sendToUI && !sess.stop) {
+    pickDraftModel(model).then((dm) => {
+      if (!dm || sess.stop || mainStreamed) return;
+      sendToUI('agents:draft', { sessionId, stage: 'start', model: dm });
+      return ollama.chatStream({
+        model: dm,
+        messages: [
+          { role: 'system', content: 'Дай КРАТКИЙ предварительный ответ (2-4 предложения, без вступлений). Это черновик, пока думает основная модель.' },
+          { role: 'user', content: message }
+        ],
+        options: { temperature: 0.5, num_predict: 200 }, keepAlive
+      }, (chunk) => { if (!sess.stop && !mainStreamed) sendToUI('agents:draft', { sessionId, chunk }); });
+    }).catch(() => { /* черновик — best effort */ });
+  }
+
+  // Видимое мышление: для серьёзных режимов сначала набрасываем короткий план
+  // и показываем его пользователю (структурно, не «спам инструментов»).
+  const wantPlan = !turbo && store.get('settings.visibleThinking', true) && (agent.autonomy === 'autonomous' || effort === 'thorough' || effort === 'max');
+  if (wantPlan && !sess.stop) {
+    try {
+      const pr = await ollama.chatStream({ model, messages: [
+        { role: 'system', content: 'Ты планировщик. Составь КОРОТКИЙ план выполнения задачи: 3–6 пунктов, каждый с новой строки, без вступления и нумерации.' },
+        { role: 'user', content: message }
+      ], options: { temperature: 0.3 }, keepAlive }, null);
+      const plan = (pr.content || '').split('\n').map((s) => s.replace(/^[-*\d.\s]+/, '').trim()).filter(Boolean).slice(0, 6);
+      if (plan.length) {
+        sendToUI && sendToUI('agents:plan', { sessionId, plan });
+        messages[0].content += '\n\nТвой план действий:\n' + plan.map((p, i) => `${i + 1}. ${p}`).join('\n');
+      }
+    } catch { /* план best effort */ }
+  }
+
+  // Один прогон агентного цикла на заданный бюджет шагов.
+  async function runSteps(budget) {
+    for (let step = 0; step < budget; step++) {
       if (sess.stop) { finalText += '\n[остановлено пользователем]'; break; }
-
+      tel.steps++;
       const res = await ollama.chatStream(
-        { model, messages, tools: useTools ? allToolSchemas() : null, options },
-        (chunk) => sendToUI && sendToUI('agents:stream', { sessionId, chunk })
+        { model: activeModel, messages, tools: toolset, options, keepAlive },
+        (chunk) => { mainStreamed = true; tel.chars += chunk.length; sendToUI && sendToUI('agents:stream', { sessionId, chunk }); }
       );
-
       finalText = res.content;
 
       if (res.toolCalls && res.toolCalls.length) {
         messages.push({ role: 'assistant', content: res.content || '', tool_calls: res.toolCalls });
         for (const tc of res.toolCalls) {
+          tel.toolCalls++;
           const fname = tc.function && tc.function.name;
           let args = tc.function && tc.function.arguments;
           if (typeof args === 'string') { try { args = JSON.parse(args); } catch { args = {}; } }
@@ -235,6 +446,8 @@ async function chat({ agentId, sessionId, message, history }, sendToUI) {
               sendToUI && sendToUI('agents:toolResult', { sessionId, name: fname, result: 'Скриншот сделан' + (shot.file ? ': ' + shot.file : '') });
               messages.push({ role: 'tool', content: 'Скриншот экрана получен и прикреплён ниже.' });
               messages.push({ role: 'user', content: 'Вот текущий экран:', images: [shot.base64] });
+              // Если есть мультимодальная модель — переключаемся на неё, чтобы реально «увидеть».
+              if (visionModel && visionModel !== activeModel && modelrouter.isVision(visionModel)) activeModel = visionModel;
             } catch (e) {
               messages.push({ role: 'tool', content: 'Не удалось сделать скриншот: ' + e.message });
             }
@@ -252,27 +465,98 @@ async function chat({ agentId, sessionId, message, history }, sendToUI) {
         }
         continue; // даём модели обработать результаты инструментов
       }
-      break; // нет вызовов инструментов — финальный ответ готов
+      return true; // нет вызовов инструментов — ответ готов
+    }
+    return false;
+  }
+
+  try {
+    await runSteps(maxSteps);
+
+    // Цикл самопроверки: для серьёзных режимов агент критикует свой результат
+    // и при необходимости доводит задачу до конца (structured self-verify).
+    const wantVerify = !turbo && store.get('settings.selfVerify', true) && useTools && !sess.stop && finalText &&
+      (agent.autonomy === 'autonomous' || effort === 'thorough' || effort === 'max');
+    if (wantVerify) {
+      sendToUI && sendToUI('agents:verify', { sessionId, stage: 'start' });
+      // Reflexion: перед повторной попыткой формулируем «урок» из текущего результата.
+      let reflex = '';
+      if (store.get('settings.reflexion', false)) { try { reflex = await reasoning.reflexion(activeModel, message, finalText, 'самопроверка перед финалом'); if (reflex) sendToUI && sendToUI('agents:reason', { sessionId, note: 'урок: ' + reflex.slice(0, 600) }); } catch {} }
+      messages.push({ role: 'user', content: 'Самопроверка. Внимательно перепроверь: задача выполнена ПОЛНОСТЬЮ и корректно? Все утверждения подтверждены результатами инструментов (созданные файлы существуют, код запущен, ошибок нет)?' + (reflex ? '\nУчти урок: ' + reflex : '') + ' Если всё в порядке — ответь РОВНО словом «ГОТОВО» без пояснений. Если есть недочёты — кратко назови их, ИСПРАВЬ (вызови нужные инструменты) и доведи до конца.' });
+      const verifyBudget = Math.min(20, Math.max(4, Math.round(maxSteps / 3)));
+      await runSteps(verifyBudget);
+      // Если модель просто подтвердила «ГОТОВО» — оставляем прежний содержательный ответ.
+      if (/^\s*готово\b/i.test(finalText) || /^\s*done\b/i.test(finalText)) {
+        // ищем последний осмысленный ответ ассистента до самопроверки
+        const prior = [...messages].reverse().find((m) => m.role === 'assistant' && m.content && !/^\s*готово/i.test(m.content) && !m.tool_calls);
+        if (prior) finalText = prior.content;
+      }
+      sendToUI && sendToUI('agents:verify', { sessionId, stage: 'done' });
     }
   } catch (e) {
     finalText = 'Ошибка агента: ' + e.message + '\n\nУбедитесь, что Ollama запущена и модель установлена.';
   }
 
+  // Усилители интеллекта: deep-reasoning + self-consistency + критик (опционально).
+  // В турбо-режиме пропускаем — это самые «дорогие» доп-проходы.
+  if (!turbo && !sess.stop && !String(finalText).startsWith('Ошибка агента:')) {
+    try { finalText = await reasoning.refine({ messages, model: activeModel, finalText, effort, hard: reasoning.difficulty(message) === 'hard', message, sendToUI, sessionId }); } catch { /* best effort */ }
+  }
+
   activeSessions.delete(sessionId);
+  // Итоговая телеметрия.
+  const ms = Date.now() - t0;
+  const tokens = Math.round(tel.chars / 4); // грубая оценка
+  const telemetry = { ms, steps: tel.steps, toolCalls: tel.toolCalls, chars: tel.chars, tokens, tokPerSec: ms > 0 ? +(tokens / (ms / 1000)).toFixed(1) : 0, model: activeModel };
+  // Сохраняем телеметрию для сводки/дашборда (последние 200).
+  try { const tl = store.get('telemetryLog', []); tl.push({ at: Date.now(), agentId, agentName: agent.name, ...telemetry }); store.set('telemetryLog', tl.slice(-200)); } catch {}
   pushHistory({ agentId, agentName: agent.name, at: Date.now(), user: message, assistant: finalText });
-  sendToUI && sendToUI('agents:done', { sessionId, text: finalText });
+  sendToUI && sendToUI('agents:done', { sessionId, text: finalText, telemetry });
   // В фоне выделяем важные факты в долговременную память (не блокирует ответ).
   if (store.get('settings.longMemory', true)) {
     memory.remember(agent.id, model, message, finalText).catch(() => {});
   }
-  return { sessionId, text: finalText };
+  // Самообучение: в фоне пытаемся выделить переиспользуемый скил из удачной задачи.
+  learner.maybeLearn({ model, userMsg: message, finalText, toolCalls: tel.toolCalls }, sendToUI).catch(() => {});
+  return { sessionId, text: finalText, telemetry };
 }
 
 // Быстрый вопрос без UI-сессии (используется голосовым ассистентом).
+// Голосовой ассистент держит короткую память диалога, чтобы понимать
+// уточнения («а завтра?», «расскажи подробнее»). Буфер ограничен.
+let voiceHistory = [];
+const VOICE_TURNS = 6; // помним до 6 пар «вопрос-ответ»
+function resetVoiceContext() { voiceHistory = []; return { ok: true }; }
+
 async function quickAsk(text, sendToUI) {
   const voiceAgent = listAgents().find((a) => a.id === 'tpl-voice') || TEMPLATES[4];
-  const r = await chat({ agentId: voiceAgent.id, message: text, history: [] }, sendToUI);
+  const history = voiceHistory.slice(-VOICE_TURNS * 2);
+  const r = await chat({ agentId: voiceAgent.id, message: text, history }, sendToUI);
+  voiceHistory.push({ role: 'user', content: text }, { role: 'assistant', content: r.text });
+  if (voiceHistory.length > VOICE_TURNS * 2) voiceHistory = voiceHistory.slice(-VOICE_TURNS * 2);
   return r.text;
+}
+
+// Короткая голосовая сводка из локальных данных (портфель, сделки, календарь).
+// Собирается шаблонно — быстро, без обращения к модели, защищённо по каждому блоку.
+function voiceBriefing() {
+  const parts = [];
+  try {
+    const v = require('./paper').valuation();
+    parts.push(`Бумажный портфель: капитал ${Math.round(v.equity)}, ${v.totalPnl >= 0 ? 'прибыль' : 'убыток'} ${Math.abs(Math.round(v.totalPnl))}, открыто ${v.positions.length} позиций.`);
+  } catch {}
+  try {
+    const s = require('./journal').stats();
+    if (s && s.count) parts.push(`Винрейт ${s.winRate} процентов за ${s.count} сделок.`);
+  } catch {}
+  try {
+    const now = Date.now();
+    const ev = require('./calendar').list(now, now + 24 * 3600 * 1000);
+    if (ev && ev.length) parts.push(`В календаре на ближайшие сутки ${ev.length}: ${ev.slice(0, 3).map((e) => e.title).join(', ')}.`);
+    else parts.push('В календаре на ближайшие сутки ничего нет.');
+  } catch {}
+  if (!parts.length) return 'Пока нечего рассказать. Добавьте данные в портфель или календарь.';
+  return 'Брифинг. ' + parts.join(' ');
 }
 
 // Запуск задачи планировщика через агента.
@@ -285,5 +569,5 @@ async function runScheduledTask(task, sendToUI) {
 module.exports = {
   getTemplates, listAgents, saveAgent, deleteAgent, exportAgent, importAgent, addFromTemplate,
   getHistory, clearHistory, stopSession,
-  chat, quickAsk, runScheduledTask
+  chat, quickAsk, resetVoiceContext, voiceBriefing, runScheduledTask, dispatchTool
 };

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:;" />
@@ -12,9 +12,12 @@
     <div class="titlebar-left">
       <div class="logo-dot"></div>
       <span class="title">Mythera AI Hub</span>
-      <span class="badge" id="ollama-badge">● проверка…</span>
+      <span class="badge" id="ollama-badge" data-i18n="badge.checking">● проверка…</span>
     </div>
     <div class="titlebar-right">
+      <select class="proj-select" id="proj-select" title="Проект"></select>
+      <button class="bell-btn" id="gsearch-btn" title="Глобальный поиск (Ctrl+Shift+F)">🔍</button>
+      <button class="bell-btn" id="bell-btn" title="Уведомления">🔔<span class="bell-badge" id="bell-badge" style="display:none">0</span></button>
       <button class="cmdk-hint" id="cmdk-hint" title="Командная палитра">⌘K</button>
       <div class="titlebar-controls">
         <button class="win-btn" id="btn-min" title="Свернуть">&#x2013;</button>
@@ -27,21 +30,69 @@
   <div class="app">
     <!-- Боковое меню -->
     <nav class="sidebar">
-      <button class="nav-item active" data-view="dashboard"><span class="nav-ico">🏠</span><span data-i18n="nav.dashboard">Главная</span></button>
-      <button class="nav-item" data-view="agents"><span class="nav-ico">🤖</span><span data-i18n="nav.agents">Агенты</span></button>
-      <button class="nav-item" data-view="marketplace"><span class="nav-ico">⬇️</span><span data-i18n="nav.marketplace">Установка ИИ</span></button>
-      <button class="nav-item" data-view="scenarios"><span class="nav-ico">🎬</span><span data-i18n="nav.scenarios">Сценарии</span></button>
-      <button class="nav-item" data-view="scheduler"><span class="nav-ico">⏰</span><span data-i18n="nav.scheduler">Планировщик</span></button>
-      <button class="nav-item" data-view="minecraft"><span class="nav-ico">🧱</span><span data-i18n="nav.minecraft">Minecraft</span></button>
-      <button class="nav-item" data-view="servers"><span class="nav-ico">🖥️</span><span data-i18n="nav.servers">Серверы</span></button>
-      <button class="nav-item" data-view="translator"><span class="nav-ico">🌐</span><span data-i18n="nav.translator">Перевод</span></button>
-      <button class="nav-item" data-view="knowledge"><span class="nav-ico">📚</span><span data-i18n="nav.knowledge">База знаний</span></button>
-      <button class="nav-item" data-view="swarm"><span class="nav-ico">🐝</span><span data-i18n="nav.swarm">Команда (Swarm)</span></button>
-      <button class="nav-item" data-view="skills"><span class="nav-ico">🧩</span><span data-i18n="nav.skills">Скилы</span></button>
-      <button class="nav-item" data-view="dispatch"><span class="nav-ico">📡</span><span data-i18n="nav.dispatch">Удалённый доступ</span></button>
-      <button class="nav-item" data-view="prompts"><span class="nav-ico">💡</span><span data-i18n="nav.prompts">Промпты</span></button>
-      <button class="nav-item" data-view="voice"><span class="nav-ico">🎙️</span><span data-i18n="nav.voice">Голос</span></button>
-      <button class="nav-item" data-view="settings"><span class="nav-ico">⚙️</span><span data-i18n="nav.settings">Настройки</span></button>
+      <button class="sb-collapse" id="sidebar-collapse" title="Свернуть меню">«</button>
+
+      <div class="nav-group" id="nav-fav" style="display:none">
+        <div class="nav-group-title" data-i18n="nav.grp.fav">★ Избранное</div>
+        <div id="fav-items"></div>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-group-title" data-i18n="nav.grp.main">Основное</div>
+        <button class="nav-item active" data-view="today"><span class="nav-ico">☀️</span><span data-i18n="nav.today">Сегодня</span></button>
+        <button class="nav-item" data-view="dashboard"><span class="nav-ico">🏠</span><span data-i18n="nav.dashboard">Главная</span></button>
+        <button class="nav-item" data-view="agents"><span class="nav-ico">🤖</span><span data-i18n="nav.agents">Агенты</span></button>
+        <button class="nav-item" data-view="queue"><span class="nav-ico">📋</span><span data-i18n="nav.queue">Очередь задач</span></button>
+        <button class="nav-item" data-view="board"><span class="nav-ico">🗂️</span><span data-i18n="nav.board">Доска</span></button>
+        <button class="nav-item" data-view="calendar"><span class="nav-ico">📅</span><span data-i18n="nav.calendar">Календарь</span></button>
+        <button class="nav-item" data-view="scenarios"><span class="nav-ico">🎬</span><span data-i18n="nav.scenarios">Сценарии</span></button>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-group-title" data-i18n="nav.grp.ai">Модели и знания</div>
+        <button class="nav-item" data-view="marketplace"><span class="nav-ico">⬇️</span><span data-i18n="nav.marketplace">Установка ИИ</span></button>
+        <button class="nav-item" data-view="playground"><span class="nav-ico">⚖️</span><span data-i18n="nav.playground">Плейграунд</span></button>
+        <button class="nav-item" data-view="knowledge"><span class="nav-ico">📚</span><span data-i18n="nav.knowledge">База знаний</span></button>
+        <button class="nav-item" data-view="notes"><span class="nav-ico">📓</span><span data-i18n="nav.notes">Заметки</span></button>
+        <button class="nav-item" data-view="swarm"><span class="nav-ico">🐝</span><span data-i18n="nav.swarm">Команда (Swarm)</span></button>
+        <button class="nav-item" data-view="translator"><span class="nav-ico">🌐</span><span data-i18n="nav.translator">Перевод</span></button>
+        <button class="nav-item" data-view="markets"><span class="nav-ico">📈</span><span data-i18n="nav.markets">Рынки</span></button>
+        <button class="nav-item" data-view="cockpit"><span class="nav-ico">🎛️</span><span data-i18n="nav.cockpit">Кокпит</span></button>
+        <button class="nav-item" data-view="trading"><span class="nav-ico">💹</span><span data-i18n="nav.trading">Торговля</span></button>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-group-title" data-i18n="nav.grp.tools">Инструменты</div>
+        <button class="nav-item" data-view="voice"><span class="nav-ico">🎙️</span><span data-i18n="nav.voice">Голос</span></button>
+        <button class="nav-item" data-view="operator"><span class="nav-ico">🦾</span><span data-i18n="nav.operator">Оператор ПК</span></button>
+        <button class="nav-item" data-view="smarthome"><span class="nav-ico">🏠</span><span data-i18n="nav.smarthome">Умный дом</span></button>
+        <button class="nav-item" data-view="minecraft"><span class="nav-ico">🧱</span><span data-i18n="nav.minecraft">Minecraft</span></button>
+        <button class="nav-item" data-view="servers"><span class="nav-ico">🖥️</span><span data-i18n="nav.servers">Серверы</span></button>
+        <button class="nav-item" data-view="skills"><span class="nav-ico">🧩</span><span data-i18n="nav.skills">Скилы</span></button>
+        <button class="nav-item" data-view="code"><span class="nav-ico">📝</span><span data-i18n="nav.code">Код</span></button>
+        <button class="nav-item" data-view="terminal"><span class="nav-ico">⌨️</span><span data-i18n="nav.terminal">Терминал</span></button>
+        <button class="nav-item" data-view="activity"><span class="nav-ico">📜</span><span data-i18n="nav.activity">Активность</span></button>
+        <button class="nav-item" data-view="insights"><span class="nav-ico">📊</span><span data-i18n="nav.insights">Аналитика</span></button>
+        <button class="nav-item" data-view="images"><span class="nav-ico">🎨</span><span data-i18n="nav.images">Изображения</span></button>
+        <button class="nav-item" data-view="data"><span class="nav-ico">🗃️</span><span data-i18n="nav.data">Данные</span></button>
+        <button class="nav-item" data-view="rss"><span class="nav-ico">📰</span><span data-i18n="nav.rss">RSS</span></button>
+        <button class="nav-item" data-view="email"><span class="nav-ico">✉️</span><span data-i18n="nav.email">Почта</span></button>
+        <button class="nav-item" data-view="prompts"><span class="nav-ico">💡</span><span data-i18n="nav.prompts">Промпты</span></button>
+      </div>
+
+      <div class="nav-group">
+        <div class="nav-group-title" data-i18n="nav.grp.system">Система</div>
+        <button class="nav-item" data-view="scheduler"><span class="nav-ico">⏰</span><span data-i18n="nav.scheduler">Планировщик</span></button>
+        <button class="nav-item" data-view="automation"><span class="nav-ico">🔗</span><span data-i18n="nav.automation">Автоматизация</span></button>
+        <button class="nav-item" data-view="dispatch"><span class="nav-ico">📡</span><span data-i18n="nav.dispatch">Удалённый доступ</span></button>
+        <button class="nav-item" data-view="connections"><span class="nav-ico">🔗</span><span data-i18n="nav.connections">Подключения</span></button>
+        <button class="nav-item" data-view="engines"><span class="nav-ico">🕹️</span><span data-i18n="nav.engines">Пульт</span></button>
+        <button class="nav-item" data-view="vault"><span class="nav-ico">🔐</span><span data-i18n="nav.vault">Сейф</span></button>
+        <button class="nav-item" data-view="diagnostics"><span class="nav-ico">🩺</span><span data-i18n="nav.diagnostics">Диагностика</span></button>
+        <button class="nav-item" data-view="developer"><span class="nav-ico">🛠️</span><span data-i18n="nav.developer">Разработчику</span></button>
+        <button class="nav-item" data-view="settings"><span class="nav-ico">⚙️</span><span data-i18n="nav.settings">Настройки</span></button>
+      </div>
+
       <div class="sidebar-spacer"></div>
       <div class="sys-mini" id="sys-mini">
         <div class="sys-row"><span>CPU</span><div class="bar"><i id="cpu-bar"></i></div></div>
@@ -60,6 +111,24 @@
     <span class="pulse"></span>
   </button>
 
+  <!-- Панель артефактов (живой превью кода/HTML/графики) -->
+  <aside class="artifact-pane" id="artifact-pane" style="display:none">
+    <div class="artifact-head">
+      <span id="artifact-title">Артефакт</span>
+      <div class="artifact-actions">
+        <button class="win-btn" id="artifact-refresh" title="Обновить">⟳</button>
+        <button class="win-btn" id="artifact-close" title="Закрыть">✕</button>
+      </div>
+    </div>
+    <div class="artifact-body" id="artifact-body"></div>
+  </aside>
+
+  <!-- Выпадающая панель центра уведомлений -->
+  <div class="notif-panel" id="notif-panel" style="display:none">
+    <div class="notif-head"><b id="notif-title">Уведомления</b><div><button class="btn ghost sm" id="notif-readall">✓ всё</button><button class="btn ghost sm" id="notif-clear">🗑</button></div></div>
+    <div class="notif-list" id="notif-list"></div>
+  </div>
+
   <!-- Контейнер уведомлений -->
   <div class="toast-wrap" id="toast-wrap"></div>
 
@@ -71,12 +140,21 @@
     </div>
   </div>
 
+  <!-- Глобальный поиск (Ctrl+Shift+F) -->
+  <div class="cmdk-backdrop" id="gsearch" style="display:none">
+    <div class="cmdk-box">
+      <input id="gsearch-input" placeholder="Поиск по заметкам, диалогам, знаниям, событиям, файлам…" autocomplete="off" />
+      <div class="cmdk-list" id="gsearch-list"></div>
+    </div>
+  </div>
+
   <!-- Онбординг-мастер (первый запуск) -->
   <div class="onb-backdrop" id="onb" style="display:none"></div>
 
   <!-- Импорт агента / скила -->
   <input type="file" id="agent-import-input" accept="application/json" style="display:none" />
   <input type="file" id="skill-import-input" accept="application/json" style="display:none" />
+  <input type="file" id="chat-file-input" style="display:none" />
 
   <script src="i18n.js"></script>
   <script src="app.js"></script>

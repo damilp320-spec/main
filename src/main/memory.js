@@ -28,13 +28,35 @@ function addFact(agentId, text, score = 1) {
   store.set(keyFor(agentId), facts.slice(0, MAX_FACTS));
 }
 
-// Блок памяти для системного промпта.
-function buildContext(agentId) {
+// Затухание важности со временем: свежие факты весомее старых, но базовый
+// score не даёт совсем забыть важное (период полураспада ~45 дней).
+const HALF_LIFE_MS = 45 * 24 * 3600 * 1000;
+function decayed(f, now) {
+  const age = now - (f.at || now);
+  const factor = Math.pow(0.5, age / HALF_LIFE_MS);
+  return (f.score || 1) * (0.4 + 0.6 * factor); // не опускаем ниже 40% базовой важности
+}
+
+// Блок памяти для системного промпта. Если передан query — подмешиваем
+// релевантные факты (кросс-сессионная «вспоминалка») с приоритетом.
+function buildContext(agentId, query) {
   const facts = listFacts(agentId);
   if (!facts.length) return '';
+  const now = Date.now();
+  const qWords = String(query || '').toLowerCase().split(/[^a-zа-я0-9]+/).filter((w) => w.length > 3);
+  const ranked = facts.map((f) => {
+    let s = decayed(f, now);
+    if (qWords.length) {
+      const low = f.text.toLowerCase();
+      const hits = qWords.filter((w) => low.includes(w)).length;
+      if (hits) s += hits * 1.5; // буст за релевантность запросу
+    }
+    return { f, s };
+  }).sort((a, b) => b.s - a.s);
+
   let out = [];
   let total = 0;
-  for (const f of facts) {
+  for (const { f } of ranked) {
     if (total + f.text.length > MAX_CONTEXT_CHARS) break;
     out.push('• ' + f.text);
     total += f.text.length;

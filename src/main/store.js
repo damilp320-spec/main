@@ -51,4 +51,12 @@ function set(key, value) {
   persist();
 }
 
-module.exports = { get, set };
+// Полный доступ к конфигу (для режима «полного контроля»).
+function all() { return JSON.parse(JSON.stringify(load())); }
+function replaceAll(obj) {
+  if (!obj || typeof obj !== 'object') return { ok: false, error: 'Ожидался объект' };
+  cache = obj; persist();
+  return { ok: true };
+}
+
+module.exports = { get, set, all, replaceAll };
